@@ -8,6 +8,7 @@ from typing import Tuple, Dict, Any, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 
@@ -47,7 +48,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Папка локального дискового хранилища
 STORAGE_DIR = "user_spectra"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
@@ -74,13 +74,19 @@ def st_df(data, **kwargs):
         return st.dataframe(data, use_container_width=True, **kwargs)
 
 def st_plotly(fig, **kwargs):
+    config = {
+        "scrollZoom": True,
+        "displayModeBar": True,
+        "displaylogo": False,
+        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+    }
     try:
-        return st.plotly_chart(fig, width="stretch", **kwargs)
+        return st.plotly_chart(fig, width="stretch", config=config, **kwargs)
     except TypeError:
-        return st.plotly_chart(fig, use_container_width=True, **kwargs)
+        return st.plotly_chart(fig, use_container_width=True, config=config, **kwargs)
 
 def get_plot_download_buttons(fig, base_filename: str):
-    col1, col2, _ = st.columns([1.5, 1.5, 5])
+    col1, col2, _ = st.columns([1.8, 1.8, 4.4])
     with col1:
         png_buf = io.BytesIO()
         fig.savefig(png_buf, format="png", dpi=300, bbox_inches="tight")
@@ -533,7 +539,7 @@ def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
     return pd.DataFrame(calibrants)
 
 # ==============================================================================
-# ИНИЦИАЛИЗАЦИЯ ЛОКАЛЬНОЙ БАЗЫ СПЕКТРОВ В SESSION_STATE
+# ИНИЦИАЛИЗАЦИЯ ХРАНИЛИЩА СПЕКТРОВ В SESSION_STATE
 # ==============================================================================
 if "spectra_db" not in st.session_state:
     st.session_state["spectra_db"] = {}
@@ -553,14 +559,18 @@ if "spectra_db" not in st.session_state:
             except Exception:
                 pass
 
+# ==============================================================================
+# БОКОВАЯ ПАНЕЛЬ: ЗАГРУЗКА, ИМПОРТ, ПОИСК И ФИЛЬТРАЦИЯ ПИКОВ
+# ==============================================================================
 with st.sidebar:
     st.title("📁 Менеджер спектров")
 
     if not NOMSPECTRA_INSTALLED:
         st.info("Библиотека nomspectra не найдена в окружении. Используется встроенное вычислительное ядро.")
 
+    # 1. Загрузка через браузер
     uploaded_files = st.file_uploader(
-        "Загрузить один или несколько файлов:",
+        "Загрузить спектры (файлы или перетащите папку):",
         type=["csv", "txt", "tsv", "xy"],
         accept_multiple_files=True,
     )
@@ -580,165 +590,204 @@ with st.sidebar:
                     "raw_df": None,
                 }
 
-    available_spectra = list(st.session_state["spectra_db"].keys())
-
-    if available_spectra:
-        st.markdown("---")
-        active_spectrum_name = st.selectbox(
-            "Активный образец:",
-            options=available_spectra,
-            index=0,
-            key="active_spectrum_selector"
+    # 2. Автоматический импорт из локальной папки
+    with st.expander("📂 Импорт из локальной папки на диске", expanded=False):
+        local_folder = st.text_input(
+            "Путь к папке со спектрами:",
+            placeholder="например, C:/data/spectra или ./data",
+            help="Укажите директорию для сканирования спектральных файлов"
         )
-        current_sample = st.session_state["spectra_db"][active_spectrum_name]
-
-        if st.button("🗑️ Удалить выбранный образец", type="secondary"):
-            if os.path.exists(current_sample["raw_path"]):
-                try:
-                    os.remove(current_sample["raw_path"])
-                except Exception:
-                    pass
-            del st.session_state["spectra_db"][active_spectrum_name]
-            st.rerun()
-
-        with st.expander("Параметры чтения и парсинга", expanded=False):
-            delimiter = st.selectbox(
-                "Разделитель (Delimiter)",
-                [
-                    "Авто (автоопределение)",
-                    "Табуляция (\\t)",
-                    "Запятая (,)",
-                    "Точка с запятой (;)",
-                    "Пробел",
-                ],
-                index=0,
-                key=f"delim_{active_spectrum_name}"
-            )
-            decimal_sep = st.selectbox(
-                "Десятичный знак",
-                [".", ","],
-                index=0,
-                key=f"dec_{active_spectrum_name}"
-            )
-            has_header = st.checkbox("Файл содержит заголовок", value=True, key=f"head_{active_spectrum_name}")
-
-        try:
-            raw_df = parse_uploaded_file(current_sample["file_bytes"], delimiter, decimal_sep, has_header)
-            current_sample["raw_df"] = raw_df
-
-            if raw_df.empty:
-                st.error("Ошибка: Файл пуст или не удалось распознать строки.")
-                st.stop()
-
-            st.write("Предпросмотр данных (первые 5 строк):")
-            st_df(raw_df.head(5))
-
-            col_names = list(raw_df.columns)
-
-            def_mz_idx = 0
-            def_int_idx = 1 if len(col_names) > 1 else 0
-            for idx, cname in enumerate(col_names):
-                cn_low = str(cname).lower()
-                if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]):
-                    def_mz_idx = idx
-                elif any(k in cn_low for k in ["int", "i", "count", "abund"]):
-                    def_int_idx = idx
-
-            col_mz = st.selectbox("Колонка m/z (масса):", col_names, index=def_mz_idx, key=f"mzcol_{active_spectrum_name}")
-            col_int = st.selectbox("Колонка Intensity (интенсивность):", col_names, index=def_int_idx, key=f"intcol_{active_spectrum_name}")
-
-            if col_mz == col_int:
-                st.warning("Внимание: выбрана одна и та же колонка для массы и интенсивности!")
-
-            st.markdown("---")
-            st.subheader("Фильтрация пиков")
-
-            clean_mass = pd.to_numeric(raw_df[col_mz], errors="coerce")
-            clean_int = pd.to_numeric(raw_df[col_int], errors="coerce")
-            valid_mask = clean_mass.notna() & clean_int.notna()
-
-            valid_df = pd.DataFrame({
-                "mass": clean_mass[valid_mask].astype(float),
-                "intensity": clean_int[valid_mask].astype(float),
-            })
-            valid_df = valid_df[valid_df["mass"] > 0]
-
-            if valid_df.empty:
-                st.error("Ошибка: В выбранных колонках нет корректных числовых данных.")
-                st.stop()
-
-            min_m_data = float(valid_df["mass"].min())
-            max_m_data = float(valid_df["mass"].max())
-
-            mz_range = st.slider(
-                "Диапазон m/z (Да):",
-                min_value=max(50.0, float(np.floor(min_m_data))),
-                max_value=min(2000.0, float(np.ceil(max_m_data))),
-                value=(
-                    max(100.0, float(np.floor(min_m_data))),
-                    min(1000.0, float(np.ceil(max_m_data))),
-                ),
-                step=10.0,
-                key=f"mzrange_{active_spectrum_name}"
-            )
-
-            max_int_data = float(valid_df["intensity"].max())
-            cutoff_intensity = st.number_input(
-                "Порог отсечения шума (мин. интенсивность):",
-                min_value=0.0,
-                max_value=max_int_data,
-                value=0.0,
-                step=max_int_data * 0.001 if max_int_data > 0 else 1.0,
-                format="%.2e",
-                key=f"cutoff_{active_spectrum_name}"
-            )
-
-            filtered_df = valid_df[
-                (valid_df["mass"] >= mz_range[0])
-                & (valid_df["mass"] <= mz_range[1])
-                & (valid_df["intensity"] >= cutoff_intensity)
-            ].sort_values("mass").reset_index(drop=True)
-
-            if not filtered_df.empty:
-                max_i = filtered_df["intensity"].max()
-                filtered_df["norm_intensity"] = (filtered_df["intensity"] / max_i) * 100.0
+        if st.button("📥 Сканировать и загрузить все спектры"):
+            if local_folder and os.path.isdir(local_folder):
+                added_count = 0
+                for root, _, files in os.walk(local_folder):
+                    for file in files:
+                        if file.lower().endswith((".csv", ".txt", ".tsv", ".xy")):
+                            if file not in st.session_state["spectra_db"]:
+                                src_path = os.path.join(root, file)
+                                dst_path = os.path.join(STORAGE_DIR, file)
+                                try:
+                                    with open(src_path, "rb") as sf:
+                                        content = sf.read()
+                                    with open(dst_path, "wb") as df:
+                                        df.write(content)
+                                    st.session_state["spectra_db"][file] = {
+                                        "raw_path": dst_path,
+                                        "file_bytes": content,
+                                        "parsed_peaks": None,
+                                        "assigned_df": None,
+                                        "raw_df": None,
+                                    }
+                                    added_count += 1
+                                except Exception:
+                                    pass
+                st.success(f"Успешно импортировано спектров: {added_count}")
+                st.rerun()
             else:
-                filtered_df["norm_intensity"] = []
+                st.error("Указанная папка не найдена или путь пуст.")
 
-            current_sample["parsed_peaks"] = filtered_df
-            st.success(f"Загружено и отфильтровано пиков: {len(filtered_df):,}")
+    all_spectra = list(st.session_state["spectra_db"].keys())
 
-        except KeyError as e:
-            st.error(f"Ошибка сопоставления колонок: {e}")
-            st.stop()
-        except Exception as err:
-            st.error(f"Ошибка при обработке файла: {err}")
-            st.stop()
-
+    if all_spectra:
         st.markdown("---")
-        st.subheader("Параметры формульного присвоения")
 
-        ion_mode = st.selectbox(
-            "Режим ионизации:",
-            ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Нейтральные массы [M]"],
-            index=0,
-            key=f"ionmode_{active_spectrum_name}"
-        )
+        # 3. Интерактивный поиск образца
+        search_query = st.text_input(
+            "🔍 Поиск спектра:",
+            placeholder="Введите часть названия...",
+            help="Быстрая фильтрация списка файлов"
+        ).strip().lower()
 
-        c_bounds = st.slider("Лимит углерода (C):", 4, 120, (4, 120), key=f"cb_{active_spectrum_name}")
-        h_bounds = st.slider("Лимит водорода (H):", 4, 200, (4, 200), key=f"hb_{active_spectrum_name}")
-        o_bounds = st.slider("Лимит кислорода (O):", 1, 60, (1, 60), key=f"ob_{active_spectrum_name}")
-        n_bounds = st.slider("Лимит азота (N):", 0, 2, (0, 2), key=f"nb_{active_spectrum_name}")
-        s_bounds = st.slider("Лимит серы (S):", 0, 1, (0, 1), key=f"sb_{active_spectrum_name}")
+        if search_query:
+            available_spectra = [s for s in all_spectra if search_query in s.lower()]
+            st.caption(f"Найдено: {len(available_spectra)} из {len(all_spectra)}")
+        else:
+            available_spectra = all_spectra
 
-        max_oc_val = st.slider("Максимум O/C:", 0.1, 1.0, 1.0, step=0.05, key=f"moc_{active_spectrum_name}")
-        max_hc_val = st.slider("Максимум H/C:", 0.2, 2.0, 2.0, step=0.05, key=f"mhc_{active_spectrum_name}")
-        ppm_tol = st.number_input("Допуск погрешности (ppm):", min_value=0.1, max_value=5.0, value=1.0, step=0.1, key=f"ppmtol_{active_spectrum_name}")
+        if not available_spectra:
+            st.warning("По запросу ничего не найдено.")
+            active_spectrum_name = None
+            current_sample = None
+        else:
+            active_spectrum_name = st.selectbox(
+                "Активный образец:",
+                options=available_spectra,
+                index=0,
+                key="active_spectrum_selector"
+            )
+            current_sample = st.session_state["spectra_db"][active_spectrum_name]
+
+            if st.button("🗑️ Удалить выбранный образец", type="secondary"):
+                if os.path.exists(current_sample["raw_path"]):
+                    try:
+                        os.remove(current_sample["raw_path"])
+                    except Exception:
+                        pass
+                del st.session_state["spectra_db"][active_spectrum_name]
+                st.rerun()
+
+            with st.expander("Параметры чтения и парсинга", expanded=False):
+                delimiter = st.selectbox(
+                    "Разделитель (Delimiter)",
+                    [
+                        "Авто (автоопределение)",
+                        "Табуляция (\\t)",
+                        "Запятая (,)",
+                        "Точка с запятой (;)",
+                        "Пробел",
+                    ],
+                    index=0,
+                    key=f"delim_{active_spectrum_name}"
+                )
+                decimal_sep = st.selectbox(
+                    "Десятичный знак",
+                    [".", ","],
+                    index=0,
+                    key=f"dec_{active_spectrum_name}"
+                )
+                has_header = st.checkbox("Файл содержит заголовок", value=True, key=f"head_{active_spectrum_name}")
+
+            try:
+                raw_df = parse_uploaded_file(current_sample["file_bytes"], delimiter, decimal_sep, has_header)
+                current_sample["raw_df"] = raw_df
+
+                if raw_df.empty:
+                    st.error("Ошибка: Файл пуст или не удалось распознать строки.")
+                    st.stop()
+
+                st.write("Предпросмотр данных (первые 5 строк):")
+                st_df(raw_df.head(5))
+
+                col_names = list(raw_df.columns)
+
+                def_mz_idx = 0
+                def_int_idx = 1 if len(col_names) > 1 else 0
+                for idx, cname in enumerate(col_names):
+                    cn_low = str(cname).lower()
+                    if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]):
+                        def_mz_idx = idx
+                    elif any(k in cn_low for k in ["int", "i", "count", "abund"]):
+                        def_int_idx = idx
+
+                col_mz = st.selectbox("Колонка m/z (масса):", col_names, index=def_mz_idx, key=f"mzcol_{active_spectrum_name}")
+                col_int = st.selectbox("Колонка Intensity (интенсивность):", col_names, index=def_int_idx, key=f"intcol_{active_spectrum_name}")
+
+                if col_mz == col_int:
+                    st.warning("Внимание: выбрана одна и та же колонка для массы и интенсивности!")
+
+                st.markdown("---")
+                st.subheader("Фильтрация пиков")
+
+                clean_mass = pd.to_numeric(raw_df[col_mz], errors="coerce")
+                clean_int = pd.to_numeric(raw_df[col_int], errors="coerce")
+                valid_mask = clean_mass.notna() & clean_int.notna()
+
+                valid_df = pd.DataFrame({
+                    "mass": clean_mass[valid_mask].astype(float),
+                    "intensity": clean_int[valid_mask].astype(float),
+                })
+                valid_df = valid_df[valid_df["mass"] > 0]
+
+                if valid_df.empty:
+                    st.error("Ошибка: В выбранных колонках нет корректных числовых данных.")
+                    st.stop()
+
+                min_m_data = float(valid_df["mass"].min())
+                max_m_data = float(valid_df["mass"].max())
+
+                mz_range = st.slider(
+                    "Диапазон m/z (Да):",
+                    min_value=max(50.0, float(np.floor(min_m_data))),
+                    max_value=min(2000.0, float(np.ceil(max_m_data))),
+                    value=(
+                        max(100.0, float(np.floor(min_m_data))),
+                        min(1000.0, float(np.ceil(max_m_data))),
+                    ),
+                    step=10.0,
+                    key=f"mzrange_{active_spectrum_name}"
+                )
+
+                max_int_data = float(valid_df["intensity"].max())
+                cutoff_intensity = st.number_input(
+                    "Порог отсечения шума (мин. интенсивность):",
+                    min_value=0.0,
+                    max_value=max_int_data,
+                    value=0.0,
+                    step=max_int_data * 0.001 if max_int_data > 0 else 1.0,
+                    format="%.2e",
+                    key=f"cutoff_{active_spectrum_name}"
+                )
+
+                filtered_df = valid_df[
+                    (valid_df["mass"] >= mz_range[0])
+                    & (valid_df["mass"] <= mz_range[1])
+                    & (valid_df["intensity"] >= cutoff_intensity)
+                ].sort_values("mass").reset_index(drop=True)
+
+                if not filtered_df.empty:
+                    max_i = filtered_df["intensity"].max()
+                    filtered_df["norm_intensity"] = (filtered_df["intensity"] / max_i) * 100.0
+                else:
+                    filtered_df["norm_intensity"] = []
+
+                current_sample["parsed_peaks"] = filtered_df
+                st.success(f"Загружено и отфильтровано пиков: {len(filtered_df):,}")
+
+            except KeyError as e:
+                st.error(f"Ошибка сопоставления колонок: {e}")
+                st.stop()
+            except Exception as err:
+                st.error(f"Ошибка при обработке файла: {err}")
+                st.stop()
+
     else:
         active_spectrum_name = None
         current_sample = None
-        st.info("Нет загруженных спектров. Перетащите один или несколько файлов выше.")
+        st.info("Нет загруженных спектров. Перетащите файлы выше или импортируйте папку.")
 
+# ==============================================================================
+# ОСНОВНОЙ ЭКРАН: 8 ЛОГИЧЕСКИХ ВКЛАДОК
+# ==============================================================================
 st.title("🔬 Спектрометрия NOM сверхвысокого разрешения")
 
 tabs = st.tabs([
@@ -748,12 +797,12 @@ tabs = st.tabs([
     "🗺️ Диаграмма Ван-Кревелена",
     "🔍 Анализ Кендрика (KMD)",
     "🗂️ Хемотипирование 20 ячеек",
-    "⚖️️ Сравнение образцов",
+    "⚖️ Сравнение образцов",
     "📊 Сводные характеристики",
 ])
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 1: STICK PLOT
+# ВКЛАДКА 1: STICK PLOT (ИНТЕРАКТИВНЫЙ ОБЗОР С ЗУМОМ + СКАЧИВАНИЕ 300 DPI)
 # ------------------------------------------------------------------------------
 with tabs[0]:
     if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
@@ -768,23 +817,63 @@ with tabs[0]:
         with col_ctrl2:
             annotate_top = st.checkbox("Подписать топ-5 пиков", value=True, key=f"ann_{active_spectrum_name}")
 
-        fig, ax = plt.subplots(figsize=(13, 5), dpi=100)
+        # Интерактивный WebGL Stick Plot (быстрый рендеринг через 3-точечные сегменты)
+        m_vals = peaks_df["mass"].values
+        i_vals = peaks_df["norm_intensity"].values
 
-        ax.vlines(
-            x=peaks_df["mass"],
-            ymin=0,
-            ymax=peaks_df["norm_intensity"],
-            color="#0b5394",
-            linewidth=0.6,
-            alpha=0.85,
-        )
+        x_stick = np.empty(len(m_vals) * 3)
+        y_stick = np.empty(len(m_vals) * 3)
+        x_stick[0::3] = m_vals
+        x_stick[1::3] = m_vals
+        x_stick[2::3] = None
+        y_stick[0::3] = 0
+        y_stick[1::3] = i_vals
+        y_stick[2::3] = None
+
+        fig_stick = go.Figure()
+        fig_stick.add_trace(go.Scattergl(
+            x=x_stick,
+            y=y_stick,
+            mode="lines",
+            line=dict(color="#0b5394", width=1.1),
+            hoverinfo="skip",
+            name="Пики спектра",
+        ))
 
         if annotate_top and len(peaks_df) > 0:
             top5 = peaks_df.nlargest(5, "norm_intensity")
-            for _, row in top5.iterrows():
-                ax.annotate(
-                    f"{row['mass']:.4f}",
-                    xy=(row["mass"], row["norm_intensity"]),
+            fig_stick.add_trace(go.Scattergl(
+                x=top5["mass"],
+                y=top5["norm_intensity"],
+                mode="markers+text",
+                text=[f"{val:.4f}" for val in top5["mass"]],
+                textposition="top center",
+                marker=dict(color="#b45f06", size=7),
+                textfont=dict(color="#b45f06", size=10, family="sans-serif"),
+                name="Топ-5 пиков",
+                hovertemplate="<b>m/z</b>: %{x:.4f}<br><b>Int</b>: %{y:.1f}%<extra></extra>",
+            ))
+
+        fig_stick.update_layout(
+            xaxis=dict(title="m/z (Дальтон)", gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            yaxis=dict(title="Относительная интенсивность (%)", range=[0, 118], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            plot_bgcolor="white",
+            height=500,
+            margin=dict(l=45, r=30, t=30, b=40),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+        st.caption("🔍 **Навигация:** колесико мыши — масштаб (Zoom), зажатая левая кнопка — рамка зума / сдвиг (Pan). Двойной клик — сброс.")
+        st_plotly(fig_stick)
+
+        # Matplotlib фигура высокого качества для скачивания (300 DPI / SVG)
+        fig_mpl, ax_mpl = plt.subplots(figsize=(13, 5), dpi=100)
+        ax_mpl.vlines(peaks_df["mass"], 0, peaks_df["norm_intensity"], color="#0b5394", linewidth=0.6, alpha=0.85)
+        if annotate_top and len(peaks_df) > 0:
+            for _, r in top5.iterrows():
+                ax_mpl.annotate(
+                    f"{r['mass']:.4f}",
+                    xy=(r["mass"], r["norm_intensity"]),
                     xytext=(0, 7),
                     textcoords="offset points",
                     ha="center",
@@ -794,17 +883,15 @@ with tabs[0]:
                     fontweight="bold",
                     color="#b45f06",
                 )
-
-        ax.set_xlim(peaks_df["mass"].min() - 10, peaks_df["mass"].max() + 10)
-        ax.set_ylim(0, 118)
-        ax.set_xlabel("m/z (Дальтон)", fontsize=11, fontweight="bold")
-        ax.set_ylabel("Относительная интенсивность (%)", fontsize=11, fontweight="bold")
-        ax.grid(True, linestyle="--", alpha=0.4)
+        ax_mpl.set_xlim(peaks_df["mass"].min() - 10, peaks_df["mass"].max() + 10)
+        ax_mpl.set_ylim(0, 118)
+        ax_mpl.set_xlabel("m/z (Дальтон)", fontsize=11, fontweight="bold")
+        ax_mpl.set_ylabel("Относительная интенсивность (%)", fontsize=11, fontweight="bold")
+        ax_mpl.grid(True, linestyle="--", alpha=0.4)
         plt.tight_layout()
 
-        st.pyplot(fig)
-        get_plot_download_buttons(fig, f"{active_spectrum_name}_stick_plot")
-        plt.close(fig)
+        get_plot_download_buttons(fig_mpl, f"{active_spectrum_name}_stick_plot")
+        plt.close(fig_mpl)
 
 # ------------------------------------------------------------------------------
 # ВКЛАДКА 2: РЕКАЛИБРОВКА M/Z
@@ -829,7 +916,13 @@ with tabs[1]:
         with c_r3:
             poly_order = st.selectbox("Порядок полинома коррекции:", [1, 2], index=1, key=f"polyord_{active_spectrum_name}")
 
-        calib_lib = get_calibrant_library(calib_type, ion_mode)
+        calib_ion_mode = st.selectbox(
+            "Режим ионизации калибрантов:",
+            ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Нейтральные массы [M]"],
+            index=0,
+            key=f"calib_ion_{active_spectrum_name}"
+        )
+        calib_lib = get_calibrant_library(calib_type, calib_ion_mode)
 
         exp_masses = peaks_df["mass"].values
         matched_calibs = []
@@ -920,7 +1013,7 @@ with tabs[1]:
                 )
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 3: ПРИПИСЫВАНИЕ ФОРМУЛ
+# ВКЛАДКА 3: ПРИПИСЫВАНИЕ ФОРМУЛ (ПОЛЗУНКИ УПРАВЛЕНИЯ ВНУТРИ ВКЛАДКИ)
 # ------------------------------------------------------------------------------
 with tabs[2]:
     if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
@@ -929,11 +1022,36 @@ with tabs[2]:
         peaks_df = current_sample["parsed_peaks"]
         st.subheader(f"Приписывание формул (Formula Assignment): {active_spectrum_name}")
 
-        st.write(
-            f"Режим: **{ion_mode}** | C [{c_bounds[0]}-{c_bounds[1]}], H [{h_bounds[0]}-{h_bounds[1]}], "
-            f"O [{o_bounds[0]}-{o_bounds[1]}], N [{n_bounds[0]}-{n_bounds[1]}], S [{s_bounds[0]}-{s_bounds[1]}], "
-            f"O/C <= {max_oc_val}, H/C <= {max_hc_val}, Допуск <= {ppm_tol:.1f} ppm"
-        )
+        with st.expander("⚙️ Настройки химического пространства и фильтрации", expanded=True):
+            col_m1, col_m2 = st.columns([2, 1])
+            with col_m1:
+                ion_mode = st.selectbox(
+                    "Режим ионизации:",
+                    ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Нейтральные массы [M]"],
+                    index=0,
+                    key=f"ionmode_{active_spectrum_name}"
+                )
+            with col_m2:
+                ppm_tol = st.number_input(
+                    "Допуск погрешности (ppm):",
+                    min_value=0.1,
+                    max_value=5.0,
+                    value=1.0,
+                    step=0.1,
+                    key=f"ppmtol_{active_spectrum_name}"
+                )
+
+            col_el1, col_el2, col_el3 = st.columns(3)
+            with col_el1:
+                c_bounds = st.slider("Лимит углерода (C):", 4, 120, (4, 120), key=f"cb_{active_spectrum_name}")
+                h_bounds = st.slider("Лимит водорода (H):", 4, 200, (4, 200), key=f"hb_{active_spectrum_name}")
+            with col_el2:
+                o_bounds = st.slider("Лимит кислорода (O):", 1, 60, (1, 60), key=f"ob_{active_spectrum_name}")
+                n_bounds = st.slider("Лимит азота (N):", 0, 2, (0, 2), key=f"nb_{active_spectrum_name}")
+            with col_el3:
+                s_bounds = st.slider("Лимит серы (S):", 0, 1, (0, 1), key=f"sb_{active_spectrum_name}")
+                max_oc_val = st.slider("Максимум O/C:", 0.1, 1.0, 1.0, step=0.05, key=f"moc_{active_spectrum_name}")
+                max_hc_val = st.slider("Максимум H/C:", 0.2, 2.0, 2.0, step=0.05, key=f"mhc_{active_spectrum_name}")
 
         if st.button("🚀 Запустить приписывание формул", type="primary", key=f"btn_assign_{active_spectrum_name}"):
             elem_bounds = {
@@ -984,7 +1102,7 @@ with tabs[2]:
             st.warning("В заданных границах элементов и ppm-погрешности формул не найдено.")
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 4: ДИАГРАММА ВАН-КРЕВЕЛЕНА
+# ВКЛАДКА 4: ДИАГРАММА ВАН-КРЕВЕЛЕНА (ПЛАВНЫЙ ЗУМ + 300 DPI ВЫГРУЗКА)
 # ------------------------------------------------------------------------------
 with tabs[3]:
     assigned_data = current_sample.get("assigned_df") if current_sample else None
@@ -994,56 +1112,79 @@ with tabs[3]:
     else:
         st.subheader(f"Диаграмма Ван-Кревелена (Van Krevelen Plot): {active_spectrum_name}")
 
-        fig_vk, ax_vk = plt.subplots(figsize=(12, 7.5), dpi=150)
-
         palette = {
             "CHO": "#0020C2",
             "CHON": "#FF7F0E",
             "CHOS": "#2CA02C",
             "CHONS": "#D62728",
         }
-
         draw_order = ["CHO", "CHON", "CHOS", "CHONS"]
 
+        # Интерактивная диаграмма Plotly WebGL (с возможностью приближения любого участка)
+        fig_vk_inter = go.Figure()
         for cls in draw_order:
             sub = assigned_data[assigned_data["Hetero_Class"] == cls]
             if sub.empty:
                 continue
 
-            pt_alpha = 0.50 if cls == "CHO" else 0.75
-            pt_size = 1.8 if cls == "CHO" else 2.5
+            hover_text = [
+                f"<b>{row.get('Formula', '')}</b><br>m/z: {row['mass']:.4f}<br>Err: {row.get('error_ppm', 0):.2f} ppm<br>DBE: {row.get('DBE', 0):.1f}<br>AI: {row.get('AI', 0):.2f}<br>Int: {row.get('norm_intensity', 0):.1f}%"
+                for _, row in sub.iterrows()
+            ]
 
-            ax_vk.scatter(
-                sub["O/C"],
-                sub["H/C"],
-                c=palette[cls],
-                label=f"{cls} ({len(sub):,})",
-                s=pt_size,
-                alpha=pt_alpha,
-                edgecolors="none",
-                rasterized=True,
-            )
+            fig_vk_inter.add_trace(go.Scattergl(
+                x=sub["O/C"],
+                y=sub["H/C"],
+                mode="markers",
+                name=f"{cls} ({len(sub):,})",
+                marker=dict(
+                    color=palette[cls],
+                    size=2.5 if cls == "CHO" else 3.5,
+                    opacity=0.5 if cls == "CHO" else 0.75,
+                ),
+                text=hover_text,
+                hoverinfo="text",
+            ))
 
-        ax_vk.set_xlim(0.0, 1.0)
-        ax_vk.set_ylim(0.2, 2.2)
-        ax_vk.set_xlabel("O/C", fontsize=11, fontweight="medium")
-        ax_vk.set_ylabel("H/C", fontsize=11, fontweight="medium")
-
-        fname = active_spectrum_name
-        ax_vk.set_title(f"{fname}, {len(assigned_data):,} formulas", fontsize=12, pad=10)
-        ax_vk.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
-        ax_vk.legend(
-            loc="upper right",
-            frameon=True,
-            framealpha=0.9,
-            markerscale=4,
-            fontsize=9,
+        fig_vk_inter.update_layout(
+            xaxis=dict(title="O/C (Кислород / Углерод)", range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            yaxis=dict(title="H/C (Водород / Углерод)", range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            plot_bgcolor="white",
+            height=580,
+            margin=dict(l=45, r=30, t=30, b=40),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
+
+        st.caption("🔍 **Навигация:** колесико мыши — масштаб (Zoom), зажатая левая кнопка — рамка зума / сдвиг (Pan). Двойной клик — сброс.")
+        st_plotly(fig_vk_inter)
+
+        # Matplotlib фигура публикационного качества (300 DPI PNG / SVG)
+        fig_vk_mpl, ax_vk_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
+        for cls in draw_order:
+            sub = assigned_data[assigned_data["Hetero_Class"] == cls]
+            if not sub.empty:
+                ax_vk_mpl.scatter(
+                    sub["O/C"],
+                    sub["H/C"],
+                    c=palette[cls],
+                    label=f"{cls} ({len(sub):,})",
+                    s=1.8 if cls == "CHO" else 2.5,
+                    alpha=0.45 if cls == "CHO" else 0.75,
+                    edgecolors="none",
+                    rasterized=True,
+                )
+        ax_vk_mpl.set_xlim(0.0, 1.0)
+        ax_vk_mpl.set_ylim(0.2, 2.2)
+        ax_vk_mpl.set_xlabel("O/C", fontsize=11, fontweight="medium")
+        ax_vk_mpl.set_ylabel("H/C", fontsize=11, fontweight="medium")
+        fname = active_spectrum_name
+        ax_vk_mpl.set_title(f"{fname}, {len(assigned_data):,} formulas", fontsize=12, pad=10)
+        ax_vk_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+        ax_vk_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=4, fontsize=9)
         plt.tight_layout()
 
-        st.pyplot(fig_vk)
-        get_plot_download_buttons(fig_vk, f"{fname}_van_krevelen")
-        plt.close(fig_vk)
+        get_plot_download_buttons(fig_vk_mpl, f"{fname}_van_krevelen")
+        plt.close(fig_vk_mpl)
 
         st.markdown("---")
         st.subheader("Распределение идентифицированных компонентов")
@@ -1110,7 +1251,7 @@ with tabs[4]:
                 color_options.extend(["Число атомов кислорода (O)", "Индекс ненасыщенности (DBE)", "Классы гетероатомов"])
             color_mode = st.selectbox("Цветовая дифференциация серий:", color_options, index=0, key=f"kmd_color_{active_spectrum_name}")
         with col_b3:
-            point_sz = st.slider("Размер точек:", 1, 8, 2, key=f"kmd_pt_{active_spectrum_name}")
+            point_sz = st.slider("Размер точек:", 1, 8, 3, key=f"kmd_pt_{active_spectrum_name}")
 
         km, nkm, kmd = compute_kmd(work_df["mass"].values, base_choice)
         work_df["KM"] = km
@@ -1118,52 +1259,107 @@ with tabs[4]:
         work_df["KMD"] = kmd
         base_label = KMD_BASES[base_choice]["label"]
 
-        fig, ax = plt.subplots(figsize=(12, 6.5), dpi=150)
-
+        # Интерактивный Plotly WebGL график KMD
+        fig_kmd_inter = go.Figure()
         if color_mode == "Четность NKM (Радикалы / Азот)":
             even_mask = (work_df["NKM"] % 2 == 0)
-            ax.scatter(work_df.loc[even_mask, "NKM"], work_df.loc[even_mask, "KMD"],
-                       c="#0020C2", label="Четный NKM", s=point_sz, alpha=0.6, edgecolors="none", rasterized=True)
-            ax.scatter(work_df.loc[~even_mask, "NKM"], work_df.loc[~even_mask, "KMD"],
-                       c="#FF7F0E", label="Нечетный NKM", s=point_sz, alpha=0.7, edgecolors="none", rasterized=True)
-            ax.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+            fig_kmd_inter.add_trace(go.Scattergl(
+                x=work_df.loc[even_mask, "NKM"],
+                y=work_df.loc[even_mask, "KMD"],
+                mode="markers",
+                name="Четный NKM",
+                marker=dict(color="#0020C2", size=point_sz, opacity=0.6),
+            ))
+            fig_kmd_inter.add_trace(go.Scattergl(
+                x=work_df.loc[~even_mask, "NKM"],
+                y=work_df.loc[~even_mask, "KMD"],
+                mode="markers",
+                name="Нечетный NKM",
+                marker=dict(color="#FF7F0E", size=point_sz, opacity=0.7),
+            ))
         elif color_mode == "Классы гетероатомов" and has_formulas:
             palette = {"CHO": "#0020C2", "CHON": "#FF7F0E", "CHOS": "#2CA02C", "CHONS": "#D62728"}
             for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
                 sub = work_df[work_df["Hetero_Class"] == cls]
                 if not sub.empty:
-                    ax.scatter(sub["NKM"], sub["KMD"], c=palette[cls], label=f"{cls} ({len(sub):,})",
-                               s=point_sz, alpha=0.65, edgecolors="none", rasterized=True)
-            ax.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+                    fig_kmd_inter.add_trace(go.Scattergl(
+                        x=sub["NKM"],
+                        y=sub["KMD"],
+                        mode="markers",
+                        name=f"{cls} ({len(sub):,})",
+                        marker=dict(color=palette[cls], size=point_sz, opacity=0.65),
+                    ))
         else:
             if color_mode == "Число атомов кислорода (O)" and has_formulas:
                 c_vals = work_df["O"]
-                cmap_name = "viridis"
-                cbar_label = "Число атомов O"
+                cbar_title = "Число O"
+                c_scale = "Viridis"
             elif color_mode == "Индекс ненасыщенности (DBE)" and has_formulas:
                 c_vals = work_df["DBE"]
-                cmap_name = "plasma"
-                cbar_label = "DBE"
+                cbar_title = "DBE"
+                c_scale = "Plasma"
             else:
                 c_vals = work_df["intensity"]
-                cmap_name = "cividis"
-                cbar_label = "Интенсивность"
+                cbar_title = "Интенсивность"
+                c_scale = "Cividis"
 
-            sc = ax.scatter(work_df["NKM"], work_df["KMD"], c=c_vals, cmap=cmap_name,
-                            s=point_sz, alpha=0.65, edgecolors="none", rasterized=True)
-            cbar = plt.colorbar(sc, ax=ax, pad=0.015, aspect=25)
-            cbar.set_label(cbar_label, fontsize=10)
+            fig_kmd_inter.add_trace(go.Scattergl(
+                x=work_df["NKM"],
+                y=work_df["KMD"],
+                mode="markers",
+                marker=dict(
+                    color=c_vals,
+                    colorscale=c_scale,
+                    size=point_sz,
+                    opacity=0.65,
+                    colorbar=dict(title=cbar_title),
+                ),
+            ))
 
-        ax.set_ylim(-0.02, 1.02)
-        ax.set_xlabel(f"Номинальная масса Кендрика NKM ({base_label})", fontsize=11, fontweight="medium")
-        ax.set_ylabel(f"Дефект массы Кендрика KMD [0, 1) ({base_label})", fontsize=11, fontweight="medium")
-        ax.set_title(f"Kendrick Mass Defect Plot (База: {base_label}, шкала Маршалла [0, 1)) — {len(work_df):,} сигналов", fontsize=12, pad=10)
-        ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+        fig_kmd_inter.update_layout(
+            xaxis=dict(title=f"Номинальная масса Кендрика NKM ({base_label})", gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            yaxis=dict(title=f"Дефект массы Кендрика KMD [0, 1) ({base_label})", range=[-0.02, 1.02], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            plot_bgcolor="white",
+            height=540,
+            margin=dict(l=45, r=30, t=30, b=40),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+        st.caption("🔍 **Навигация:** колесико мыши — масштаб (Zoom), зажатая левая кнопка — рамка зума / сдвиг (Pan). Двойной клик — сброс.")
+        st_plotly(fig_kmd_inter)
+
+        # Matplotlib фигура для скачивания (300 DPI / SVG)
+        fig_kmd_mpl, ax_kmd_mpl = plt.subplots(figsize=(12, 6.5), dpi=150)
+        if color_mode == "Четность NKM (Радикалы / Азот)":
+            even_mask = (work_df["NKM"] % 2 == 0)
+            ax_kmd_mpl.scatter(work_df.loc[even_mask, "NKM"], work_df.loc[even_mask, "KMD"],
+                               c="#0020C2", label="Четный NKM", s=point_sz, alpha=0.6, edgecolors="none", rasterized=True)
+            ax_kmd_mpl.scatter(work_df.loc[~even_mask, "NKM"], work_df.loc[~even_mask, "KMD"],
+                               c="#FF7F0E", label="Нечетный NKM", s=point_sz, alpha=0.7, edgecolors="none", rasterized=True)
+            ax_kmd_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+        elif color_mode == "Классы гетероатомов" and has_formulas:
+            palette = {"CHO": "#0020C2", "CHON": "#FF7F0E", "CHOS": "#2CA02C", "CHONS": "#D62728"}
+            for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
+                sub = work_df[work_df["Hetero_Class"] == cls]
+                if not sub.empty:
+                    ax_kmd_mpl.scatter(sub["NKM"], sub["KMD"], c=palette[cls], label=f"{cls} ({len(sub):,})",
+                                       s=point_sz, alpha=0.65, edgecolors="none", rasterized=True)
+            ax_kmd_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+        else:
+            sc = ax_kmd_mpl.scatter(work_df["NKM"], work_df["KMD"], c=c_vals, cmap=c_scale.lower(),
+                                    s=point_sz, alpha=0.65, edgecolors="none", rasterized=True)
+            cbar = plt.colorbar(sc, ax=ax_kmd_mpl, pad=0.015, aspect=25)
+            cbar.set_label(cbar_title, fontsize=10)
+
+        ax_kmd_mpl.set_ylim(-0.02, 1.02)
+        ax_kmd_mpl.set_xlabel(f"Номинальная масса Кендрика NKM ({base_label})", fontsize=11, fontweight="medium")
+        ax_kmd_mpl.set_ylabel(f"Дефект массы Кендрика KMD [0, 1) ({base_label})", fontsize=11, fontweight="medium")
+        ax_kmd_mpl.set_title(f"Kendrick Mass Defect Plot (База: {base_label}) — {len(work_df):,} сигналов", fontsize=12, pad=10)
+        ax_kmd_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
         plt.tight_layout()
 
-        st.pyplot(fig)
-        get_plot_download_buttons(fig, f"{active_spectrum_name}_kmd_{base_label}")
-        plt.close(fig)
+        get_plot_download_buttons(fig_kmd_mpl, f"{active_spectrum_name}_kmd_{base_label}")
+        plt.close(fig_kmd_mpl)
 
 # ------------------------------------------------------------------------------
 # ВКЛАДКА 6: ХЕМОТИПИРОВАНИЕ 20 ЯЧЕЕК
@@ -1263,20 +1459,20 @@ with tabs[5]:
         )
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 7: СРАВНЕНИЕ ОБРАЗЦОВ
+# ВКЛАДКА 7: СРАВНЕНИЕ ОБРАЗЦОВ (ЗУМ ЗЕРКАЛЬНОГО СПЕКТРА И СРАВНИТЕЛЬНОГО VK)
 # ------------------------------------------------------------------------------
 with tabs[6]:
     st.subheader("⚖️ Сравнение спектральных ансамблей (Set Operations)")
 
-    if len(available_spectra) < 2:
+    if len(all_spectra) < 2:
         st.info("Для сравнительного анализа необходимо загрузить как минимум два спектра в боковой панели.")
     else:
         col_s1, col_s2, col_s3 = st.columns([2, 2, 1.5])
         with col_s1:
-            name_a = st.selectbox("Образец А (Базовый):", available_spectra, index=0, key="cmp_spec_a")
+            name_a = st.selectbox("Образец А (Базовый):", all_spectra, index=0, key="cmp_spec_a")
         with col_s2:
-            default_b_idx = 1 if len(available_spectra) > 1 else 0
-            name_b = st.selectbox("Образец Б (Сравниваемый / Бланк):", available_spectra, index=default_b_idx, key="cmp_spec_b")
+            default_b_idx = 1 if len(all_spectra) > 1 else 0
+            name_b = st.selectbox("Образец Б (Сравниваемый / Бланк):", all_spectra, index=default_b_idx, key="cmp_spec_b")
         with col_s3:
             tol_comp = st.number_input("Допуск совмещения (ppm):", min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
 
@@ -1309,52 +1505,122 @@ with tabs[6]:
                 assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
                 assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
 
-                fig_cmp, ax_cmp = plt.subplots(figsize=(12, 7.5), dpi=150)
-
+                # Интерактивная сравнительная диаграмма Plotly WebGL
+                fig_cmp_inter = go.Figure()
                 if not assigned_a_common.empty:
-                    ax_cmp.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
-                                   label=f"Общие A ∩ B ({len(assigned_a_common):,})", s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
+                    fig_cmp_inter.add_trace(go.Scattergl(
+                        x=assigned_a_common["O/C"],
+                        y=assigned_a_common["H/C"],
+                        mode="markers",
+                        name=f"Общие A ∩ B ({len(assigned_a_common):,})",
+                        marker=dict(color="#7F7F7F", size=3.0, opacity=0.45),
+                    ))
 
                 if not assigned_a_unique.empty:
-                    ax_cmp.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
-                                   label=f"Уникальные для {name_a} ({len(assigned_a_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                    fig_cmp_inter.add_trace(go.Scattergl(
+                        x=assigned_a_unique["O/C"],
+                        y=assigned_a_unique["H/C"],
+                        mode="markers",
+                        name=f"Уникальные для {name_a} ({len(assigned_a_unique):,})",
+                        marker=dict(color="#0020C2", size=3.5, opacity=0.75),
+                    ))
 
                 if assigned_b is not None and not assigned_b.empty:
                     assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
                     if not assigned_b_unique.empty:
-                        ax_cmp.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
-                                       label=f"Уникальные для {name_b} ({len(assigned_b_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                        fig_cmp_inter.add_trace(go.Scattergl(
+                            x=assigned_b_unique["O/C"],
+                            y=assigned_b_unique["H/C"],
+                            mode="markers",
+                            name=f"Уникальные для {name_b} ({len(assigned_b_unique):,})",
+                            marker=dict(color="#2CA02C", size=3.5, opacity=0.75),
+                        ))
 
-                ax_cmp.set_xlim(0.0, 1.0)
-                ax_cmp.set_ylim(0.2, 2.2)
-                ax_cmp.set_xlabel("O/C", fontsize=11, fontweight="medium")
-                ax_cmp.set_ylabel("H/C", fontsize=11, fontweight="medium")
-                ax_cmp.set_title(f"Сравнительный анализ: {name_a} vs {name_b}", fontsize=11)
-                ax_cmp.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
-                ax_cmp.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+                fig_cmp_inter.update_layout(
+                    xaxis=dict(title="O/C (Кислород / Углерод)", range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                    yaxis=dict(title="H/C (Водород / Углерод)", range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                    plot_bgcolor="white",
+                    height=580,
+                    margin=dict(l=45, r=30, t=30, b=40),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                st.caption("🔍 **Навигация:** колесико мыши — масштаб (Zoom), зажатая левая кнопка — рамка зума / сдвиг (Pan). Двойной клик — сброс.")
+                st_plotly(fig_cmp_inter)
+
+                # Matplotlib фигура для скачивания (300 DPI / SVG)
+                fig_cmp_mpl, ax_cmp_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
+                if not assigned_a_common.empty:
+                    ax_cmp_mpl.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
+                                       label=f"Общие A ∩ B ({len(assigned_a_common):,})", s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
+                if not assigned_a_unique.empty:
+                    ax_cmp_mpl.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
+                                       label=f"Уникальные для {name_a} ({len(assigned_a_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                if assigned_b is not None and not assigned_b.empty:
+                    if not assigned_b_unique.empty:
+                        ax_cmp_mpl.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
+                                           label=f"Уникальные для {name_b} ({len(assigned_b_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+
+                ax_cmp_mpl.set_xlim(0.0, 1.0)
+                ax_cmp_mpl.set_ylim(0.2, 2.2)
+                ax_cmp_mpl.set_xlabel("O/C", fontsize=11, fontweight="medium")
+                ax_cmp_mpl.set_ylabel("H/C", fontsize=11, fontweight="medium")
+                ax_cmp_mpl.set_title(f"Сравнительный анализ: {name_a} vs {name_b}", fontsize=11)
+                ax_cmp_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+                ax_cmp_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
                 plt.tight_layout()
 
-                st.pyplot(fig_cmp)
-                get_plot_download_buttons(fig_cmp, f"compare_{name_a}_vs_{name_b}_vk")
-                plt.close(fig_cmp)
+                get_plot_download_buttons(fig_cmp_mpl, f"compare_{name_a}_vs_{name_b}_vk")
+                plt.close(fig_cmp_mpl)
             else:
                 st.markdown("##### Зеркальный спектр совмещения (Head-to-Tail Stick Plot)")
-                fig_mir, ax_mir = plt.subplots(figsize=(12, 5), dpi=150)
-
                 ia_norm = (peaks_a["intensity"] / peaks_a["intensity"].max()) * 100.0
                 ib_norm = (peaks_b["intensity"] / peaks_b["intensity"].max()) * 100.0
 
-                ax_mir.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
-                ax_mir.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
-                ax_mir.axhline(0, color="black", linewidth=0.8)
+                ma = peaks_a["mass"].values
+                mb = peaks_b["mass"].values
 
-                ax_mir.set_xlabel("m/z", fontsize=11)
-                ax_mir.set_ylabel("Отн. интенсивность (%) [A: вверх / Б: вниз]", fontsize=10)
-                ax_mir.legend(loc="upper right")
+                x_a = np.empty(len(ma) * 3)
+                y_a = np.empty(len(ma) * 3)
+                x_a[0::3] = ma
+                x_a[1::3] = ma
+                x_a[2::3] = None
+                y_a[0::3] = 0
+                y_a[1::3] = ia_norm
+                y_a[2::3] = None
+
+                x_b = np.empty(len(mb) * 3)
+                y_b = np.empty(len(mb) * 3)
+                x_b[0::3] = mb
+                x_b[1::3] = mb
+                x_b[2::3] = None
+                y_b[0::3] = 0
+                y_b[1::3] = -ib_norm
+                y_b[2::3] = None
+
+                fig_mir_inter = go.Figure()
+                fig_mir_inter.add_trace(go.Scattergl(x=x_a, y=y_a, mode="lines", line=dict(color="#0020C2", width=1.1), name=f"{name_a} (+)"))
+                fig_mir_inter.add_trace(go.Scattergl(x=x_b, y=y_b, mode="lines", line=dict(color="#2CA02C", width=1.1), name=f"{name_b} (-)"))
+                fig_mir_inter.update_layout(
+                    xaxis=dict(title="m/z", gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                    yaxis=dict(title="Интенсивность (%) [А: вверх / Б: вниз]", gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                    plot_bgcolor="white",
+                    height=480,
+                    margin=dict(l=45, r=30, t=30, b=40),
+                )
+                st.caption("🔍 **Навигация:** колесико мыши — масштаб (Zoom), зажатая левая кнопка — рамка зума / сдвиг (Pan). Двойной клик — сброс.")
+                st_plotly(fig_mir_inter)
+
+                fig_mir_mpl, ax_mir_mpl = plt.subplots(figsize=(12, 5), dpi=150)
+                ax_mir_mpl.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
+                ax_mir_mpl.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
+                ax_mir_mpl.axhline(0, color="black", linewidth=0.8)
+                ax_mir_mpl.set_xlabel("m/z", fontsize=11)
+                ax_mir_mpl.set_ylabel("Отн. интенсивность (%) [A: вверх / Б: вниз]", fontsize=10)
+                ax_mir_mpl.legend(loc="upper right")
                 plt.tight_layout()
-                st.pyplot(fig_mir)
-                get_plot_download_buttons(fig_mir, f"head_to_tail_{name_a}_vs_{name_b}")
-                plt.close(fig_mir)
+
+                get_plot_download_buttons(fig_mir_mpl, f"head_to_tail_{name_a}_vs_{name_b}")
+                plt.close(fig_mir_mpl)
 
 # ------------------------------------------------------------------------------
 # ВКЛАДКА 8: СВОДНЫЕ ХАРАКТЕРИСТИКИ
