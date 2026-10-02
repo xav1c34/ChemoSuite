@@ -47,6 +47,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Папка локального дискового хранилища
+STORAGE_DIR = "user_spectra"
+os.makedirs(STORAGE_DIR, exist_ok=True)
+
 EXACT_MASSES = {
     "C": 12.00000,
     "H": 1.00782,
@@ -528,28 +532,76 @@ def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
             calibrants.append({"name": f"CHO C{n}H{h_count}O7", "m_theor": m_ion})
     return pd.DataFrame(calibrants)
 
-if "parsed_peaks" not in st.session_state:
-    st.session_state["parsed_peaks"] = None
-if "assigned_df" not in st.session_state:
-    st.session_state["assigned_df"] = None
-if "filename" not in st.session_state:
-    st.session_state["filename"] = "spectrum"
+# ==============================================================================
+# ИНИЦИАЛИЗАЦИЯ ЛОКАЛЬНОЙ БАЗЫ СПЕКТРОВ В SESSION_STATE
+# ==============================================================================
+if "spectra_db" not in st.session_state:
+    st.session_state["spectra_db"] = {}
+    for fname in os.listdir(STORAGE_DIR):
+        if fname.lower().endswith((".csv", ".txt", ".tsv", ".xy")):
+            fpath = os.path.join(STORAGE_DIR, fname)
+            try:
+                with open(fpath, "rb") as f:
+                    content = f.read()
+                st.session_state["spectra_db"][fname] = {
+                    "raw_path": fpath,
+                    "file_bytes": content,
+                    "parsed_peaks": None,
+                    "assigned_df": None,
+                    "raw_df": None,
+                }
+            except Exception:
+                pass
 
 with st.sidebar:
-    st.title("⚙️️ Загрузка данных")
+    st.title("📁 Менеджер спектров")
 
     if not NOMSPECTRA_INSTALLED:
         st.info("Библиотека nomspectra не найдена в окружении. Используется встроенное вычислительное ядро.")
 
-    uploaded_file = st.file_uploader(
-        "Файл масс-спектра",
+    uploaded_files = st.file_uploader(
+        "Загрузить один или несколько файлов:",
         type=["csv", "txt", "tsv", "xy"],
+        accept_multiple_files=True,
     )
 
-    if uploaded_file is not None:
-        st.session_state["filename"] = os.path.splitext(uploaded_file.name)[0]
+    if uploaded_files:
+        for uf in uploaded_files:
+            if uf.name not in st.session_state["spectra_db"]:
+                save_path = os.path.join(STORAGE_DIR, uf.name)
+                b_content = uf.getvalue()
+                with open(save_path, "wb") as f:
+                    f.write(b_content)
+                st.session_state["spectra_db"][uf.name] = {
+                    "raw_path": save_path,
+                    "file_bytes": b_content,
+                    "parsed_peaks": None,
+                    "assigned_df": None,
+                    "raw_df": None,
+                }
 
-        with st.expander("Параметры чтения файла", expanded=False):
+    available_spectra = list(st.session_state["spectra_db"].keys())
+
+    if available_spectra:
+        st.markdown("---")
+        active_spectrum_name = st.selectbox(
+            "Активный образец:",
+            options=available_spectra,
+            index=0,
+            key="active_spectrum_selector"
+        )
+        current_sample = st.session_state["spectra_db"][active_spectrum_name]
+
+        if st.button("🗑️ Удалить выбранный образец", type="secondary"):
+            if os.path.exists(current_sample["raw_path"]):
+                try:
+                    os.remove(current_sample["raw_path"])
+                except Exception:
+                    pass
+            del st.session_state["spectra_db"][active_spectrum_name]
+            st.rerun()
+
+        with st.expander("Параметры чтения и парсинга", expanded=False):
             delimiter = st.selectbox(
                 "Разделитель (Delimiter)",
                 [
@@ -560,17 +612,19 @@ with st.sidebar:
                     "Пробел",
                 ],
                 index=0,
+                key=f"delim_{active_spectrum_name}"
             )
             decimal_sep = st.selectbox(
                 "Десятичный знак",
                 [".", ","],
                 index=0,
+                key=f"dec_{active_spectrum_name}"
             )
-            has_header = st.checkbox("Файл содержит заголовок", value=True)
+            has_header = st.checkbox("Файл содержит заголовок", value=True, key=f"head_{active_spectrum_name}")
 
         try:
-            file_bytes = uploaded_file.getvalue()
-            raw_df = parse_uploaded_file(file_bytes, delimiter, decimal_sep, has_header)
+            raw_df = parse_uploaded_file(current_sample["file_bytes"], delimiter, decimal_sep, has_header)
+            current_sample["raw_df"] = raw_df
 
             if raw_df.empty:
                 st.error("Ошибка: Файл пуст или не удалось распознать строки.")
@@ -590,8 +644,8 @@ with st.sidebar:
                 elif any(k in cn_low for k in ["int", "i", "count", "abund"]):
                     def_int_idx = idx
 
-            col_mz = st.selectbox("Колонка m/z (масса):", col_names, index=def_mz_idx)
-            col_int = st.selectbox("Колонка Intensity (интенсивность):", col_names, index=def_int_idx)
+            col_mz = st.selectbox("Колонка m/z (масса):", col_names, index=def_mz_idx, key=f"mzcol_{active_spectrum_name}")
+            col_int = st.selectbox("Колонка Intensity (интенсивность):", col_names, index=def_int_idx, key=f"intcol_{active_spectrum_name}")
 
             if col_mz == col_int:
                 st.warning("Внимание: выбрана одна и та же колонка для массы и интенсивности!")
@@ -625,6 +679,7 @@ with st.sidebar:
                     min(1000.0, float(np.ceil(max_m_data))),
                 ),
                 step=10.0,
+                key=f"mzrange_{active_spectrum_name}"
             )
 
             max_int_data = float(valid_df["intensity"].max())
@@ -635,6 +690,7 @@ with st.sidebar:
                 value=0.0,
                 step=max_int_data * 0.001 if max_int_data > 0 else 1.0,
                 format="%.2e",
+                key=f"cutoff_{active_spectrum_name}"
             )
 
             filtered_df = valid_df[
@@ -649,7 +705,7 @@ with st.sidebar:
             else:
                 filtered_df["norm_intensity"] = []
 
-            st.session_state["parsed_peaks"] = filtered_df
+            current_sample["parsed_peaks"] = filtered_df
             st.success(f"Загружено и отфильтровано пиков: {len(filtered_df):,}")
 
         except KeyError as e:
@@ -659,25 +715,29 @@ with st.sidebar:
             st.error(f"Ошибка при обработке файла: {err}")
             st.stop()
 
-    st.markdown("---")
-    st.subheader("Параметры формульного присвоения")
+        st.markdown("---")
+        st.subheader("Параметры формульного присвоения")
 
-    ion_mode = st.selectbox(
-        "Режим ионизации:",
-        ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Нейтральные массы [M]"],
-        index=0,
-    )
-    st.session_state["ion_mode_choice"] = ion_mode
+        ion_mode = st.selectbox(
+            "Режим ионизации:",
+            ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Нейтральные массы [M]"],
+            index=0,
+            key=f"ionmode_{active_spectrum_name}"
+        )
 
-    c_bounds = st.slider("Лимит углерода (C):", 4, 120, (4, 120))
-    h_bounds = st.slider("Лимит водорода (H):", 4, 200, (4, 200))
-    o_bounds = st.slider("Лимит кислорода (O):", 1, 60, (1, 60))
-    n_bounds = st.slider("Лимит азота (N):", 0, 2, (0, 2))
-    s_bounds = st.slider("Лимит серы (S):", 0, 1, (0, 1))
+        c_bounds = st.slider("Лимит углерода (C):", 4, 120, (4, 120), key=f"cb_{active_spectrum_name}")
+        h_bounds = st.slider("Лимит водорода (H):", 4, 200, (4, 200), key=f"hb_{active_spectrum_name}")
+        o_bounds = st.slider("Лимит кислорода (O):", 1, 60, (1, 60), key=f"ob_{active_spectrum_name}")
+        n_bounds = st.slider("Лимит азота (N):", 0, 2, (0, 2), key=f"nb_{active_spectrum_name}")
+        s_bounds = st.slider("Лимит серы (S):", 0, 1, (0, 1), key=f"sb_{active_spectrum_name}")
 
-    max_oc_val = st.slider("Максимум O/C:", 0.1, 1.0, 1.0, step=0.05)
-    max_hc_val = st.slider("Максимум H/C:", 0.2, 2.0, 2.0, step=0.05)
-    ppm_tol = st.number_input("Допуск погрешности (ppm):", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
+        max_oc_val = st.slider("Максимум O/C:", 0.1, 1.0, 1.0, step=0.05, key=f"moc_{active_spectrum_name}")
+        max_hc_val = st.slider("Максимум H/C:", 0.2, 2.0, 2.0, step=0.05, key=f"mhc_{active_spectrum_name}")
+        ppm_tol = st.number_input("Допуск погрешности (ppm):", min_value=0.1, max_value=5.0, value=1.0, step=0.1, key=f"ppmtol_{active_spectrum_name}")
+    else:
+        active_spectrum_name = None
+        current_sample = None
+        st.info("Нет загруженных спектров. Перетащите один или несколько файлов выше.")
 
 st.title("🔬 Спектрометрия NOM сверхвысокого разрешения")
 
@@ -692,19 +752,21 @@ tabs = st.tabs([
     "📊 Сводные характеристики",
 ])
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 1: STICK PLOT
+# ------------------------------------------------------------------------------
 with tabs[0]:
-    peaks_df = st.session_state["parsed_peaks"]
-
-    if peaks_df is None or peaks_df.empty:
-        st.info("Пожалуйста, загрузите файл спектра через боковую панель слева.")
+    if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
+        st.info("Пожалуйста, загрузите или выберите спектр в боковой панели слева.")
     else:
-        st.subheader("Палочковый масс-спектр высокого разрешения")
+        peaks_df = current_sample["parsed_peaks"]
+        st.subheader(f"Палочковый масс-спектр: {active_spectrum_name}")
 
         col_ctrl1, col_ctrl2 = st.columns([3, 1])
         with col_ctrl1:
             st.caption(f"Отображено сигналов: {len(peaks_df):,} | Базовый пик: 100.0%")
         with col_ctrl2:
-            annotate_top = st.checkbox("Подписать топ-5 пиков", value=True)
+            annotate_top = st.checkbox("Подписать топ-5 пиков", value=True, key=f"ann_{active_spectrum_name}")
 
         fig, ax = plt.subplots(figsize=(13, 5), dpi=100)
 
@@ -741,30 +803,33 @@ with tabs[0]:
         plt.tight_layout()
 
         st.pyplot(fig)
-        get_plot_download_buttons(fig, "fticr_mass_spectrum")
+        get_plot_download_buttons(fig, f"{active_spectrum_name}_stick_plot")
         plt.close(fig)
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 2: РЕКАЛИБРОВКА M/Z
+# ------------------------------------------------------------------------------
 with tabs[1]:
-    st.subheader("🎯 Внутренняя рекалибровочная коррекция шкалы m/z")
-    peaks_df = st.session_state.get("parsed_peaks")
-
-    if peaks_df is None or peaks_df.empty:
+    if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
         st.info("Сначала загрузите спектр в боковой панели слева.")
     else:
+        peaks_df = current_sample["parsed_peaks"]
+        st.subheader(f"🎯 Внутренняя рекалибровочная коррекция шкалы m/z: {active_spectrum_name}")
+
         c_r1, c_r2, c_r3 = st.columns([2, 1.5, 1.5])
         with c_r1:
             calib_type = st.selectbox(
                 "Набор калибрантов (внутренний стандарт):",
                 ["Жирные кислоты (C12–C33 насыщенные ЖК)", "Гомологи CHO (C_n H_{2n-8} O7)"],
-                index=0
+                index=0,
+                key=f"calibtype_{active_spectrum_name}"
             )
         with c_r2:
-            search_tol = st.number_input("Окно поиска реперов (ppm):", min_value=2.0, max_value=25.0, value=8.0, step=0.5)
+            search_tol = st.number_input("Окно поиска реперов (ppm):", min_value=2.0, max_value=25.0, value=8.0, step=0.5, key=f"stol_{active_spectrum_name}")
         with c_r3:
-            poly_order = st.selectbox("Порядок полинома коррекции:", [1, 2], index=1)
+            poly_order = st.selectbox("Порядок полинома коррекции:", [1, 2], index=1, key=f"polyord_{active_spectrum_name}")
 
-        cur_mode = st.session_state.get("ion_mode_choice", "ESI(-) [M - H]⁻")
-        calib_lib = get_calibrant_library(calib_type, cur_mode)
+        calib_lib = get_calibrant_library(calib_type, ion_mode)
 
         exp_masses = peaks_df["mass"].values
         matched_calibs = []
@@ -786,12 +851,11 @@ with tabs[1]:
                 })
 
         if len(matched_calibs) < 3:
-            st.warning(f"Найдено реперных пиков: {len(matched_calibs)} (необходимо минимум 3 для построения полинома). Попробуйте увеличить окно поиска ppm.")
+            st.warning(f"Найдено реперных пиков: {len(matched_calibs)} (необходимо минимум 3 для построения полинома). Попробуйте расширить окно поиска ppm.")
         else:
             calib_df = pd.DataFrame(matched_calibs)
             st.write(f"Найдено калибровочных реперов в спектре: **{len(calib_df)}**")
 
-            # Проверка покрытия диапазона масс спектра
             spec_min = float(peaks_df["mass"].min())
             spec_max = float(peaks_df["mass"].max())
             spec_span = max(1.0, spec_max - spec_min)
@@ -801,14 +865,13 @@ with tabs[1]:
             calib_span = max(0.0, calib_max - calib_min)
             coverage = calib_span / spec_span
 
-            # Защита от эффекта Рунге: если охват < 60%, снижаем полином до 1
             actual_poly_order = poly_order
             if poly_order > 1 and coverage < 0.60:
                 actual_poly_order = 1
                 st.warning(
                     f"⚠️ Диапазон обнаруженных калибрантов ({calib_min:.1f}–{calib_max:.1f} Да) покрывает "
                     f"**{coverage * 100:.1f}%** диапазона масс спектра (< 60%). "
-                    "Степень полинома принудительно понижена до 1 (линейная аппроксимация) для предотвращения "
+                    "Степень полинома принудительно снижена до 1 (линейная регрессия) для предотвращения "
                     "эффекта Рунге и краевого улета погрешности на массах > 500 Да."
                 )
 
@@ -840,15 +903,15 @@ with tabs[1]:
 
             plt.tight_layout()
             st.pyplot(fig_rec)
-            get_plot_download_buttons(fig_rec, "recalibration_diagnostics")
+            get_plot_download_buttons(fig_rec, f"{active_spectrum_name}_recalibration")
             plt.close(fig_rec)
 
-            if st.button("🚀 Применить рекалиброванные массы для приписывания формул", type="primary"):
+            if st.button("🚀 Применить рекалиброванные массы для приписывания формул", type="primary", key=f"btn_recal_{active_spectrum_name}"):
                 m_orig = peaks_df["mass"].values
                 m_recalibrated = m_orig - poly_fn(m_orig)
 
-                st.session_state["parsed_peaks"]["mass"] = m_recalibrated
-                st.session_state["assigned_df"] = None
+                current_sample["parsed_peaks"]["mass"] = m_recalibrated
+                current_sample["assigned_df"] = None
 
                 st.success(
                     f"Шкала m/z успешно рекалибрована! Всего скорректировано пиков: {len(m_recalibrated):,}. "
@@ -856,20 +919,23 @@ with tabs[1]:
                     "Перейдите во вкладку «Приписывание формул» для получения чистых формул."
                 )
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 3: ПРИПИСЫВАНИЕ ФОРМУЛ
+# ------------------------------------------------------------------------------
 with tabs[2]:
-    st.subheader("Приписывание формул (Formula Assignment)")
-    peaks_df = st.session_state["parsed_peaks"]
-
-    if peaks_df is None or peaks_df.empty:
+    if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
         st.info("Сначала загрузите спектр в боковой панели.")
     else:
+        peaks_df = current_sample["parsed_peaks"]
+        st.subheader(f"Приписывание формул (Formula Assignment): {active_spectrum_name}")
+
         st.write(
             f"Режим: **{ion_mode}** | C [{c_bounds[0]}-{c_bounds[1]}], H [{h_bounds[0]}-{h_bounds[1]}], "
             f"O [{o_bounds[0]}-{o_bounds[1]}], N [{n_bounds[0]}-{n_bounds[1]}], S [{s_bounds[0]}-{s_bounds[1]}], "
             f"O/C <= {max_oc_val}, H/C <= {max_hc_val}, Допуск <= {ppm_tol:.1f} ppm"
         )
 
-        if st.button("🚀 Запустить приписывание формул", type="primary"):
+        if st.button("🚀 Запустить приписывание формул", type="primary", key=f"btn_assign_{active_spectrum_name}"):
             elem_bounds = {
                 "C": c_bounds,
                 "H": h_bounds,
@@ -887,9 +953,9 @@ with tabs[2]:
                     ppm_tolerance=ppm_tol,
                     ion_mode=ion_mode,
                 )
-                st.session_state["assigned_df"] = assigned_res
+                current_sample["assigned_df"] = assigned_res
 
-        assigned_data = st.session_state["assigned_df"]
+        assigned_data = current_sample["assigned_df"]
         if assigned_data is not None and not assigned_data.empty:
             total_n = len(peaks_df)
             assigned_n = len(assigned_data)
@@ -910,19 +976,23 @@ with tabs[2]:
             st.download_button(
                 label="📥 Скачать результат идентификации (CSV)",
                 data=csv_data,
-                file_name="nom_formula_assignments.csv",
+                file_name=f"{active_spectrum_name}_formulas.csv",
                 mime="text/csv",
+                key=f"dl_csv_formulas_{active_spectrum_name}"
             )
         elif assigned_data is not None and assigned_data.empty:
             st.warning("В заданных границах элементов и ppm-погрешности формул не найдено.")
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 4: ДИАГРАММА ВАН-КРЕВЕЛЕНА
+# ------------------------------------------------------------------------------
 with tabs[3]:
-    assigned_data = st.session_state.get("assigned_df")
+    assigned_data = current_sample.get("assigned_df") if current_sample else None
 
     if assigned_data is None or assigned_data.empty:
         st.warning("⚠️ Сначала выполните приписывание формул во вкладке 3.")
     else:
-        st.subheader("Диаграмма Ван-Кревелена (Van Krevelen Plot)")
+        st.subheader(f"Диаграмма Ван-Кревелена (Van Krevelen Plot): {active_spectrum_name}")
 
         fig_vk, ax_vk = plt.subplots(figsize=(12, 7.5), dpi=150)
 
@@ -959,7 +1029,7 @@ with tabs[3]:
         ax_vk.set_xlabel("O/C", fontsize=11, fontweight="medium")
         ax_vk.set_ylabel("H/C", fontsize=11, fontweight="medium")
 
-        fname = st.session_state.get("filename", "example")
+        fname = active_spectrum_name
         ax_vk.set_title(f"{fname}, {len(assigned_data):,} formulas", fontsize=12, pad=10)
         ax_vk.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
         ax_vk.legend(
@@ -1012,10 +1082,13 @@ with tabs[3]:
             fig_c_bar.update_layout(showlegend=False, xaxis_tickangle=-30, height=350)
             st_plotly(fig_c_bar)
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 5: АНАЛИЗ КЕНДРИКА (KMD)
+# ------------------------------------------------------------------------------
 with tabs[4]:
-    st.subheader("🔍 Анализ дефекта массы Кендрика (Kendrick Mass Defect, KMD)")
-    assigned_df = st.session_state.get("assigned_df")
-    peaks_df = st.session_state.get("parsed_peaks")
+    st.subheader(f"🔍 Анализ дефекта массы Кендрика (KMD): {active_spectrum_name if active_spectrum_name else ''}")
+    assigned_df = current_sample.get("assigned_df") if current_sample else None
+    peaks_df = current_sample.get("parsed_peaks") if current_sample else None
 
     if assigned_df is not None and not assigned_df.empty:
         work_df = assigned_df.copy()
@@ -1030,16 +1103,15 @@ with tabs[4]:
     if work_df is not None:
         col_b1, col_b2, col_b3 = st.columns([2, 2, 1])
         with col_b1:
-            base_choice = st.selectbox("Базовая функциональная группа KMD:", list(KMD_BASES.keys()), index=0)
+            base_choice = st.selectbox("Базовая функциональная группа KMD:", list(KMD_BASES.keys()), index=0, key=f"kmd_base_{active_spectrum_name}")
         with col_b2:
             color_options = ["Четность NKM (Радикалы / Азот)", "Интенсивность"]
             if has_formulas:
                 color_options.extend(["Число атомов кислорода (O)", "Индекс ненасыщенности (DBE)", "Классы гетероатомов"])
-            color_mode = st.selectbox("Цветовая дифференциация серий:", color_options, index=0)
+            color_mode = st.selectbox("Цветовая дифференциация серий:", color_options, index=0, key=f"kmd_color_{active_spectrum_name}")
         with col_b3:
-            point_sz = st.slider("Размер точек:", 1, 8, 2, key="kmd_pt_sz")
+            point_sz = st.slider("Размер точек:", 1, 8, 2, key=f"kmd_pt_{active_spectrum_name}")
 
-        # Расчет Маршалла: KMD = KM - np.floor(KM) в диапазоне [0, 1)
         km, nkm, kmd = compute_kmd(work_df["mass"].values, base_choice)
         work_df["KM"] = km
         work_df["NKM"] = nkm
@@ -1090,12 +1162,15 @@ with tabs[4]:
         plt.tight_layout()
 
         st.pyplot(fig)
-        get_plot_download_buttons(fig, f"kmd_{base_label}")
+        get_plot_download_buttons(fig, f"{active_spectrum_name}_kmd_{base_label}")
         plt.close(fig)
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 6: ХЕМОТИПИРОВАНИЕ 20 ЯЧЕЕК
+# ------------------------------------------------------------------------------
 with tabs[5]:
-    st.subheader("🗂 Хемотипирование по 20 ячейкам Ван-Кревелена (сетка Перминовой И.В.)")
-    assigned_df = st.session_state.get("assigned_df")
+    st.subheader(f"🗂️ Хемотипирование по 20 ячейкам Ван-Кревелена (сетка Перминовой И.В.): {active_spectrum_name if active_spectrum_name else ''}")
+    assigned_df = current_sample.get("assigned_df") if current_sample else None
 
     if assigned_df is None or assigned_df.empty:
         st.warning("⚠️ Сначала выполните приписывание формул во вкладке 3.")
@@ -1104,9 +1179,9 @@ with tabs[5]:
 
         ctrl_col1, ctrl_col2 = st.columns([2, 2])
         with ctrl_col1:
-            metric_mode = st.radio("Базис расчета заселенности:", ["Относительное число формул (%)", "Взвешенная интенсивность (%)"], horizontal=True)
+            metric_mode = st.radio("Базис расчета заселенности:", ["Относительное число формул (%)", "Взвешенная интенсивность (%)"], horizontal=True, key=f"vk20_mode_{active_spectrum_name}")
         with ctrl_col2:
-            overlay_on_vk = st.checkbox("Наложить границы 20 ячеек на диаграмму Ван-Кревелена", value=True)
+            overlay_on_vk = st.checkbox("Наложить границы 20 ячеек на диаграмму Ван-Кревелена", value=True, key=f"vk20_over_{active_spectrum_name}")
 
         active_matrix = pct_count if "число" in metric_mode else pct_weight
 
@@ -1133,7 +1208,7 @@ with tabs[5]:
         plt.colorbar(im, ax=ax_hm, pad=0.02, label="Заселенность (%)")
         plt.tight_layout()
         st.pyplot(fig_hm)
-        get_plot_download_buttons(fig_hm, "vk20_heatmap")
+        get_plot_download_buttons(fig_hm, f"{active_spectrum_name}_vk20_heatmap")
         plt.close(fig_hm)
 
         if overlay_on_vk:
@@ -1171,7 +1246,7 @@ with tabs[5]:
             plt.tight_layout()
 
             st.pyplot(fig_ov)
-            get_plot_download_buttons(fig_ov, "vk20_overlay")
+            get_plot_download_buttons(fig_ov, f"{active_spectrum_name}_vk20_overlay")
             plt.close(fig_ov)
 
         st.markdown("---")
@@ -1182,104 +1257,115 @@ with tabs[5]:
         st.download_button(
             label="📥 Скачать вектор дескрипторов 20 ячеек (CSV)",
             data=csv_buf,
-            file_name="vk20_features.csv",
+            file_name=f"{active_spectrum_name}_vk20_features.csv",
             mime="text/csv",
+            key=f"dl_vk20_{active_spectrum_name}"
         )
 
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 7: СРАВНЕНИЕ ОБРАЗЦОВ
+# ------------------------------------------------------------------------------
 with tabs[6]:
     st.subheader("⚖️ Сравнение спектральных ансамблей (Set Operations)")
-    peaks_a = st.session_state.get("parsed_peaks")
 
-    if peaks_a is None or peaks_a.empty:
-        st.info("Сначала загрузите Образец А через боковую панель слева.")
+    if len(available_spectra) < 2:
+        st.info("Для сравнительного анализа необходимо загрузить как минимум два спектра в боковой панели.")
     else:
-        st.markdown("##### Загрузка спектра Образца Б (или холостой пробы/бланка)")
-        file_b = st.file_uploader("Файл Образца Б (.csv, .txt, .tsv, .xy)", type=["csv", "txt", "tsv", "xy"], key="file_b")
+        col_s1, col_s2, col_s3 = st.columns([2, 2, 1.5])
+        with col_s1:
+            name_a = st.selectbox("Образец А (Базовый):", available_spectra, index=0, key="cmp_spec_a")
+        with col_s2:
+            default_b_idx = 1 if len(available_spectra) > 1 else 0
+            name_b = st.selectbox("Образец Б (Сравниваемый / Бланк):", available_spectra, index=default_b_idx, key="cmp_spec_b")
+        with col_s3:
+            tol_comp = st.number_input("Допуск совмещения (ppm):", min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
 
-        if file_b is not None:
-            with st.expander("Параметры чтения и выравнивания Образца Б", expanded=False):
-                c_sep, c_dec = st.columns(2)
-                with c_sep:
-                    sep_b = st.selectbox("Разделитель Образца Б:", ["Авто (автоопределение)", "Табуляция (\\t)", "Запятая (,)", "Точка с запятой (;)", "Пробел"], index=0, key="sep_b")
-                with c_dec:
-                    dec_b = st.selectbox("Десятичный знак Образца Б:", [".", ","], index=0, key="dec_b")
-                tol_comp = st.number_input("Допуск совмещения m/z (ppm):", min_value=0.1, max_value=5.0, value=1.5, step=0.1)
+        sample_a = st.session_state["spectra_db"][name_a]
+        sample_b = st.session_state["spectra_db"][name_b]
 
-            raw_df_b = parse_uploaded_file(file_b.getvalue(), sep_b, dec_b, has_header=True)
-            cols_b = list(raw_df_b.columns)
-            col_mz_b = st.selectbox("Колонка массы Образца Б:", cols_b, index=0, key="mz_b")
-            col_int_b = st.selectbox("Колонка интенсивности Образца Б:", cols_b, index=1 if len(cols_b) > 1 else 0, key="int_b")
+        peaks_a = sample_a.get("parsed_peaks")
+        peaks_b = sample_b.get("parsed_peaks")
 
-            clean_mb = pd.to_numeric(raw_df_b[col_mz_b], errors="coerce")
-            clean_ib = pd.to_numeric(raw_df_b[col_int_b], errors="coerce")
-            val_mask = clean_mb.notna() & clean_ib.notna() & (clean_mb > 0)
-            df_b = pd.DataFrame({"mass": clean_mb[val_mask].astype(float), "intensity": clean_ib[val_mask].astype(float)})
+        if peaks_a is None or peaks_a.empty or peaks_b is None or peaks_b.empty:
+            st.warning("Один из выбранных образцов еще не отфильтрован или пуст. Переключитесь на него в боковой панели для настройки колонок.")
+        elif name_a == name_b:
+            st.warning("Выбран один и тот же образец для сравнения!")
+        else:
+            align_res = align_two_spectra_fast(peaks_a, peaks_b, ppm_tol=tol_comp)
 
-            if df_b.empty:
-                st.error("В файле Образца Б нет валидных числовых данных.")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric(f"Пиков в {name_a}", f"{align_res['n_a']:,}")
+            m2.metric(f"Пиков в {name_b}", f"{align_res['n_b']:,}")
+            m3.metric("Общих (A ∩ B)", f"{align_res['n_common']:,}", delta=f"Индекс Жаккара: {align_res['jaccard']:.3f}")
+            m4.metric("Косинусное сходство", f"{align_res['cos_sim']:.4f}")
+
+            assigned_a = sample_a.get("assigned_df")
+            assigned_b = sample_b.get("assigned_df")
+
+            if assigned_a is not None and not assigned_a.empty:
+                st.markdown("##### Сравнительная диаграмма Ван-Кревелена")
+                common_masses = set(align_res["df_a"].loc[align_res["matched_a"], "mass"].round(4))
+
+                assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
+                assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
+
+                fig_cmp, ax_cmp = plt.subplots(figsize=(12, 7.5), dpi=150)
+
+                if not assigned_a_common.empty:
+                    ax_cmp.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
+                                   label=f"Общие A ∩ B ({len(assigned_a_common):,})", s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
+
+                if not assigned_a_unique.empty:
+                    ax_cmp.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
+                                   label=f"Уникальные для {name_a} ({len(assigned_a_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+
+                if assigned_b is not None and not assigned_b.empty:
+                    assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
+                    if not assigned_b_unique.empty:
+                        ax_cmp.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
+                                       label=f"Уникальные для {name_b} ({len(assigned_b_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+
+                ax_cmp.set_xlim(0.0, 1.0)
+                ax_cmp.set_ylim(0.2, 2.2)
+                ax_cmp.set_xlabel("O/C", fontsize=11, fontweight="medium")
+                ax_cmp.set_ylabel("H/C", fontsize=11, fontweight="medium")
+                ax_cmp.set_title(f"Сравнительный анализ: {name_a} vs {name_b}", fontsize=11)
+                ax_cmp.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+                ax_cmp.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+                plt.tight_layout()
+
+                st.pyplot(fig_cmp)
+                get_plot_download_buttons(fig_cmp, f"compare_{name_a}_vs_{name_b}_vk")
+                plt.close(fig_cmp)
             else:
-                align_res = align_two_spectra_fast(peaks_a, df_b, ppm_tol=tol_comp)
+                st.markdown("##### Зеркальный спектр совмещения (Head-to-Tail Stick Plot)")
+                fig_mir, ax_mir = plt.subplots(figsize=(12, 5), dpi=150)
 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Пиков в А", f"{align_res['n_a']:,}")
-                m2.metric("Пиков в Б", f"{align_res['n_b']:,}")
-                m3.metric("Общих (A ∩ B)", f"{align_res['n_common']:,}", delta=f"Индекс Жаккара: {align_res['jaccard']:.3f}")
-                m4.metric("Косинусное сходство", f"{align_res['cos_sim']:.4f}")
+                ia_norm = (peaks_a["intensity"] / peaks_a["intensity"].max()) * 100.0
+                ib_norm = (peaks_b["intensity"] / peaks_b["intensity"].max()) * 100.0
 
-                assigned_a = st.session_state.get("assigned_df")
-                if assigned_a is not None and not assigned_a.empty:
-                    st.markdown("##### Сравнительная диаграмма Ван-Кревелена")
-                    common_masses = set(align_res["df_a"].loc[align_res["matched_a"], "mass"].round(4))
+                ax_mir.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
+                ax_mir.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
+                ax_mir.axhline(0, color="black", linewidth=0.8)
 
-                    assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
-                    assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
+                ax_mir.set_xlabel("m/z", fontsize=11)
+                ax_mir.set_ylabel("Отн. интенсивность (%) [A: вверх / Б: вниз]", fontsize=10)
+                ax_mir.legend(loc="upper right")
+                plt.tight_layout()
+                st.pyplot(fig_mir)
+                get_plot_download_buttons(fig_mir, f"head_to_tail_{name_a}_vs_{name_b}")
+                plt.close(fig_mir)
 
-                    fig_cmp, ax_cmp = plt.subplots(figsize=(12, 7), dpi=150)
-                    if not assigned_a_common.empty:
-                        ax_cmp.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
-                                       label=f"Общие A ∩ B ({len(assigned_a_common):,})", s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
-                    if not assigned_a_unique.empty:
-                        ax_cmp.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
-                                       label=f"Уникальные для А (A \\ B) ({len(assigned_a_unique):,})", s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
-
-                    ax_cmp.set_xlim(0.0, 1.0)
-                    ax_cmp.set_ylim(0.2, 2.2)
-                    ax_cmp.set_xlabel("O/C", fontsize=11, fontweight="medium")
-                    ax_cmp.set_ylabel("H/C", fontsize=11, fontweight="medium")
-                    ax_cmp.set_title("Сравнительный анализ химического пространства (A vs B)", fontsize=11)
-                    ax_cmp.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
-                    ax_cmp.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
-                    plt.tight_layout()
-
-                    st.pyplot(fig_cmp)
-                    get_plot_download_buttons(fig_cmp, "samples_comparison_vk")
-                    plt.close(fig_cmp)
-                else:
-                    st.markdown("##### Зеркальный спектр совмещения (Head-to-Tail Stick Plot)")
-                    fig_mir, ax_mir = plt.subplots(figsize=(12, 5), dpi=150)
-
-                    ia_norm = (peaks_a["intensity"] / peaks_a["intensity"].max()) * 100.0
-                    ib_norm = (df_b["intensity"] / df_b["intensity"].max()) * 100.0
-
-                    ax_mir.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label="Образец А (+)")
-                    ax_mir.vlines(df_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label="Образец Б (-)")
-                    ax_mir.axhline(0, color="black", linewidth=0.8)
-
-                    ax_mir.set_xlabel("m/z", fontsize=11)
-                    ax_mir.set_ylabel("Отн. интенсивность (%) [A: вверх / Б: вниз]", fontsize=10)
-                    ax_mir.legend(loc="upper right")
-                    plt.tight_layout()
-                    st.pyplot(fig_mir)
-                    get_plot_download_buttons(fig_mir, "head_to_tail_comparison")
-                    plt.close(fig_mir)
-
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 8: СВОДНЫЕ ХАРАКТЕРИСТИКИ
+# ------------------------------------------------------------------------------
 with tabs[7]:
-    assigned_data = st.session_state.get("assigned_df")
+    assigned_data = current_sample.get("assigned_df") if current_sample else None
 
     if assigned_data is None or assigned_data.empty:
         st.warning("⚠️ Сначала выполните приписывание формул во вкладке 3.")
     else:
-        st.subheader("Сводные характеристики ансамбля NOM")
+        st.subheader(f"Сводные характеристики ансамбля NOM: {active_spectrum_name}")
 
         mw_n = assigned_data["mass"].mean()
         hc_n = assigned_data["H/C"].mean()
