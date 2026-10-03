@@ -57,6 +57,26 @@ The analytical pipeline is built upon methodologies developed at the **Laborator
 
 ---
 
+## 📸 Interface & Visualizations
+
+<p align="center">
+  <img src="assets/van_krevelen.png" alt="Van Krevelen Diagram" width="850">
+  <br>
+  <em>Interactive Van Krevelen diagram with stoichiometric classification</em>
+</p>
+
+<p align="center">
+  <img src="assets/kmd_plot.png" alt="Kendrick Mass Defect Plot" width="850">
+  <br>
+  <em>Kendrick Mass Defect (KMD) mapping across homologous series</em>
+</p>
+
+<p align="center">
+  <img src="assets/vk20_grid.png" alt="20-Grid Chemotyping" width="850">
+  <br>
+  <em>Perminova 20-Grid chemotyping density matrix</em>
+</p>
+
 ## 🚀 Quick Start
 
 ### 1. Clone the repository
