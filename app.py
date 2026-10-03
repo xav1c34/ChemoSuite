@@ -3,11 +3,12 @@ import io
 import os
 import tempfile
 import inspect
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, List
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
@@ -37,10 +38,10 @@ st.markdown(
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 6px;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 10px 16px;
+        padding: 8px 14px;
         border-radius: 4px;
     }
     </style>
@@ -59,7 +60,7 @@ T = {
         "title": "🔬 Спектрометрия NOM сверхвысокого разрешения",
         "lang_label": "🌐 Язык / Language",
         "sidebar_mgr": "📁 Менеджер спектров",
-        "nomspectra_missing": "Библиотека nomspectra не найдена в окружении. Используется встроенное вычислительное ядро.",
+        "nomspectra_missing": "Библиотека nomspectra не найдена в окружении. Используется встроенное векторное ядро.",
         "uploader_label": "Загрузить спектры (файлы или перетащите папку):",
         "folder_expander": "📂 Импорт из локальной папки на диске",
         "folder_input": "Путь к папке со спектрами:",
@@ -81,7 +82,11 @@ T = {
         "col_mz": "Колонка m/z (масса):",
         "col_int": "Колонка Intensity (интенсивность):",
         "same_col_warn": "Внимание: выбрана одна и та же колонка для массы и интенсивности!",
-        "filtering_header": "Фильтрация пиков",
+        "filtering_header": "Фильтрация и шкалирование пиков",
+        "norm_mode_label": "Режим нормализации интенсивности:",
+        "norm_base": "Базовый пик (Max = 100%)",
+        "norm_tic": "Сумма / TIC (Сумма = 100%)",
+        "norm_raw": "Исходная интенсивность (Raw)",
         "mz_range": "Диапазон m/z (Да):",
         "cutoff_int": "Порог отсечения шума (мин. интенсивность):",
         "loaded_peaks_success": "Загружено и отфильтровано пиков: {n:,}",
@@ -90,22 +95,23 @@ T = {
         "tab_stick": "📈 Масс-спектр (Stick Plot)",
         "tab_recal": "🎯 Рекалибровка m/z",
         "tab_assign": "🧬 Приписывание формул",
-        "tab_vk": "🗺️ Диаграмма Ван-Кревелена",
+        "tab_vk": "🗺️ Диаграммы и проекции",
         "tab_kmd": "🔍 Анализ Кендрика (KMD)",
         "tab_vk20": "🗂️ Хемотипирование 20 ячеек",
-        "tab_cmp": "⚖️ Сравнение образцов",
+        "tab_cmp": "⚖️ Сравнение и алгебра спектров",
+        "tab_tmds": "🔗 Сети трансформаций (TMDS)",
         "tab_desc": "📊 Сводные характеристики",
         # Общие элементы
         "download_png": "💾 Скачать PNG (300 DPI)",
         "download_svg": "💾 Скачать SVG (Вектор)",
         "nav_caption": "🔍 Навигация: колесико мыши — масштаб (Zoom), зажатая левая кнопка — рамка зума / сдвиг (Pan). Двойной клик — сброс.",
         # Stick Plot
-        "stick_signals": "Отображено сигналов: {n:,} | Базовый пик: 100.0%",
+        "stick_signals": "Отображено сигналов: {n:,}",
         "annotate_top": "Подписать топ-5 пиков",
         "peak_trace": "Пики спектра",
         "top5_trace": "Топ-5 пиков",
         "mz_axis": "m/z (Дальтон)",
-        "rel_int_axis": "Относительная интенсивность (%)",
+        "rel_int_axis": "Интенсивность",
         # Рекалибровка
         "recal_cal_set": "Набор калибрантов (внутренний стандарт):",
         "recal_tol": "Окно поиска реперов (ppm):",
@@ -125,6 +131,7 @@ T = {
         # Приписывание формул
         "assign_expander": "⚙️ Настройки химического пространства и фильтрации",
         "ion_mode": "Режим ионизации:",
+        "max_charge": "Максимальный заряд (z):",
         "ppm_tol": "Допуск погрешности (ppm):",
         "c_lim": "Лимит углерода (C):",
         "h_lim": "Лимит водорода (H):",
@@ -133,6 +140,8 @@ T = {
         "s_lim": "Лимит серы (S):",
         "max_oc": "Максимум O/C:",
         "max_hc": "Максимум H/C:",
+        "iso_filter_label": "Валидация по изотопу 13C (+1.00335 Да)",
+        "iso_strict_label": "Отсекать формулы без подтверждения 13C (строгий фильтр)",
         "assign_btn": "🚀 Запустить приписывание формул",
         "assign_spinner": "Выполняется идентификация брутто-формул и расчёт молекулярных индексов...",
         "metric_total": "Всего пиков",
@@ -143,7 +152,12 @@ T = {
         "dl_csv_formulas": "📥 Скачать результат идентификации (CSV)",
         "no_formulas_warn": "В заданных границах элементов и ppm-погрешности формул не найдено.",
         "need_assign_first": "⚠️ Сначала выполните приписывание формул во вкладке 3.",
-        # Van Krevelen
+        # Van Krevelen & Projections
+        "proj_mode": "Тип проекции диаграммы:",
+        "proj_vk": "Диаграмма Ван-Кревелена (H/C vs O/C)",
+        "proj_dbe_c": "Конденсированность DBE vs C (BE vs n)",
+        "proj_custom": "Пользовательская проекция (X vs Y)",
+        "pow_exp": "Сжатие шкалы интенсивности (Pow γ):",
         "hetero_dist_title": "Распределение по классам гетероатомов",
         "comp_dist_title": "Распределение по структурным пулам",
         "class_col": "Класс",
@@ -172,7 +186,10 @@ T = {
         "vk20_overlay": "Наложить границы 20 ячеек на диаграмму Ван-Кревелена",
         "vk20_heatmap_title": "Тепловая карта заселенности 20 ячеек ({mode})",
         "vk20_dl_csv": "📥 Скачать вектор дескрипторов 20 ячеек (CSV)",
-        # Сравнение
+        # Сравнение и алгебра
+        "cmp_subtab_view": "Сравнение образцов (A vs B)",
+        "cmp_subtab_sub": "Вычитание бланка / фона (int_sub)",
+        "cmp_subtab_algebra": "Алгебра спектров и диаграмма Венна",
         "cmp_need_two": "Для сравнительного анализа необходимо загрузить как минимум два спектра в боковой панели.",
         "cmp_spec_a": "Образец А (Базовый):",
         "cmp_spec_b": "Образец Б (Сравниваемый / Бланк):",
@@ -184,6 +201,28 @@ T = {
         "cmp_unique_a": "Уникальные для {name} ({n:,})",
         "cmp_unique_b": "Уникальные для {name} ({n:,})",
         "cmp_mirror_title": "Зеркальный спектр совмещения (Head-to-Tail Stick Plot)",
+        "sub_factor_label": "Коэффициент вычитания фона (k):",
+        "sub_btn": "🧹 Вычесть бланк и сохранить очищенный спектр",
+        "sub_success": "Бланк успешно вычтен! Создан спектр: {name} (пиков: {n:,}).",
+        "alg_op_label": "Множественная операция:",
+        "alg_and": "Пересечение A ∩ B (Общие пики)",
+        "alg_or": "Объединение A ∪ B (Все пики)",
+        "alg_sub_a_b": "Разность A \\ B (Уникальные для A)",
+        "alg_sub_b_a": "Разность B \\ A (Уникальные для B)",
+        "alg_xor": "Симметрическая разность A ⊕ B (Не пересекающиеся)",
+        "alg_btn": "💾 Применить операцию и сохранить спектр в базу",
+        "alg_success": "Операция выполнена! Новый спектр сохранен: {name} ({n:,} пиков).",
+        "venn_title": "Диаграмма Венна перекрытия спектров (ppm допуск: {tol})",
+        # TMDS
+        "tmds_header": "Скрининг характеристических разностей масс (TMDS)",
+        "tmds_top_label": "Количество наиболее интенсивных пиков для анализа:",
+        "tmds_tol_label": "Допуск разности масс (mDa):",
+        "tmds_trans_title": "Частота обнаружения биогеохимических трансформаций",
+        "tmds_trans_col": "Трансформация",
+        "tmds_delta_col": "Δm (Да)",
+        "tmds_count_col": "Число связей",
+        "tmds_share_col": "Доля от всех пар (%)",
+        "tmds_dl_csv": "📥 Скачать пары связей TMDS (CSV)",
         # Сводные характеристики
         "desc_num_avg": "Среднечисленные значения (Number-averaged parameters)",
         "desc_mn": "Среднечисленная масса (Mn)",
@@ -225,7 +264,11 @@ T = {
         "col_mz": "m/z column (mass):",
         "col_int": "Intensity column:",
         "same_col_warn": "Warning: The same column is selected for both mass and intensity!",
-        "filtering_header": "Peak filtering",
+        "filtering_header": "Peak filtering & scaling",
+        "norm_mode_label": "Intensity normalization mode:",
+        "norm_base": "Base Peak (Max = 100%)",
+        "norm_tic": "Sum / TIC (Sum = 100%)",
+        "norm_raw": "Raw Intensity",
         "mz_range": "m/z range (Da):",
         "cutoff_int": "Noise cutoff (min intensity):",
         "loaded_peaks_success": "Peaks loaded & filtered: {n:,}",
@@ -234,22 +277,23 @@ T = {
         "tab_stick": "📈 Mass Spectrum (Stick Plot)",
         "tab_recal": "🎯 m/z Recalibration",
         "tab_assign": "🧬 Formula Assignment",
-        "tab_vk": "🗺️ Van Krevelen Plot",
+        "tab_vk": "🗺️ Plots & Projections",
         "tab_kmd": "🔍 Kendrick Analysis (KMD)",
         "tab_vk20": "🗂️ 20-Grid Chemotyping",
-        "tab_cmp": "⚖️ Sample Comparison",
+        "tab_cmp": "⚖️ Sample Comparison & Algebra",
+        "tab_tmds": "🔗 Reaction Networks (TMDS)",
         "tab_desc": "📊 Summary Descriptors",
         # Generic
         "download_png": "💾 Download PNG (300 DPI)",
         "download_svg": "💾 Download SVG (Vector)",
         "nav_caption": "🔍 Navigation: Mouse wheel — Zoom, Click & drag — Box Zoom / Pan. Double click — Reset view.",
         # Stick Plot
-        "stick_signals": "Signals displayed: {n:,} | Base peak: 100.0%",
+        "stick_signals": "Signals displayed: {n:,}",
         "annotate_top": "Annotate top-5 peaks",
         "peak_trace": "Spectral peaks",
         "top5_trace": "Top-5 peaks",
         "mz_axis": "m/z (Dalton)",
-        "rel_int_axis": "Relative Intensity (%)",
+        "rel_int_axis": "Intensity",
         # Recalibration
         "recal_cal_set": "Calibrant reference library:",
         "recal_tol": "Search window (ppm):",
@@ -269,6 +313,7 @@ T = {
         # Formula Assignment
         "assign_expander": "⚙️ Chemical search space & stoichiometric boundaries",
         "ion_mode": "Ionization mode:",
+        "max_charge": "Maximum Charge (z):",
         "ppm_tol": "Tolerance window (ppm):",
         "c_lim": "Carbon limit (C):",
         "h_lim": "Hydrogen limit (H):",
@@ -277,6 +322,8 @@ T = {
         "s_lim": "Sulfur limit (S):",
         "max_oc": "Maximum O/C:",
         "max_hc": "Maximum H/C:",
+        "iso_filter_label": "Validate with 13C isotope (+1.00335 Da)",
+        "iso_strict_label": "Discard formulas without 13C confirmation (strict filter)",
         "assign_btn": "🚀 Run Formula Assignment",
         "assign_spinner": "Assigning elemental formulas and calculating molecular indices...",
         "metric_total": "Total peaks",
@@ -287,7 +334,12 @@ T = {
         "dl_csv_formulas": "📥 Download identification results (CSV)",
         "no_formulas_warn": "No formulas found within the given elemental boundaries and ppm tolerance.",
         "need_assign_first": "⚠️ Please run formula assignment in Tab 3 first.",
-        # Van Krevelen
+        # Van Krevelen & Projections
+        "proj_mode": "Projection diagram type:",
+        "proj_vk": "Van Krevelen Diagram (H/C vs O/C)",
+        "proj_dbe_c": "Aromaticity DBE vs C (BE vs n)",
+        "proj_custom": "Custom 2D Projection (X vs Y)",
+        "pow_exp": "Intensity scale compression (Pow γ):",
         "hetero_dist_title": "Distribution by heteroatom classes",
         "comp_dist_title": "Distribution by biochemical structural pools",
         "class_col": "Class",
@@ -316,7 +368,10 @@ T = {
         "vk20_overlay": "Overlay 20-grid boundaries onto Van Krevelen plot",
         "vk20_heatmap_title": "Perminova 20-Grid Density Heatmap ({mode})",
         "vk20_dl_csv": "📥 Download 20-Grid feature vector (CSV)",
-        # Comparison
+        # Comparison & Algebra
+        "cmp_subtab_view": "Sample Comparison (A vs B)",
+        "cmp_subtab_sub": "Blank Subtraction (int_sub)",
+        "cmp_subtab_algebra": "Spectral Algebra & Venn Diagram",
         "cmp_need_two": "At least two spectra must be loaded in the sidebar for comparative analysis.",
         "cmp_spec_a": "Sample A (Base):",
         "cmp_spec_b": "Sample B (Comparison / Blank):",
@@ -328,6 +383,28 @@ T = {
         "cmp_unique_a": "Unique to {name} ({n:,})",
         "cmp_unique_b": "Unique to {name} ({n:,})",
         "cmp_mirror_title": "Head-to-Tail Mirror Spectrum Comparison",
+        "sub_factor_label": "Blank scaling factor (k):",
+        "sub_btn": "🧹 Subtract blank and save clean spectrum",
+        "sub_success": "Blank subtracted successfully! Created spectrum: {name} (peaks: {n:,}).",
+        "alg_op_label": "Set operation:",
+        "alg_and": "Intersection A ∩ B (Common peaks)",
+        "alg_or": "Union A ∪ B (All peaks merged)",
+        "alg_sub_a_b": "Difference A \\ B (Unique to A)",
+        "alg_sub_b_a": "Difference B \\ A (Unique to B)",
+        "alg_xor": "Symmetric Difference A ⊕ B (Exclusive peaks)",
+        "alg_btn": "💾 Apply operation and save spectrum",
+        "alg_success": "Operation successful! New spectrum saved: {name} ({n:,} peaks).",
+        "venn_title": "Venn Diagram of Spectral Overlap (ppm tol: {tol})",
+        # TMDS
+        "tmds_header": "Targeted Mass Difference Screening (TMDS)",
+        "tmds_top_label": "Top abundant peaks to analyze:",
+        "tmds_tol_label": "Mass difference tolerance (mDa):",
+        "tmds_trans_title": "Biogeochemical Transformations Frequency",
+        "tmds_trans_col": "Transformation",
+        "tmds_delta_col": "Δm (Da)",
+        "tmds_count_col": "Connections count",
+        "tmds_share_col": "Share of all pairs (%)",
+        "tmds_dl_csv": "📥 Download TMDS connected pairs (CSV)",
         # Descriptors
         "desc_num_avg": "Number-averaged parameters (Mn)",
         "desc_mn": "Number-averaged mass (Mn)",
@@ -346,15 +423,16 @@ T = {
 }
 
 # ==============================================================================
-# КОНСТАНТЫ И РАСЧЕТ ДЕСКРИПТОРОВ
+# КОНСТАНТЫ И БАЗОВЫЕ СПРАВОЧНИКИ
 # ==============================================================================
 EXACT_MASSES = {
-    "C": 12.00000,
-    "H": 1.00782,
-    "O": 15.99491,
-    "N": 14.00307,
-    "S": 31.97207,
+    "C": 12.000000,
+    "H": 1.007825,
+    "O": 15.994915,
+    "N": 14.003074,
+    "S": 31.972071,
 }
+C13_DIFF = 1.003355  # 13C - 12C mass difference
 H_ION_MASS = 1.007276
 
 KMD_BASES = {
@@ -363,6 +441,17 @@ KMD_BASES = {
     "O":   {"nom": 16.00000, "exact": 15.994915, "label": "O"},
     "H2":  {"nom": 2.00000, "exact": 2.015650, "label": "H2"},
 }
+
+TMDS_LIBRARY = [
+    {"name": "CH2 (Alkylation / Homology)", "delta": 14.015650},
+    {"name": "O (Oxidation / Hydroxylation)", "delta": 15.994915},
+    {"name": "H2O (Hydration / Dehydration)", "delta": 18.010565},
+    {"name": "H2 (Hydrogenation / Dehydrogenation)", "delta": 2.015650},
+    {"name": "CO2 (Carboxylation / Decarboxylation)", "delta": 43.989829},
+    {"name": "CO (Carbonylation)", "delta": 27.994915},
+    {"name": "NH3 (Amination / Deamination)", "delta": 17.026549},
+    {"name": "SO3 (Sulfonation)", "delta": 79.956815},
+]
 
 def st_df(data, **kwargs):
     try:
@@ -519,6 +608,9 @@ def run_formula_assignment(
     max_oc: float,
     ppm_tolerance: float,
     ion_mode: str,
+    max_charge: int = 1,
+    iso_check: bool = False,
+    iso_strict: bool = False,
     lang: str = "ru",
 ) -> pd.DataFrame:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as tmp:
@@ -528,11 +620,10 @@ def run_formula_assignment(
     assigned_df = pd.DataFrame()
 
     try:
-        if NOMSPECTRA_INSTALLED:
+        if NOMSPECTRA_INSTALLED and max_charge == 1 and not iso_check:
             try:
                 spec = Spectrum(tmp_path)
                 target_method = getattr(spec, "assign_formulas", None) or getattr(spec, "assign", None)
-
                 if target_method is not None:
                     sig = inspect.signature(target_method).parameters
                     kwargs = {}
@@ -569,7 +660,15 @@ def run_formula_assignment(
 
         if assigned_df.empty or "C" not in assigned_df.columns:
             assigned_df = fast_formula_assigner(
-                peaks_df, bounds, max_hc, max_oc, ppm_tolerance, ion_mode
+                peaks_df=peaks_df,
+                bounds=bounds,
+                max_hc=max_hc,
+                max_oc=max_oc,
+                ppm_tolerance=ppm_tolerance,
+                ion_mode=ion_mode,
+                max_charge=max_charge,
+                iso_check=iso_check,
+                iso_strict=iso_strict,
             )
 
     finally:
@@ -588,19 +687,15 @@ def fast_formula_assigner(
     max_oc: float,
     ppm_tolerance: float,
     ion_mode: str,
+    max_charge: int = 1,
+    iso_check: bool = False,
+    iso_strict: bool = False,
 ) -> pd.DataFrame:
     c_min, c_max = bounds.get("C", (4, 120))
     h_min, h_max = bounds.get("H", (4, 200))
     o_min, o_max = bounds.get("O", (1, 60))
     n_min, n_max = bounds.get("N", (0, 2))
     s_min, s_max = bounds.get("S", (0, 1))
-
-    if "ESI(-)" in ion_mode:
-        ion_offset = -H_ION_MASS
-    elif "ESI(+)" in ion_mode:
-        ion_offset = H_ION_MASS
-    else:
-        ion_offset = 0.0
 
     peaks_m = peaks_df["mass"].values
     peaks_int = peaks_df["intensity"].values
@@ -609,124 +704,154 @@ def fast_formula_assigner(
     min_mz = float(peaks_m.min())
     max_mz = float(peaks_m.max())
 
-    c_list, h_list, o_list, n_list, s_list = [], [], [], [], []
+    charges = [1, 2] if max_charge >= 2 else [1]
+    all_assigned_rows = []
 
-    for n in range(n_min, n_max + 1):
-        for s in range(s_min, s_max + 1):
-            for c in range(c_min, c_max + 1):
-                cur_o_max = min(o_max, int(max_oc * c))
-                for o in range(o_min, cur_o_max + 1):
-                    base_m = (
-                        c * EXACT_MASSES["C"]
-                        + o * EXACT_MASSES["O"]
-                        + n * EXACT_MASSES["N"]
-                        + s * EXACT_MASSES["S"]
-                        + ion_offset
-                    )
-                    if base_m > max_mz + 2.0:
-                        continue
+    for z in charges:
+        if "ESI(-)" in ion_mode:
+            ion_shift = -z * H_ION_MASS
+        elif "ESI(+)" in ion_mode:
+            ion_shift = z * H_ION_MASS
+        else:
+            ion_shift = 0.0
 
-                    h_low = max(
-                        h_min,
-                        int(np.ceil(0.2 * c)),
-                        int(np.ceil(2 * (c - o - 9) + n)),
-                        int(np.ceil((min_mz - 2.0 - base_m) / EXACT_MASSES["H"])),
-                    )
-                    h_high = min(
-                        h_max,
-                        int(max_hc * c),
-                        int(2 * c + n + 2),
-                        int(2 * (11 + c - o) + n),
-                        int(np.floor((max_mz + 2.0 - base_m) / EXACT_MASSES["H"])),
-                    )
+        c_list, h_list, o_list, n_list, s_list = [], [], [], [], []
 
-                    if h_low > h_high:
-                        continue
-
-                    for h in range(h_low, h_high + 1):
-                        if (h + n) % 2 != 0:
-                            continue
-                        dbe = 1.0 + c - 0.5 * h + 0.5 * n
-                        dbe_o = dbe - o
-                        if dbe < 0 or dbe_o < -10 or dbe_o > 10:
+        for n in range(n_min, n_max + 1):
+            for s in range(s_min, s_max + 1):
+                for c in range(c_min, c_max + 1):
+                    cur_o_max = min(o_max, int(max_oc * c))
+                    for o in range(o_min, cur_o_max + 1):
+                        base_neut = (
+                            c * EXACT_MASSES["C"]
+                            + o * EXACT_MASSES["O"]
+                            + n * EXACT_MASSES["N"]
+                            + s * EXACT_MASSES["S"]
+                        )
+                        base_mz = (base_neut + ion_shift) / z
+                        if base_mz > max_mz + 2.0:
                             continue
 
-                        c_list.append(c)
-                        h_list.append(h)
-                        o_list.append(o)
-                        n_list.append(n)
-                        s_list.append(s)
+                        h_low = max(
+                            h_min,
+                            int(np.ceil(0.2 * c)),
+                            int(np.ceil(2 * (c - o - 9) + n)),
+                            int(np.ceil(((min_mz - 2.0) * z - base_neut - ion_shift) / EXACT_MASSES["H"])),
+                        )
+                        h_high = min(
+                            h_max,
+                            int(max_hc * c),
+                            int(2 * c + n + 2),
+                            int(2 * (11 + c - o) + n),
+                            int(np.floor(((max_mz + 2.0) * z - base_neut - ion_shift) / EXACT_MASSES["H"])),
+                        )
 
-    if not c_list:
+                        if h_low > h_high:
+                            continue
+
+                        for h in range(h_low, h_high + 1):
+                            if (h + n) % 2 != 0:
+                                continue
+                            dbe = 1.0 + c - 0.5 * h + 0.5 * n
+                            dbe_o = dbe - o
+                            if dbe < 0 or dbe_o < -10 or dbe_o > 10:
+                                continue
+
+                            c_list.append(c)
+                            h_list.append(h)
+                            o_list.append(o)
+                            n_list.append(n)
+                            s_list.append(s)
+
+        if not c_list:
+            continue
+
+        c_arr = np.array(c_list, dtype=np.int16)
+        h_arr = np.array(h_list, dtype=np.int16)
+        o_arr = np.array(o_list, dtype=np.int16)
+        n_arr = np.array(n_list, dtype=np.int8)
+        s_arr = np.array(s_list, dtype=np.int8)
+
+        cand_masses = (
+            (c_arr * EXACT_MASSES["C"]
+             + h_arr * EXACT_MASSES["H"]
+             + o_arr * EXACT_MASSES["O"]
+             + n_arr * EXACT_MASSES["N"]
+             + s_arr * EXACT_MASSES["S"]
+             + ion_shift) / z
+        )
+
+        sort_idx = np.argsort(cand_masses)
+        cand_masses = cand_masses[sort_idx]
+        c_arr = c_arr[sort_idx]
+        h_arr = h_arr[sort_idx]
+        o_arr = o_arr[sort_idx]
+        n_arr = n_arr[sort_idx]
+        s_arr = s_arr[sort_idx]
+
+        delta = peaks_m * (ppm_tolerance * 1e-6)
+        left_idx = np.searchsorted(cand_masses, peaks_m - delta)
+        right_idx = np.searchsorted(cand_masses, peaks_m + delta)
+
+        for i in range(len(peaks_m)):
+            l, r = left_idx[i], right_idx[i]
+            if r > l:
+                best_j = None
+                best_score = (1e9, 99)
+                for j in range(l, r):
+                    calc_m = cand_masses[j]
+                    err_ppm = abs((peaks_m[i] - calc_m) / calc_m) * 1e6
+                    hetero_penalty = n_arr[j] + s_arr[j]
+                    score = (err_ppm, hetero_penalty)
+                    if score < best_score:
+                        best_score = score
+                        best_j = j
+
+                if best_j is not None:
+                    calc_m = cand_masses[best_j]
+                    err_ppm = ((peaks_m[i] - calc_m) / calc_m) * 1e6
+                    c_val = int(c_arr[best_j])
+                    h_val = int(h_arr[best_j])
+                    o_val = int(o_arr[best_j])
+                    n_val = int(n_arr[best_j])
+                    s_val = int(s_arr[best_j])
+
+                    iso_confirmed = False
+                    if iso_check:
+                        expected_c13_m = peaks_m[i] + (C13_DIFF / z)
+                        iso_tol = expected_c13_m * (ppm_tolerance * 2.0 * 1e-6)
+                        idx_c13 = np.where((peaks_m >= expected_c13_m - iso_tol) & (peaks_m <= expected_c13_m + iso_tol))[0]
+                        if len(idx_c13) > 0:
+                            iso_confirmed = True
+
+                    if iso_strict and iso_check and (not iso_confirmed) and (c_val > 15):
+                        continue
+
+                    all_assigned_rows.append({
+                        "mass": peaks_m[i],
+                        "intensity": peaks_int[i],
+                        "norm_intensity": peaks_norm[i],
+                        "calc_mass": calc_m,
+                        "error_ppm": err_ppm,
+                        "z": z,
+                        "C": c_val,
+                        "H": h_val,
+                        "O": o_val,
+                        "N": n_val,
+                        "S": s_val,
+                        "Formula": f"C{c_val}H{h_val}O{o_val}"
+                        + (f"N{n_val}" if n_val > 0 else "")
+                        + (f"S{s_val}" if s_val > 0 else ""),
+                        "Iso_13C_Confirmed": iso_confirmed if iso_check else True,
+                    })
+
+    if not all_assigned_rows:
         return pd.DataFrame()
 
-    c_arr = np.array(c_list, dtype=np.int16)
-    h_arr = np.array(h_list, dtype=np.int16)
-    o_arr = np.array(o_list, dtype=np.int16)
-    n_arr = np.array(n_list, dtype=np.int8)
-    s_arr = np.array(s_list, dtype=np.int8)
-
-    cand_masses = (
-        c_arr * EXACT_MASSES["C"]
-        + h_arr * EXACT_MASSES["H"]
-        + o_arr * EXACT_MASSES["O"]
-        + n_arr * EXACT_MASSES["N"]
-        + s_arr * EXACT_MASSES["S"]
-        + ion_offset
-    )
-
-    sort_idx = np.argsort(cand_masses)
-    cand_masses = cand_masses[sort_idx]
-    c_arr = c_arr[sort_idx]
-    h_arr = h_arr[sort_idx]
-    o_arr = o_arr[sort_idx]
-    n_arr = n_arr[sort_idx]
-    s_arr = s_arr[sort_idx]
-
-    delta = peaks_m * (ppm_tolerance * 1e-6)
-    left_idx = np.searchsorted(cand_masses, peaks_m - delta)
-    right_idx = np.searchsorted(cand_masses, peaks_m + delta)
-
-    rows = []
-    for i in range(len(peaks_m)):
-        l, r = left_idx[i], right_idx[i]
-        if r > l:
-            best_j = None
-            best_score = (1e9, 99)
-            for j in range(l, r):
-                calc_m = cand_masses[j]
-                err_ppm = abs((peaks_m[i] - calc_m) / calc_m) * 1e6
-                hetero_penalty = n_arr[j] + s_arr[j]
-                score = (err_ppm, hetero_penalty)
-                if score < best_score:
-                    best_score = score
-                    best_j = j
-
-            if best_j is not None:
-                calc_m = cand_masses[best_j]
-                err_ppm = ((peaks_m[i] - calc_m) / calc_m) * 1e6
-                c_val = int(c_arr[best_j])
-                h_val = int(h_arr[best_j])
-                o_val = int(o_arr[best_j])
-                n_val = int(n_arr[best_j])
-                s_val = int(s_arr[best_j])
-                rows.append({
-                    "mass": peaks_m[i],
-                    "intensity": peaks_int[i],
-                    "norm_intensity": peaks_norm[i],
-                    "calc_mass": calc_m,
-                    "error_ppm": err_ppm,
-                    "C": c_val,
-                    "H": h_val,
-                    "O": o_val,
-                    "N": n_val,
-                    "S": s_val,
-                    "Formula": f"C{c_val}H{h_val}O{o_val}"
-                    + (f"N{n_val}" if n_val > 0 else "")
-                    + (f"S{s_val}" if s_val > 0 else ""),
-                })
-
-    return pd.DataFrame(rows)
+    res_df = pd.DataFrame(all_assigned_rows)
+    # Удаление дубликатов по массе, выбор наименьшей ppm погрешности
+    res_df = res_df.sort_values(by="error_ppm", key=abs).drop_duplicates(subset=["mass"]).sort_values("mass").reset_index(drop=True)
+    return res_df
 
 def compute_kmd(masses: np.ndarray, base_key: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     nom = KMD_BASES[base_key]["nom"]
@@ -825,6 +950,83 @@ def align_two_spectra_fast(df_a: pd.DataFrame, df_b: pd.DataFrame, ppm_tol: floa
         "n_a": n_a, "n_b": n_b, "n_common": n_common,
         "jaccard": jaccard, "cos_sim": cos_sim,
     }
+
+def perform_spectral_algebra(df_a: pd.DataFrame, df_b: pd.DataFrame, operation: str, ppm_tol: float = 1.5) -> pd.DataFrame:
+    align = align_two_spectra_fast(df_a, df_b, ppm_tol=ppm_tol)
+    a = align["df_a"]
+    b = align["df_b"]
+    m_a_set = set(align["matched_a"])
+    m_b_set = set(align["matched_b"])
+
+    if operation == "and":  # A ∩ B
+        return a.iloc[align["matched_a"]].copy().reset_index(drop=True)
+    elif operation == "sub_a_b":  # A \ B
+        mask = [i not in m_a_set for i in range(len(a))]
+        return a[mask].copy().reset_index(drop=True)
+    elif operation == "sub_b_a":  # B \ A
+        mask = [j not in m_b_set for j in range(len(b))]
+        return b[mask].copy().reset_index(drop=True)
+    elif operation == "xor":  # A ⊕ B
+        a_uniq = a[[i not in m_a_set for i in range(len(a))]]
+        b_uniq = b[[j not in m_b_set for j in range(len(b))]]
+        merged = pd.concat([a_uniq, b_uniq], ignore_index=True).sort_values("mass").reset_index(drop=True)
+        return merged
+    elif operation == "or":  # A ∪ B
+        # Берём общие (усредняем массу, суммируем интенсивность) + уникальные
+        common_rows = []
+        for i_a, i_b in zip(align["matched_a"], align["matched_b"]):
+            common_rows.append({
+                "mass": (a.loc[i_a, "mass"] + b.loc[i_b, "mass"]) / 2.0,
+                "intensity": a.loc[i_a, "intensity"] + b.loc[i_b, "intensity"],
+            })
+        a_uniq = a[[i not in m_a_set for i in range(len(a))]]
+        b_uniq = b[[j not in m_b_set for j in range(len(b))]]
+        res = pd.concat([pd.DataFrame(common_rows), a_uniq[["mass", "intensity"]], b_uniq[["mass", "intensity"]]], ignore_index=True)
+        return res.sort_values("mass").reset_index(drop=True)
+    return pd.DataFrame()
+
+def run_tmds_screening(peaks_df: pd.DataFrame, top_n: int = 1500, tol_mda: float = 2.0):
+    sub = peaks_df.sort_values("intensity", ascending=False).head(top_n).sort_values("mass").reset_index(drop=True)
+    masses = sub["mass"].values
+    n = len(masses)
+    if n < 2:
+        return pd.DataFrame(), pd.DataFrame()
+
+    diff_matrix = np.abs(masses[:, None] - masses[None, :])
+    i_upper, j_upper = np.triu_indices(n, k=1)
+    diffs = diff_matrix[i_upper, j_upper]
+
+    tol_da = tol_mda / 1000.0
+    total_pairs = len(diffs)
+    summary_rows = []
+    pair_rows = []
+
+    for item in TMDS_LIBRARY:
+        delta_theor = item["delta"]
+        mask = np.abs(diffs - delta_theor) <= tol_da
+        hit_count = int(np.sum(mask))
+        share = (hit_count / total_pairs * 100.0) if total_pairs > 0 else 0.0
+
+        summary_rows.append({
+            "Transformation": item["name"],
+            "Delta_m": delta_theor,
+            "Count": hit_count,
+            "Share_pct": round(share, 3),
+        })
+
+        if hit_count > 0:
+            hit_i = i_upper[mask]
+            hit_j = j_upper[mask]
+            for idx_a, idx_b in zip(hit_i[:300], hit_j[:300]):  # Сохраняем первые 300 для таблицы
+                pair_rows.append({
+                    "Transformation": item["name"],
+                    "Mass_1": masses[idx_a],
+                    "Mass_2": masses[idx_b],
+                    "Delta_obs": abs(masses[idx_a] - masses[idx_b]),
+                    "Error_mDa": (abs(masses[idx_a] - masses[idx_b]) - delta_theor) * 1000.0,
+                })
+
+    return pd.DataFrame(summary_rows), pd.DataFrame(pair_rows)
 
 def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
     calibrants = []
@@ -1022,6 +1224,13 @@ with st.sidebar:
                 st.markdown("---")
                 st.subheader(T[lang]["filtering_header"])
 
+                norm_choice = st.selectbox(
+                    T[lang]["norm_mode_label"],
+                    [T[lang]["norm_base"], T[lang]["norm_tic"], T[lang]["norm_raw"]],
+                    index=0,
+                    key=f"norm_mode_{active_spectrum_name}"
+                )
+
                 clean_mass = pd.to_numeric(raw_df[col_mz], errors="coerce")
                 clean_int = pd.to_numeric(raw_df[col_int], errors="coerce")
                 valid_mask = clean_mass.notna() & clean_int.notna()
@@ -1042,10 +1251,10 @@ with st.sidebar:
                 mz_range = st.slider(
                     T[lang]["mz_range"],
                     min_value=max(50.0, float(np.floor(min_m_data))),
-                    max_value=min(2000.0, float(np.ceil(max_m_data))),
+                    max_value=min(2500.0, float(np.ceil(max_m_data))),
                     value=(
                         max(100.0, float(np.floor(min_m_data))),
-                        min(1000.0, float(np.ceil(max_m_data))),
+                        min(1200.0, float(np.ceil(max_m_data))),
                     ),
                     step=10.0,
                     key=f"mzrange_{active_spectrum_name}"
@@ -1069,8 +1278,14 @@ with st.sidebar:
                 ].sort_values("mass").reset_index(drop=True)
 
                 if not filtered_df.empty:
-                    max_i = filtered_df["intensity"].max()
-                    filtered_df["norm_intensity"] = (filtered_df["intensity"] / max_i) * 100.0
+                    if norm_choice == T[lang]["norm_base"]:
+                        max_i = filtered_df["intensity"].max()
+                        filtered_df["norm_intensity"] = (filtered_df["intensity"] / max_i) * 100.0
+                    elif norm_choice == T[lang]["norm_tic"]:
+                        sum_i = filtered_df["intensity"].sum()
+                        filtered_df["norm_intensity"] = (filtered_df["intensity"] / sum_i) * 100.0
+                    else:
+                        filtered_df["norm_intensity"] = filtered_df["intensity"]
                 else:
                     filtered_df["norm_intensity"] = []
 
@@ -1089,7 +1304,7 @@ with st.sidebar:
         st.info(T[lang]["no_spectra_info"])
 
 # ==============================================================================
-# ОСНОВНОЙ ЭКРАН: 8 ЛОГИЧЕСКИХ ВКЛАДОК
+# ОСНОВНОЙ ЭКРАН: 9 ЛОГИЧЕСКИХ ВКЛАДОК
 # ==============================================================================
 st.title(T[lang]["title"])
 
@@ -1101,6 +1316,7 @@ tabs = st.tabs([
     T[lang]["tab_kmd"],
     T[lang]["tab_vk20"],
     T[lang]["tab_cmp"],
+    T[lang]["tab_tmds"],
     T[lang]["tab_desc"],
 ])
 
@@ -1153,12 +1369,13 @@ with tabs[0]:
                 marker=dict(color="#b45f06", size=7),
                 textfont=dict(color="#b45f06", size=10, family="sans-serif"),
                 name=T[lang]["top5_trace"],
-                hovertemplate="<b>m/z</b>: %{x:.4f}<br><b>Int</b>: %{y:.1f}%<extra></extra>",
+                hovertemplate="<b>m/z</b>: %{x:.4f}<br><b>Int</b>: %{y:.1f}<extra></extra>",
             ))
 
+        y_max_plot = float(peaks_df["norm_intensity"].max() * 1.15) if not peaks_df.empty else 100.0
         fig_stick.update_layout(
             xaxis=dict(title=T[lang]["mz_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-            yaxis=dict(title=T[lang]["rel_int_axis"], range=[0, 118], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+            yaxis=dict(title=T[lang]["rel_int_axis"], range=[0, y_max_plot], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
             plot_bgcolor="white",
             height=500,
             margin=dict(l=45, r=30, t=30, b=40),
@@ -1185,7 +1402,7 @@ with tabs[0]:
                     color="#b45f06",
                 )
         ax_mpl.set_xlim(peaks_df["mass"].min() - 10, peaks_df["mass"].max() + 10)
-        ax_mpl.set_ylim(0, 118)
+        ax_mpl.set_ylim(0, y_max_plot)
         ax_mpl.set_xlabel(T[lang]["mz_axis"], fontsize=11, fontweight="bold")
         ax_mpl.set_ylabel(T[lang]["rel_int_axis"], fontsize=11, fontweight="bold")
         ax_mpl.grid(True, linestyle="--", alpha=0.4)
@@ -1315,7 +1532,7 @@ with tabs[1]:
                 ))
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 3: ПРИПИСЫВАНИЕ ФОРМУЛ (ПОЛЗУНКИ ВНУТРИ ВКЛАДКИ)
+# ВКЛАДКА 3: ПРИПИСЫВАНИЕ ФОРМУЛ
 # ------------------------------------------------------------------------------
 with tabs[2]:
     if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
@@ -1325,7 +1542,7 @@ with tabs[2]:
         st.subheader(f"{T[lang]['tab_assign']}: {active_spectrum_name}")
 
         with st.expander(T[lang]["assign_expander"], expanded=True):
-            col_m1, col_m2 = st.columns([2, 1])
+            col_m1, col_m2, col_m3 = st.columns([2, 1, 1])
             with col_m1:
                 ion_mode = st.selectbox(
                     T[lang]["ion_mode"],
@@ -1334,6 +1551,8 @@ with tabs[2]:
                     key=f"ionmode_{active_spectrum_name}"
                 )
             with col_m2:
+                max_charge_val = st.selectbox(T[lang]["max_charge"], [1, 2], index=0, key=f"zmax_{active_spectrum_name}")
+            with col_m3:
                 ppm_tol = st.number_input(
                     T[lang]["ppm_tol"],
                     min_value=0.1,
@@ -1349,11 +1568,17 @@ with tabs[2]:
                 h_bounds = st.slider(T[lang]["h_lim"], 4, 200, (4, 200), key=f"hb_{active_spectrum_name}")
             with col_el2:
                 o_bounds = st.slider(T[lang]["o_lim"], 1, 60, (1, 60), key=f"ob_{active_spectrum_name}")
-                n_bounds = st.slider(T[lang]["n_lim"], 0, 2, (0, 2), key=f"nb_{active_spectrum_name}")
+                n_bounds = st.slider(T[lang]["n_lim"], 0, 3, (0, 2), key=f"nb_{active_spectrum_name}")
             with col_el3:
-                s_bounds = st.slider(T[lang]["s_lim"], 0, 1, (0, 1), key=f"sb_{active_spectrum_name}")
+                s_bounds = st.slider(T[lang]["s_lim"], 0, 2, (0, 1), key=f"sb_{active_spectrum_name}")
                 max_oc_val = st.slider(T[lang]["max_oc"], 0.1, 1.0, 1.0, step=0.05, key=f"moc_{active_spectrum_name}")
-                max_hc_val = st.slider(T[lang]["max_hc"], 0.2, 2.0, 2.0, step=0.05, key=f"mhc_{active_spectrum_name}")
+                max_hc_val = st.slider(T[lang]["max_hc"], 0.2, 2.2, 2.0, step=0.05, key=f"mhc_{active_spectrum_name}")
+
+            col_iso1, col_iso2 = st.columns(2)
+            with col_iso1:
+                iso_chk = st.checkbox(T[lang]["iso_filter_label"], value=False, key=f"isochk_{active_spectrum_name}")
+            with col_iso2:
+                iso_strict_chk = st.checkbox(T[lang]["iso_strict_label"], value=False, disabled=not iso_chk, key=f"isostrict_{active_spectrum_name}")
 
         if st.button(T[lang]["assign_btn"], type="primary", key=f"btn_assign_{active_spectrum_name}"):
             elem_bounds = {
@@ -1372,6 +1597,9 @@ with tabs[2]:
                     max_oc=max_oc_val,
                     ppm_tolerance=ppm_tol,
                     ion_mode=ion_mode,
+                    max_charge=max_charge_val,
+                    iso_check=iso_chk,
+                    iso_strict=iso_strict_chk,
                     lang=lang,
                 )
                 current_sample["assigned_df"] = assigned_res
@@ -1405,7 +1633,7 @@ with tabs[2]:
             st.warning(T[lang]["no_formulas_warn"])
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 4: ДИАГРАММА ВАН-КРЕВЕЛЕНА
+# ВКЛАДКА 4: ДИАГРАММЫ И ПРОЕКЦИИ
 # ------------------------------------------------------------------------------
 with tabs[3]:
     assigned_data = current_sample.get("assigned_df") if current_sample else None
@@ -1415,6 +1643,19 @@ with tabs[3]:
     else:
         st.subheader(f"{T[lang]['tab_vk']}: {active_spectrum_name}")
 
+        proj_type = st.radio(
+            T[lang]["proj_mode"],
+            [T[lang]["proj_vk"], T[lang]["proj_dbe_c"], T[lang]["proj_custom"]],
+            horizontal=True,
+            key=f"proj_type_{active_spectrum_name}"
+        )
+
+        col_p1, col_p2 = st.columns([2, 2])
+        with col_p1:
+            pow_exp = st.slider(T[lang]["pow_exp"], min_value=0.1, max_value=1.0, value=0.5, step=0.05, key=f"pow_{active_spectrum_name}")
+        with col_p2:
+            pass
+
         palette = {
             "CHO": "#0020C2",
             "CHON": "#FF7F0E",
@@ -1423,69 +1664,153 @@ with tabs[3]:
         }
         draw_order = ["CHO", "CHON", "CHOS", "CHONS"]
 
-        fig_vk_inter = go.Figure()
-        for cls in draw_order:
-            sub = assigned_data[assigned_data["Hetero_Class"] == cls]
-            if sub.empty:
-                continue
+        # 1. Диаграмма Ван-Кревелена
+        if proj_type == T[lang]["proj_vk"]:
+            fig_inter = go.Figure()
+            for cls in draw_order:
+                sub = assigned_data[assigned_data["Hetero_Class"] == cls]
+                if sub.empty:
+                    continue
 
-            hover_text = [
-                f"<b>{row.get('Formula', '')}</b><br>m/z: {row['mass']:.4f}<br>Err: {row.get('error_ppm', 0):.2f} ppm<br>DBE: {row.get('DBE', 0):.1f}<br>AI: {row.get('AI', 0):.2f}<br>Int: {row.get('norm_intensity', 0):.1f}%"
-                for _, row in sub.iterrows()
-            ]
+                scaled_sizes = 2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp
+                hover_text = [
+                    f"<b>{row.get('Formula', '')}</b><br>m/z: {row['mass']:.4f}<br>Err: {row.get('error_ppm', 0):.2f} ppm<br>DBE: {row.get('DBE', 0):.1f}<br>AI: {row.get('AI', 0):.2f}<br>Int: {row.get('norm_intensity', 0):.1f}"
+                    for _, row in sub.iterrows()
+                ]
 
-            fig_vk_inter.add_trace(go.Scattergl(
-                x=sub["O/C"],
-                y=sub["H/C"],
-                mode="markers",
-                name=f"{cls} ({len(sub):,})",
-                marker=dict(
-                    color=palette[cls],
-                    size=2.5 if cls == "CHO" else 3.5,
-                    opacity=0.5 if cls == "CHO" else 0.75,
-                ),
-                text=hover_text,
-                hoverinfo="text",
-            ))
+                fig_inter.add_trace(go.Scattergl(
+                    x=sub["O/C"],
+                    y=sub["H/C"],
+                    mode="markers",
+                    name=f"{cls} ({len(sub):,})",
+                    marker=dict(
+                        color=palette[cls],
+                        size=scaled_sizes,
+                        opacity=0.65,
+                    ),
+                    text=hover_text,
+                    hoverinfo="text",
+                ))
 
-        fig_vk_inter.update_layout(
-            xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-            yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-            plot_bgcolor="white",
-            height=580,
-            margin=dict(l=45, r=30, t=30, b=40),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
+            fig_inter.update_layout(
+                xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                plot_bgcolor="white",
+                height=580,
+                margin=dict(l=45, r=30, t=30, b=40),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.caption(T[lang]["nav_caption"])
+            st_plotly(fig_inter)
 
-        st.caption(T[lang]["nav_caption"])
-        st_plotly(fig_vk_inter)
+            fig_mpl, ax_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
+            for cls in draw_order:
+                sub = assigned_data[assigned_data["Hetero_Class"] == cls]
+                if not sub.empty:
+                    s_sizes = 1.5 + 4.0 * (sub["norm_intensity"] / 100.0) ** pow_exp
+                    ax_mpl.scatter(
+                        sub["O/C"],
+                        sub["H/C"],
+                        c=palette[cls],
+                        label=f"{cls} ({len(sub):,})",
+                        s=s_sizes,
+                        alpha=0.6,
+                        edgecolors="none",
+                        rasterized=True,
+                    )
+            ax_mpl.set_xlim(0.0, 1.0)
+            ax_mpl.set_ylim(0.2, 2.2)
+            ax_mpl.set_xlabel(T[lang]["oc_axis"], fontsize=11, fontweight="medium")
+            ax_mpl.set_ylabel(T[lang]["hc_axis"], fontsize=11, fontweight="medium")
+            ax_mpl.set_title(f"{active_spectrum_name}, {len(assigned_data):,} formulas (Van Krevelen)", fontsize=12, pad=10)
+            ax_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+            ax_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3, fontsize=9)
+            plt.tight_layout()
+            get_plot_download_buttons(fig_mpl, f"{active_spectrum_name}_van_krevelen", lang)
+            plt.close(fig_mpl)
 
-        fig_vk_mpl, ax_vk_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
-        for cls in draw_order:
-            sub = assigned_data[assigned_data["Hetero_Class"] == cls]
-            if not sub.empty:
-                ax_vk_mpl.scatter(
-                    sub["O/C"],
-                    sub["H/C"],
-                    c=palette[cls],
-                    label=f"{cls} ({len(sub):,})",
-                    s=1.8 if cls == "CHO" else 2.5,
-                    alpha=0.45 if cls == "CHO" else 0.75,
-                    edgecolors="none",
-                    rasterized=True,
-                )
-        ax_vk_mpl.set_xlim(0.0, 1.0)
-        ax_vk_mpl.set_ylim(0.2, 2.2)
-        ax_vk_mpl.set_xlabel(T[lang]["oc_axis"], fontsize=11, fontweight="medium")
-        ax_vk_mpl.set_ylabel(T[lang]["hc_axis"], fontsize=11, fontweight="medium")
-        fname = active_spectrum_name
-        ax_vk_mpl.set_title(f"{fname}, {len(assigned_data):,} formulas", fontsize=12, pad=10)
-        ax_vk_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
-        ax_vk_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=4, fontsize=9)
-        plt.tight_layout()
+        # 2. Диаграмма DBE vs C
+        elif proj_type == T[lang]["proj_dbe_c"]:
+            fig_inter = go.Figure()
+            for cls in draw_order:
+                sub = assigned_data[assigned_data["Hetero_Class"] == cls]
+                if sub.empty:
+                    continue
+                scaled_sizes = 2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp
+                fig_inter.add_trace(go.Scattergl(
+                    x=sub["C"],
+                    y=sub["DBE"],
+                    mode="markers",
+                    name=f"{cls} ({len(sub):,})",
+                    marker=dict(color=palette[cls], size=scaled_sizes, opacity=0.65),
+                    text=[f"{row.get('Formula', '')}<br>AI: {row.get('AI', 0):.2f}" for _, row in sub.iterrows()],
+                    hoverinfo="text",
+                ))
 
-        get_plot_download_buttons(fig_vk_mpl, f"{fname}_van_krevelen", lang)
-        plt.close(fig_vk_mpl)
+            c_line = np.linspace(4, 60, 100)
+            fig_inter.add_trace(go.Scatter(x=c_line, y=c_line * 0.9, mode="lines", name="Planar limit (AI=0.67)", line=dict(color="red", dash="dot")))
+            fig_inter.add_trace(go.Scatter(x=c_line, y=c_line * 0.5, mode="lines", name="Aromatic (AI=0.5)", line=dict(color="gray", dash="dash")))
+
+            fig_inter.update_layout(
+                xaxis=dict(title="Carbon atoms (C)", range=[0, assigned_data['C'].max() + 5], gridcolor="#f1f3f5"),
+                yaxis=dict(title="Double Bond Equivalent (DBE)", range=[0, assigned_data['DBE'].max() + 3], gridcolor="#f1f3f5"),
+                plot_bgcolor="white",
+                height=560,
+                margin=dict(l=45, r=30, t=30, b=40),
+            )
+            st.caption(T[lang]["nav_caption"])
+            st_plotly(fig_inter)
+
+            fig_mpl, ax_mpl = plt.subplots(figsize=(12, 7), dpi=150)
+            for cls in draw_order:
+                sub = assigned_data[assigned_data["Hetero_Class"] == cls]
+                if not sub.empty:
+                    ax_mpl.scatter(sub["C"], sub["DBE"], c=palette[cls], label=f"{cls} ({len(sub):,})", s=2.5, alpha=0.6, edgecolors="none", rasterized=True)
+            ax_mpl.plot(c_line, c_line * 0.9, color="red", linestyle=":", label="Planar limit")
+            ax_mpl.plot(c_line, c_line * 0.5, color="gray", linestyle="--", label="Aromatic (AI=0.5)")
+            ax_mpl.set_xlabel("Carbon atoms (C)", fontsize=11)
+            ax_mpl.set_ylabel("Double Bond Equivalent (DBE)", fontsize=11)
+            ax_mpl.set_title(f"DBE vs C (BE vs n) — {active_spectrum_name}", fontsize=12)
+            ax_mpl.grid(True, linestyle="--", alpha=0.3)
+            ax_mpl.legend(loc="upper left")
+            plt.tight_layout()
+            get_plot_download_buttons(fig_mpl, f"{active_spectrum_name}_dbe_vs_c", lang)
+            plt.close(fig_mpl)
+
+        # 3. Пользовательская проекция (Custom)
+        else:
+            avail_cols = ["mass", "intensity", "norm_intensity", "C", "H", "O", "N", "S", "H/C", "O/C", "DBE", "DBE-O", "AI", "NOSC", "error_ppm"]
+            c_sel1, c_sel2, c_sel3 = st.columns(3)
+            with c_sel1:
+                cx = st.selectbox("Ось X / X Axis:", avail_cols, index=avail_cols.index("mass"))
+            with c_sel2:
+                cy = st.selectbox("Ось Y / Y Axis:", avail_cols, index=avail_cols.index("DBE"))
+            with c_sel3:
+                cc = st.selectbox("Цвет / Color map:", avail_cols, index=avail_cols.index("AI"))
+
+            fig_cust = px.scatter(
+                assigned_data,
+                x=cx,
+                y=cy,
+                color=cc,
+                color_continuous_scale="Viridis",
+                hover_data=["Formula", "mass", "AI"],
+                opacity=0.7,
+                render_mode="webgl",
+            )
+            fig_cust.update_layout(height=560, plot_bgcolor="white")
+            st_plotly(fig_cust)
+
+            fig_mpl, ax_mpl = plt.subplots(figsize=(11, 6), dpi=150)
+            sc = ax_mpl.scatter(assigned_data[cx], assigned_data[cy], c=assigned_data[cc], cmap="viridis", s=3.0, alpha=0.7, edgecolors="none", rasterized=True)
+            plt.colorbar(sc, ax=ax_mpl, label=cc)
+            ax_mpl.set_xlabel(cx, fontsize=11)
+            ax_mpl.set_ylabel(cy, fontsize=11)
+            ax_mpl.set_title(f"{cy} vs {cx} (colored by {cc})", fontsize=12)
+            ax_mpl.grid(True, linestyle="--", alpha=0.3)
+            plt.tight_layout()
+            get_plot_download_buttons(fig_mpl, f"{active_spectrum_name}_custom_{cx}_{cy}", lang)
+            plt.close(fig_mpl)
 
         st.markdown("---")
         st.subheader(T[lang]["hetero_dist_title"])
@@ -1599,7 +1924,7 @@ with tabs[4]:
                 cbar_title = "DBE"
                 c_scale = "Plasma"
             else:
-                c_vals = work_df["intensity"]
+                c_vals = work_df["norm_intensity"]
                 cbar_title = T[lang]["kmd_int_mode"]
                 c_scale = "Cividis"
 
@@ -1762,7 +2087,7 @@ with tabs[5]:
         )
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 7: СРАВНЕНИЕ ОБРАЗЦОВ
+# ВКЛАДКА 7: СРАВНЕНИЕ И АЛГЕБРА СПЕКТРОВ
 # ------------------------------------------------------------------------------
 with tabs[6]:
     st.subheader(T[lang]["tab_cmp"])
@@ -1770,6 +2095,13 @@ with tabs[6]:
     if len(all_spectra) < 2:
         st.info(T[lang]["cmp_need_two"])
     else:
+        cmp_tab_choice = st.radio(
+            "Раздел / Mode:",
+            [T[lang]["cmp_subtab_view"], T[lang]["cmp_subtab_sub"], T[lang]["cmp_subtab_algebra"]],
+            horizontal=True,
+            key="cmp_internal_mode"
+        )
+
         col_s1, col_s2, col_s3 = st.columns([2, 2, 1.5])
         with col_s1:
             name_a = st.selectbox(T[lang]["cmp_spec_a"], all_spectra, index=0, key="cmp_spec_a")
@@ -1792,141 +2124,281 @@ with tabs[6]:
         else:
             align_res = align_two_spectra_fast(peaks_a, peaks_b, ppm_tol=tol_comp)
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric(f"Peaks in {name_a}" if lang == "en" else f"Пиков в {name_a}", f"{align_res['n_a']:,}")
-            m2.metric(f"Peaks in {name_b}" if lang == "en" else f"Пиков в {name_b}", f"{align_res['n_b']:,}")
-            m3.metric(T[lang]["cmp_common"], f"{align_res['n_common']:,}", delta=T[lang]["cmp_jaccard"].format(val=align_res['jaccard']))
-            m4.metric(T[lang]["cmp_cosine"], f"{align_res['cos_sim']:.4f}")
+            # 1. Обычное сравнение (A vs B)
+            if cmp_tab_choice == T[lang]["cmp_subtab_view"]:
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric(f"Peaks in {name_a}" if lang == "en" else f"Пиков в {name_a}", f"{align_res['n_a']:,}")
+                m2.metric(f"Peaks in {name_b}" if lang == "en" else f"Пиков в {name_b}", f"{align_res['n_b']:,}")
+                m3.metric(T[lang]["cmp_common"], f"{align_res['n_common']:,}", delta=T[lang]["cmp_jaccard"].format(val=align_res['jaccard']))
+                m4.metric(T[lang]["cmp_cosine"], f"{align_res['cos_sim']:.4f}")
 
-            assigned_a = sample_a.get("assigned_df")
-            assigned_b = sample_b.get("assigned_df")
+                assigned_a = sample_a.get("assigned_df")
+                assigned_b = sample_b.get("assigned_df")
 
-            if assigned_a is not None and not assigned_a.empty:
-                st.markdown("##### " + (f"Comparative Van Krevelen: {name_a} vs {name_b}" if lang == "en" else f"Сравнительная диаграмма Ван-Кревелена: {name_a} vs {name_b}"))
-                common_masses = set(align_res["df_a"].loc[align_res["matched_a"], "mass"].round(4))
+                if assigned_a is not None and not assigned_a.empty:
+                    st.markdown("##### " + (f"Comparative Van Krevelen: {name_a} vs {name_b}" if lang == "en" else f"Сравнительная диаграмма Ван-Кревелена: {name_a} vs {name_b}"))
+                    common_masses = set(align_res["df_a"].loc[align_res["matched_a"], "mass"].round(4))
 
-                assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
-                assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
+                    assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
+                    assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
 
-                fig_cmp_inter = go.Figure()
-                if not assigned_a_common.empty:
-                    fig_cmp_inter.add_trace(go.Scattergl(
-                        x=assigned_a_common["O/C"],
-                        y=assigned_a_common["H/C"],
-                        mode="markers",
-                        name=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)),
-                        marker=dict(color="#7F7F7F", size=3.0, opacity=0.45),
-                    ))
-
-                if not assigned_a_unique.empty:
-                    fig_cmp_inter.add_trace(go.Scattergl(
-                        x=assigned_a_unique["O/C"],
-                        y=assigned_a_unique["H/C"],
-                        mode="markers",
-                        name=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)),
-                        marker=dict(color="#0020C2", size=3.5, opacity=0.75),
-                    ))
-
-                if assigned_b is not None and not assigned_b.empty:
-                    assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
-                    if not assigned_b_unique.empty:
+                    fig_cmp_inter = go.Figure()
+                    if not assigned_a_common.empty:
                         fig_cmp_inter.add_trace(go.Scattergl(
-                            x=assigned_b_unique["O/C"],
-                            y=assigned_b_unique["H/C"],
+                            x=assigned_a_common["O/C"],
+                            y=assigned_a_common["H/C"],
                             mode="markers",
-                            name=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)),
-                            marker=dict(color="#2CA02C", size=3.5, opacity=0.75),
+                            name=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)),
+                            marker=dict(color="#7F7F7F", size=3.0, opacity=0.45),
                         ))
 
-                fig_cmp_inter.update_layout(
-                    xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-                    yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-                    plot_bgcolor="white",
-                    height=580,
-                    margin=dict(l=45, r=30, t=30, b=40),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                )
-                st.caption(T[lang]["nav_caption"])
-                st_plotly(fig_cmp_inter)
+                    if not assigned_a_unique.empty:
+                        fig_cmp_inter.add_trace(go.Scattergl(
+                            x=assigned_a_unique["O/C"],
+                            y=assigned_a_unique["H/C"],
+                            mode="markers",
+                            name=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)),
+                            marker=dict(color="#0020C2", size=3.5, opacity=0.75),
+                        ))
 
-                fig_cmp_mpl, ax_cmp_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
-                if not assigned_a_common.empty:
-                    ax_cmp_mpl.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
-                                       label=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)), s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
-                if not assigned_a_unique.empty:
-                    ax_cmp_mpl.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
-                                       label=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
-                if assigned_b is not None and not assigned_b.empty:
-                    if not assigned_b_unique.empty:
-                        ax_cmp_mpl.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
-                                           label=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                    if assigned_b is not None and not assigned_b.empty:
+                        assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
+                        if not assigned_b_unique.empty:
+                            fig_cmp_inter.add_trace(go.Scattergl(
+                                x=assigned_b_unique["O/C"],
+                                y=assigned_b_unique["H/C"],
+                                mode="markers",
+                                name=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)),
+                                marker=dict(color="#2CA02C", size=3.5, opacity=0.75),
+                            ))
 
-                ax_cmp_mpl.set_xlim(0.0, 1.0)
-                ax_cmp_mpl.set_ylim(0.2, 2.2)
-                ax_cmp_mpl.set_xlabel(T[lang]["oc_axis"], fontsize=11, fontweight="medium")
-                ax_cmp_mpl.set_ylabel(T[lang]["hc_axis"], fontsize=11, fontweight="medium")
-                ax_cmp_mpl.set_title(f"Comparative Analysis: {name_a} vs {name_b}", fontsize=11)
-                ax_cmp_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
-                ax_cmp_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
-                plt.tight_layout()
+                    fig_cmp_inter.update_layout(
+                        xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        plot_bgcolor="white",
+                        height=580,
+                        margin=dict(l=45, r=30, t=30, b=40),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    )
+                    st.caption(T[lang]["nav_caption"])
+                    st_plotly(fig_cmp_inter)
 
-                get_plot_download_buttons(fig_cmp_mpl, f"compare_{name_a}_vs_{name_b}_vk", lang)
-                plt.close(fig_cmp_mpl)
+                    fig_cmp_mpl, ax_cmp_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
+                    if not assigned_a_common.empty:
+                        ax_cmp_mpl.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
+                                           label=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)), s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
+                    if not assigned_a_unique.empty:
+                        ax_cmp_mpl.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
+                                           label=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                    if assigned_b is not None and not assigned_b.empty:
+                        if not assigned_b_unique.empty:
+                            ax_cmp_mpl.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
+                                               label=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+
+                    ax_cmp_mpl.set_xlim(0.0, 1.0)
+                    ax_cmp_mpl.set_ylim(0.2, 2.2)
+                    ax_cmp_mpl.set_xlabel(T[lang]["oc_axis"], fontsize=11, fontweight="medium")
+                    ax_cmp_mpl.set_ylabel(T[lang]["hc_axis"], fontsize=11, fontweight="medium")
+                    ax_cmp_mpl.set_title(f"Comparative Analysis: {name_a} vs {name_b}", fontsize=11)
+                    ax_cmp_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+                    ax_cmp_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+                    plt.tight_layout()
+
+                    get_plot_download_buttons(fig_cmp_mpl, f"compare_{name_a}_vs_{name_b}_vk", lang)
+                    plt.close(fig_cmp_mpl)
+                else:
+                    st.markdown("##### " + T[lang]["cmp_mirror_title"])
+                    ia_norm = (peaks_a["intensity"] / peaks_a["intensity"].max()) * 100.0
+                    ib_norm = (peaks_b["intensity"] / peaks_b["intensity"].max()) * 100.0
+
+                    ma = peaks_a["mass"].values
+                    mb = peaks_b["mass"].values
+
+                    x_a = np.empty(len(ma) * 3)
+                    y_a = np.empty(len(ma) * 3)
+                    x_a[0::3] = ma
+                    x_a[1::3] = ma
+                    x_a[2::3] = None
+                    y_a[0::3] = 0
+                    y_a[1::3] = ia_norm
+                    y_a[2::3] = None
+
+                    x_b = np.empty(len(mb) * 3)
+                    y_b = np.empty(len(mb) * 3)
+                    x_b[0::3] = mb
+                    x_b[1::3] = mb
+                    x_b[2::3] = None
+                    y_b[0::3] = 0
+                    y_b[1::3] = -ib_norm
+                    y_b[2::3] = None
+
+                    fig_mir_inter = go.Figure()
+                    fig_mir_inter.add_trace(go.Scattergl(x=x_a, y=y_a, mode="lines", line=dict(color="#0020C2", width=1.1), name=f"{name_a} (+)"))
+                    fig_mir_inter.add_trace(go.Scattergl(x=x_b, y=y_b, mode="lines", line=dict(color="#2CA02C", width=1.1), name=f"{name_b} (-)"))
+                    fig_mir_inter.update_layout(
+                        xaxis=dict(title=T[lang]["mz_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        yaxis=dict(title=T[lang]["rel_int_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        plot_bgcolor="white",
+                        height=480,
+                        margin=dict(l=45, r=30, t=30, b=40),
+                    )
+                    st.caption(T[lang]["nav_caption"])
+                    st_plotly(fig_mir_inter)
+
+                    fig_mir_mpl, ax_mir_mpl = plt.subplots(figsize=(12, 5), dpi=150)
+                    ax_mir_mpl.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
+                    ax_mir_mpl.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
+                    ax_mir_mpl.axhline(0, color="black", linewidth=0.8)
+                    ax_mir_mpl.set_xlabel(T[lang]["mz_axis"], fontsize=11)
+                    ax_mir_mpl.set_ylabel(T[lang]["rel_int_axis"], fontsize=10)
+                    ax_mir_mpl.legend(loc="upper right")
+                    plt.tight_layout()
+
+                    get_plot_download_buttons(fig_mir_mpl, f"head_to_tail_{name_a}_vs_{name_b}", lang)
+                    plt.close(fig_mir_mpl)
+
+            # 2. Вычитание бланка (int_sub)
+            elif cmp_tab_choice == T[lang]["cmp_subtab_sub"]:
+                st.markdown(f"#### {T[lang]['cmp_subtab_sub']}")
+                st.write(f"Образец: **{name_a}** | Холостая проба (Бланк): **{name_b}**")
+                sub_factor = st.slider(T[lang]["sub_factor_label"], min_value=0.1, max_value=3.0, value=1.0, step=0.05)
+
+                if st.button(T[lang]["sub_btn"], type="primary"):
+                    sub_peaks = peaks_a.copy()
+                    matched_dict = dict(zip(align_res["matched_a"], align_res["matched_b"]))
+
+                    new_ints = []
+                    for idx_a_row in range(len(sub_peaks)):
+                        orig_int = sub_peaks.loc[idx_a_row, "intensity"]
+                        if idx_a_row in matched_dict:
+                            idx_b_row = matched_dict[idx_a_row]
+                            blank_int = peaks_b.loc[idx_b_row, "intensity"]
+                            res_int = max(0.0, orig_int - sub_factor * blank_int)
+                        else:
+                            res_int = orig_int
+                        new_ints.append(res_int)
+
+                    sub_peaks["intensity"] = new_ints
+                    clean_sub_df = sub_peaks[sub_peaks["intensity"] > 0].copy().reset_index(drop=True)
+                    if not clean_sub_df.empty:
+                        clean_sub_df["norm_intensity"] = (clean_sub_df["intensity"] / clean_sub_df["intensity"].max()) * 100.0
+
+                    new_sample_name = f"{name_a}_sub_{name_b}.csv"
+                    st.session_state["spectra_db"][new_sample_name] = {
+                        "raw_path": os.path.join(STORAGE_DIR, new_sample_name),
+                        "file_bytes": clean_sub_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                        "parsed_peaks": clean_sub_df,
+                        "assigned_df": None,
+                        "raw_df": clean_sub_df,
+                    }
+                    st.success(T[lang]["sub_success"].format(name=new_sample_name, n=len(clean_sub_df)))
+                    st.rerun()
+
+            # 3. Алгебра спектров и диаграмма Венна
             else:
-                st.markdown("##### " + T[lang]["cmp_mirror_title"])
-                ia_norm = (peaks_a["intensity"] / peaks_a["intensity"].max()) * 100.0
-                ib_norm = (peaks_b["intensity"] / peaks_b["intensity"].max()) * 100.0
-
-                ma = peaks_a["mass"].values
-                mb = peaks_b["mass"].values
-
-                x_a = np.empty(len(ma) * 3)
-                y_a = np.empty(len(ma) * 3)
-                x_a[0::3] = ma
-                x_a[1::3] = ma
-                x_a[2::3] = None
-                y_a[0::3] = 0
-                y_a[1::3] = ia_norm
-                y_a[2::3] = None
-
-                x_b = np.empty(len(mb) * 3)
-                y_b = np.empty(len(mb) * 3)
-                x_b[0::3] = mb
-                x_b[1::3] = mb
-                x_b[2::3] = None
-                y_b[0::3] = 0
-                y_b[1::3] = -ib_norm
-                y_b[2::3] = None
-
-                fig_mir_inter = go.Figure()
-                fig_mir_inter.add_trace(go.Scattergl(x=x_a, y=y_a, mode="lines", line=dict(color="#0020C2", width=1.1), name=f"{name_a} (+)"))
-                fig_mir_inter.add_trace(go.Scattergl(x=x_b, y=y_b, mode="lines", line=dict(color="#2CA02C", width=1.1), name=f"{name_b} (-)"))
-                fig_mir_inter.update_layout(
-                    xaxis=dict(title=T[lang]["mz_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-                    yaxis=dict(title=T[lang]["rel_int_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
-                    plot_bgcolor="white",
-                    height=480,
-                    margin=dict(l=45, r=30, t=30, b=40),
+                st.markdown(f"#### {T[lang]['cmp_subtab_algebra']}")
+                op_choice = st.selectbox(
+                    T[lang]["alg_op_label"],
+                    [
+                        ("and", T[lang]["alg_and"]),
+                        ("or", T[lang]["alg_or"]),
+                        ("sub_a_b", T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b)),
+                        ("sub_b_a", T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b)),
+                        ("xor", T[lang]["alg_xor"]),
+                    ],
+                    format_func=lambda x: x[1],
                 )
-                st.caption(T[lang]["nav_caption"])
-                st_plotly(fig_mir_inter)
 
-                fig_mir_mpl, ax_mir_mpl = plt.subplots(figsize=(12, 5), dpi=150)
-                ax_mir_mpl.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
-                ax_mir_mpl.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
-                ax_mir_mpl.axhline(0, color="black", linewidth=0.8)
-                ax_mir_mpl.set_xlabel(T[lang]["mz_axis"], fontsize=11)
-                ax_mir_mpl.set_ylabel(T[lang]["rel_int_axis"], fontsize=10)
-                ax_mir_mpl.legend(loc="upper right")
+                # Построение диаграммы Венна (Matplotlib Circles)
+                fig_v, ax_v = plt.subplots(figsize=(8, 4.5), dpi=150)
+                c_a = patches.Circle((0.35, 0.5), 0.3, facecolor="#0020C2", alpha=0.4, edgecolor="black", linewidth=1.5)
+                c_b = patches.Circle((0.65, 0.5), 0.3, facecolor="#2CA02C", alpha=0.4, edgecolor="black", linewidth=1.5)
+                ax_v.add_patch(c_a)
+                ax_v.add_patch(c_b)
+
+                n_uniq_a = align_res["n_a"] - align_res["n_common"]
+                n_uniq_b = align_res["n_b"] - align_res["n_common"]
+                n_comm = align_res["n_common"]
+
+                ax_v.text(0.22, 0.5, f"{name_a}\n\n{n_uniq_a:,}", ha="center", va="center", fontsize=11, fontweight="bold")
+                ax_v.text(0.78, 0.5, f"{name_b}\n\n{n_uniq_b:,}", ha="center", va="center", fontsize=11, fontweight="bold")
+                ax_v.text(0.50, 0.5, f"A ∩ B\n\n{n_comm:,}", ha="center", va="center", fontsize=11, fontweight="bold", color="#800000")
+
+                ax_v.set_xlim(0, 1)
+                ax_v.set_ylim(0.1, 0.9)
+                ax_v.axis("off")
+                ax_v.set_title(T[lang]["venn_title"].format(tol=tol_comp), fontsize=12, pad=10)
                 plt.tight_layout()
+                st.pyplot(fig_v)
+                get_plot_download_buttons(fig_v, f"venn_{name_a}_vs_{name_b}", lang)
+                plt.close(fig_v)
 
-                get_plot_download_buttons(fig_mir_mpl, f"head_to_tail_{name_a}_vs_{name_b}", lang)
-                plt.close(fig_mir_mpl)
+                if st.button(T[lang]["alg_btn"], type="primary"):
+                    alg_df = perform_spectral_algebra(peaks_a, peaks_b, operation=op_choice[0], ppm_tol=tol_comp)
+                    if not alg_df.empty:
+                        alg_df["norm_intensity"] = (alg_df["intensity"] / alg_df["intensity"].max()) * 100.0
+                    new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
+                    st.session_state["spectra_db"][new_alg_name] = {
+                        "raw_path": os.path.join(STORAGE_DIR, new_alg_name),
+                        "file_bytes": alg_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                        "parsed_peaks": alg_df,
+                        "assigned_df": None,
+                        "raw_df": alg_df,
+                    }
+                    st.success(T[lang]["alg_success"].format(name=new_alg_name, n=len(alg_df)))
+                    st.rerun()
 
 # ------------------------------------------------------------------------------
-# ВКЛАДКА 8: СВОДНЫЕ ХАРАКТЕРИСТИКИ
+# ВКЛАДКА 8: СЕТИ ТРАНСФОРМАЦИЙ (TMDS)
 # ------------------------------------------------------------------------------
 with tabs[7]:
+    st.subheader(f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}")
+    peaks_df = current_sample.get("parsed_peaks") if current_sample else None
+
+    if peaks_df is None or peaks_df.empty:
+        st.info(T[lang]["no_spectra_info"])
+    else:
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            top_peaks_tmds = st.slider(T[lang]["tmds_top_label"], 200, 3000, 1200, step=100)
+        with col_t2:
+            tol_mda_val = st.number_input(T[lang]["tmds_tol_label"], min_value=0.5, max_value=10.0, value=2.0, step=0.5)
+
+        tmds_summary, tmds_pairs = run_tmds_screening(peaks_df, top_n=top_peaks_tmds, tol_mda=tol_mda_val)
+
+        if not tmds_summary.empty:
+            fig_tmds_bar = px.bar(
+                tmds_summary,
+                x="Transformation",
+                y="Count",
+                color="Transformation",
+                text=tmds_summary["Share_pct"].apply(lambda v: f"{v:.2f}%"),
+                title=T[lang]["tmds_trans_title"],
+            )
+            fig_tmds_bar.update_layout(showlegend=False, xaxis_tickangle=-25, height=450)
+            st_plotly(fig_tmds_bar)
+
+            st.write(T[lang]["tmds_trans_title"])
+            st_df(tmds_summary)
+
+            if not tmds_pairs.empty:
+                st.markdown("---")
+                st.write("Примеры связанных пар пиков (Connected Reaction Pairs):")
+                st_df(tmds_pairs.head(100))
+
+                csv_tmds = tmds_pairs.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label=T[lang]["tmds_dl_csv"],
+                    data=csv_tmds,
+                    file_name=f"{active_spectrum_name}_tmds_pairs.csv",
+                    mime="text/csv",
+                    key=f"dl_tmds_{active_spectrum_name}"
+                )
+
+# ------------------------------------------------------------------------------
+# ВКЛАДКА 9: СВОДНЫЕ ХАРАКТЕРИСТИКИ
+# ------------------------------------------------------------------------------
+with tabs[8]:
     assigned_data = current_sample.get("assigned_df") if current_sample else None
 
     if assigned_data is None or assigned_data.empty:
@@ -1976,7 +2448,7 @@ with tabs[7]:
 
         st.markdown("---")
         st.markdown(f"#### {T[lang]['desc_stats_header']}")
-        stat_cols = ["mass", "H/C", "O/C", "DBE", "DBE-O", "AI", "error_ppm"]
+        stat_cols = ["mass", "H/C", "O/C", "DBE", "DBE-O", "AI", "NOSC", "error_ppm"]
         summary_stats = assigned_data[stat_cols].describe().T[["mean", "std", "min", "50%", "max"]]
         summary_stats.columns = [
             T[lang]["stat_mean"],
