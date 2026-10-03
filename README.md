@@ -98,16 +98,17 @@ cd NOM-SPECTRa
 python -m venv venv
 ```
 # Linux / macOS:
+```
 source venv/bin/activate
-
+```
 # Windows PowerShell:
+```
 .\venv\Scripts\Activate.ps1
+```
 3. Install dependencies
 ```
 pip install -r requirements.txt
 (Optional) Install MSU Chemistry's nomspectra package:
-```
-```
 pip install git+https://github.com/nomspectra/nomspectra.git
 ```
 4. Launch the application
