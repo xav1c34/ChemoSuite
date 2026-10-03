@@ -15,7 +15,7 @@ The analytical pipeline is built upon methodologies developed at the **Laborator
 - **Robust Data Ingestion & Preprocessing:**
   - Native support for `.csv`, `.txt`, `.tsv`, and `.xy` formats with flexible delimiter and decimal separator detection.
   - Interactive column mapping, $m/z$ range trimming, and noise cutoff filtering.
-  - Signal normalization relative to base peak (0–100%).
+  - Flexible intensity normalization: Base Peak (I_max = 100%), Total Ion Current (TIC / ∑I = 100%), or unnormalized Raw intensities.
 
 - **Stick Mass Spectrum (Stick Plot):**
   - Ultra-fast vector rendering with `matplotlib.pyplot.vlines` optimized for dense spectra (>20,000 peaks).
@@ -32,10 +32,14 @@ The analytical pipeline is built upon methodologies developed at the **Laborator
   - Strict NOM domain filters: $\text{C} \in [4, 120]$, $\text{H} \in [4, 200]$, $\text{O} \in [1, 60]$, $\text{N} \le 2$, $\text{S} \le 1$.
   - Nitrogen parity rule, alkane valence boundary ($H \le 2C + N + 2$), $DBE \ge 0$, and oxygen density limit ($-10 \le DBE - O \le 10$).
   - Ionization mode awareness: $\text{ESI}(-)\ [M - H]^-$, $\text{ESI}(+)\ [M + H]^+$, and neutral mass $[M]$.
+  - Multi-charge assignment: Flexible ionization modes (ESI(-), ESI(+), neutral) with support for singly and doubly charged ions (z = 1, 2).
+  - 13C Isotopic Verification: Confirmation of assigned formulas using monoisotopic +1.00335 Da satellite peaks and strict false-positive pruning.
 
-- **Van Krevelen Diagram & Heteroatom Pooling:**
-  - Multi-layered scatter visualization: dense $\text{CHO}$ baseline (blue) overlaid with distinct heteroatom pools ($\text{CHON}$, $\text{CHOS}$, $\text{CHONS}$).
-  - Biochemical zoning (lignin-like, lipids, carbohydrates, condensed tannins, and specialized $\text{CHON}$ pools).
+- **Multi-Dimensional Projections & Plots:**
+  - Van Krevelen diagram with dynamic power scaling (I^γ) to visualize low-abundance signals without peak saturation.
+  - Aromaticity projection (DBE vs C / BE vs n) with planar limits (AI = 0.67) and polyene condensation boundaries.
+  - Fully customizable 2D scatter plots (user-selected X, Y, and color dimensions).
+  - Biochemical zoning (lignin-like/CRAM, lipids, carbohydrates, condensed tannins, and specialized CHON pools).
 
 - **Kendrick Mass Defect (KMD) Analysis:**
   - Support for multiple functional bases: $\text{CH}_2$, $\text{COO}$, $\text{O}$, and $\text{H}_2$.
@@ -46,11 +50,15 @@ The analytical pipeline is built upon methodologies developed at the **Laborator
   - Heatmap representation of relative formula counts (%) and weighted intensity densities (%).
   - Direct export of 20-dimensional feature vectors (`VK_1` ... `VK_20`) for PCA / multivariate statistics.
 
-- **Sample Comparison & Alignment (Set Operations):**
-  - Binary alignment of sample mixtures with adjustable ppm tolerance.
-  - Set intersection ($A \cap B$) and differences ($A \setminus B$, $B \setminus A$).
-  - Chemometric similarity evaluation: **Jaccard Index** and **Cosine Similarity**.
-  - Head-to-Tail mirror spectra and dual-color comparative Van Krevelen projections.
+- **Spectral Algebra, Set Operations & Blank Subtraction:**
+  - Solvent/Blank subtraction (int_sub): Corrects matrix peaks (I_corr = I_sample - k · I_blank) and creates clean spectra in one click.
+  - Set algebra engine: Intersection (A ∩ B), Union (A ∪ B), Set Difference (A \ B), and Symmetric Difference (A ⊕ B).
+  - Built-in Venn diagram generation for two-sample overlaps with high-res export.
+  - Pairwise alignment: Jaccard index, Cosine similarity, Head-to-Tail mirror plots, and comparative Van Krevelen overlays.
+
+- **Reaction Networks & TMDS (Targeted Mass Difference Screening):**
+  - Pairwise mass difference analysis screening for fundamental biogeochemical steps: CH2, O, H2O, H2, CO2, NH3, CO, and SO3.
+  - Transformation frequency distributions and downloadable network pair tables.
 
 - **Ensemble Descriptors:**
   - Comprehensive statistical cards: number-averaged ($M_n$) vs weight-averaged ($M_w$) masses, $H/C$, $O/C$, $DBE$, $DBE - O$, Koch & Dittmar Modified Aromaticity Index ($AI_{\text{mod}}$), and NOSC.
@@ -110,6 +118,8 @@ Python 3.10+
 
 streamlit
 
+scipy
+
 pandas
 
 numpy
@@ -119,6 +129,8 @@ matplotlib
 plotly
 
 🔬 Methodology & References
+Volikov, A. B., et al. (2024). NOMspectra: An Open-Source Software Suite for Processing and Analyzing Ultrahigh-Resolution Mass Spectrometry Data of Natural Organic Matter. Journal of the American Society for Mass Spectrometry (JASMS). doi:10.1021/jasms.3c00003
+
 Koch, B. P., & Dittmar, T. (2006/2016). From mass to structure: an aromaticity index for high-resolution mass data of natural organic matter. Rapid Communications in Mass Spectrometry.
 
 Hughey, C. A., Hendrickson, C. L., Rodgers, R. P., Marshall, A. G., & Qian, K. (2001). Kendrick mass defect spectrum: a compact visual analysis for ultrahigh-resolution broadband mass spectra. Analytical Chemistry.
