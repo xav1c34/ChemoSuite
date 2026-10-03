@@ -2,4 +2,8 @@ streamlit
 pandas
 numpy
 matplotlib
+streamlit
+pandas
+numpy
+matplotlib
 plotly
