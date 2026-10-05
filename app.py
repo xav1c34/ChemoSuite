@@ -29,13 +29,25 @@ except ImportError:
         from modules import eem_core
         EEM_CORE_AVAILABLE = True
     except ImportError:
+        eem_core = None
         EEM_CORE_AVAILABLE = False
+
+try:
+    import chemo_ml
+    CHEMO_ML_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import chemo_ml
+        CHEMO_ML_AVAILABLE = True
+    except ImportError:
+        chemo_ml = None
+        CHEMO_ML_AVAILABLE = False
 
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
 # ==============================================================================
 st.set_page_config(
-    page_title="ChemoSuite Platform | FT-ICR MS & EEM-PARAFAC",
+    page_title="ChemoSuite Platform | FT-ICR MS, EEM & Chemometrics",
     page_icon="⚗️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -85,12 +97,21 @@ STORAGE_DIR = "user_spectra"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # ==============================================================================
-# СЛОВАРЬ ЛОКАЛИЗАЦИИ FT-ICR MS (I18N)
+# СЛОВАРЬ ПОЛНОЙ ДВУЯЗЫЧНОЙ ЛОКАЛИЗАЦИИ (I18N)
 # ==============================================================================
 T = {
     "ru": {
-        "title": "🔬 Спектрометрия NOM сверхвысокого разрешения (FT-ICR MS)",
+        # Платформа
+        "header_title": "⚗️ ChemoSuite: Анализ РОВ и Шлам-лигнина",
+        "header_subtitle": "Кафедра аналитической химии & Лаборатория природных гуминовых систем химфака МГУ",
+        "nav_title": "### ⚗️ Платформа ChemoSuite",
+        "nav_module_label": "Аналитический модуль:",
+        "mod1_name": "🧪 NOM-Spectra FT-ICR MS",
+        "mod2_name": "💡 EEM-PARAFAC (Флуоресценция)",
+        "mod3_name": "🧬 ChemoSuite ML (Data Fusion)",
         "lang_label": "🌐 Язык / Language",
+        # Модуль 1: FT-ICR MS
+        "title": "🔬 Спектрометрия NOM сверхвысокого разрешения (FT-ICR MS)",
         "sidebar_mgr": "📁 Менеджер масс-спектров",
         "nomspectra_missing": "Библиотека nomspectra не найдена в окружении. Используется встроенное векторное ядро.",
         "uploader_label": "Загрузить спектры (файлы или перетащите папку):",
@@ -258,10 +279,93 @@ T = {
         "stat_min": "Мин.",
         "stat_med": "Медиана",
         "stat_max": "Макс.",
+        # Модуль 2: EEM-PARAFAC
+        "eem_title": "💡 Анализ флуоресценции: EEM-PARAFAC",
+        "eem_subtitle": "Методология лаборатории природных гуминовых систем химфака МГУ | Анализ РОВ и шлам-лигнина",
+        "eem_sidebar_hdr": "📁 Менеджер EEM матриц",
+        "eem_src_label": "Источник оптических данных:",
+        "eem_src_synth": "Синтетический бенчмарк (Байкал / Лигнин)",
+        "eem_src_upload": "Загрузка файлов (CSV/TXT/DAT)",
+        "eem_uploader_label": "Загрузите таблицы EEM:",
+        "eem_preproc_hdr": "Параметры предобработки",
+        "eem_clean_scatter": "Удалять Рэлеевское рассеяние 1 и 2 порядка",
+        "eem_norm_raman": "Нормировка на Raman пик воды (R.U.)",
+        "eem_palette_label": "Цветовая шкала EEM:",
+        "eem_err_missing": "⚠️ Файл `eem_core.py` не обнаружен! Поместите файл `eem_core.py` в ту же директорию.",
+        "eem_warn_no_data": "Загрузите файлы матриц флуоресценции или выберите синтетический бенчмарк.",
+        "eem_tab1": "📊 Экран 1: 2D Контурная карта EEM",
+        "eem_tab2": "📈 Экран 2: Спектральные индексы (FI, HIX, SUVA)",
+        "eem_tab3": "🧬 Экран 3: Моделирование PARAFAC",
+        "eem_select_sample": "Выберите пробу:",
+        "eem_contour_title": "Контурная карта флуоресценции: {name}",
+        "eem_ex_axis": "Длина волны возбуждения, Ex (нм)",
+        "eem_em_axis": "Длина волны эмиссии, Em (нм)",
+        "eem_int_label": "Интенсивность",
+        "eem_indices_title": "Оптические хемометрические индексы",
+        "eem_dl_indices": "📥 Скачать индексы (CSV)",
+        "eem_parafac_title": "Неотрицательное трехкомпонентное PARAFAC-разложение",
+        "eem_parafac_spinner": "Идет расчет модели PARAFAC...",
+        "eem_m_exp_var": "Объясненная дисперсия",
+        "eem_m_corcondia": "CORCONDIA (Диагностика)",
+        "eem_corcondia_ok": "Модель адекватна",
+        "eem_corcondia_warn": "Внимание",
+        "eem_m_components": "Число флуорофоров",
+        "eem_m_comp_val": "3 компонента",
+        "eem_comp_c1": "C1: Фульвоподобный",
+        "eem_comp_c2": "C2: Гуминовый (Лигнин)",
+        "eem_comp_c3": "C3: Белковоподобный",
+        "eem_em_prof_title": "Спектры эмиссии (Loading B)",
+        "eem_ex_prof_title": "Спектры возбуждения (Loading C)",
+        "eem_rel_int": "Относительная интенсивность",
+        "eem_scores_title": "Вклады компонент по пробам (Концентрационная матрица Scores A)",
+        "eem_scores_chart_title": "Парциальные интенсивности флуорофоров",
+        "eem_dl_ml_btn": "💾 Экспорт оптических дескрипторов (CSV для PLS-DA)",
+        # Модуль 3: ChemoSuite ML
+        "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
+        "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
+        "ml_err_missing": "⚠️ Файл `chemo_ml.py` не найден в рабочей директории приложения!",
+        "ml_sec1_title": "1. Подготовка объединенной матрицы признаков (Data Staging)",
+        "ml_load_demo_btn": "📥 Загрузить демо-бенчмарк (Байкал vs Шлам-лигнин)",
+        "ml_demo_source_name": "Синтетический бенчмарк (14 проб)",
+        "ml_custom_source_name": "Пользовательский",
+        "ml_active_dataset_info": "Активный датасет: **{src}** | Число образцов: **{n}**",
+        "ml_classes_caption": "Разметка классов: `1` — Шлам-лигнин, `0` — Фоновые воды.",
+        "ml_col_class_target": "Класс (Target)",
+        "ml_sec2_title": "2. Параметры моделирования PLS-DA",
+        "ml_lvs_slider": "Скрытые переменные (LVs):",
+        "ml_block_scale": "Блочное шкалирование (1/√P)",
+        "ml_run_btn": "🚀 Обучить модель PLS-DA",
+        "ml_spinner": "Обучение модели PLS-DA и кросс-валидация...",
+        "ml_sec3_title": "3. Результаты и статистическая валидация",
+        "ml_m_r2x": "R²X (Дисперсия спектров)",
+        "ml_m_r2y": "R²Y (Объяснение классов)",
+        "ml_m_q2": "Q² (Валидация LOO-CV)",
+        "ml_q2_ok": "Надежна",
+        "ml_q2_warn": "Слабая",
+        "ml_m_acc": "Точность (Accuracy)",
+        "ml_scores_chart_title": "Scores Plot (t₁ vs t₂) с эллипсом Хотеллинга 95%",
+        "ml_hotelling_name": "Hotelling T² (95%)",
+        "ml_class1_label": "Шлам-лигнин (Класс 1)",
+        "ml_class0_label": "Фон / Байкал (Класс 0)",
+        "ml_vip_chart_title": "Ключевые маркеры (VIP Scores > 1.0)",
+        "ml_vip_cutoff": "Порог VIP=1.0",
+        "ml_vip_tbl_title": "Ранжированный список дескрипторов по VIP:",
+        "ml_dl_vip_btn": "📥 Скачать VIP дескрипторы (CSV)",
+        "ml_warn_input": "Ошибка входных данных: {err}",
+        "ml_info_no_data": "💡 Нажмите кнопку выше, чтобы загрузить согласованный датасет дескрипторов.",
     },
     "en": {
-        "title": "🔬 Ultra-High Resolution Mass Spectrometry (FT-ICR MS)",
+        # Platform
+        "header_title": "⚗️ ChemoSuite: NOM & Slime-Lignin Analysis",
+        "header_subtitle": "Department of Analytical Chemistry & Humic Systems Laboratory, Chemistry Faculty, MSU",
+        "nav_title": "### ⚗️ ChemoSuite Platform",
+        "nav_module_label": "Analytical Module:",
+        "mod1_name": "🧪 NOM-Spectra FT-ICR MS",
+        "mod2_name": "💡 EEM-PARAFAC (Fluorescence)",
+        "mod3_name": "🧬 ChemoSuite ML (Data Fusion)",
         "lang_label": "🌐 Language / Язык",
+        # Module 1: FT-ICR MS
+        "title": "🔬 Ultra-High Resolution Mass Spectrometry (FT-ICR MS)",
         "sidebar_mgr": "📁 Spectrum Manager",
         "nomspectra_missing": "nomspectra library not found in environment. Built-in high-performance engine is active.",
         "uploader_label": "Upload spectra (files or drag & drop folder):",
@@ -429,6 +533,80 @@ T = {
         "stat_min": "Min",
         "stat_med": "Median",
         "stat_max": "Max",
+        # Module 2: EEM-PARAFAC
+        "eem_title": "💡 Fluorescence Analysis: EEM-PARAFAC",
+        "eem_subtitle": "Methodology of Humic Systems Lab, Chemistry Faculty, MSU | NOM & Slime-Lignin",
+        "eem_sidebar_hdr": "📁 EEM Matrix Manager",
+        "eem_src_label": "Optical Data Source:",
+        "eem_src_synth": "Synthetic Benchmark (Baikal / Lignin)",
+        "eem_src_upload": "Upload Files (CSV/TXT/DAT)",
+        "eem_uploader_label": "Upload EEM Matrices:",
+        "eem_preproc_hdr": "Preprocessing Options",
+        "eem_clean_scatter": "Remove 1st & 2nd Order Rayleigh Scattering",
+        "eem_norm_raman": "Normalize to Water Raman Peak (R.U.)",
+        "eem_palette_label": "EEM Color Palette:",
+        "eem_err_missing": "⚠️ `eem_core.py` not found! Place `eem_core.py` in the same directory.",
+        "eem_warn_no_data": "Upload fluorescence matrices or select synthetic benchmark.",
+        "eem_tab1": "📊 Tab 1: 2D EEM Contour Plot",
+        "eem_tab2": "📈 Tab 2: Spectral Indices (FI, HIX, SUVA)",
+        "eem_tab3": "🧬 Tab 3: PARAFAC Modeling",
+        "eem_select_sample": "Select sample:",
+        "eem_contour_title": "Fluorescence Contour Map: {name}",
+        "eem_ex_axis": "Excitation Wavelength, Ex (nm)",
+        "eem_em_axis": "Emission Wavelength, Em (nm)",
+        "eem_int_label": "Intensity",
+        "eem_indices_title": "Optical Chemometric Descriptors",
+        "eem_dl_indices": "📥 Download Indices (CSV)",
+        "eem_parafac_title": "Non-negative 3-Component PARAFAC Decomposition",
+        "eem_parafac_spinner": "Fitting PARAFAC model...",
+        "eem_m_exp_var": "Explained Variance",
+        "eem_m_corcondia": "CORCONDIA Diagnostic",
+        "eem_corcondia_ok": "Model Valid",
+        "eem_corcondia_warn": "Attention",
+        "eem_m_components": "Fluorophores Count",
+        "eem_m_comp_val": "3 Components",
+        "eem_comp_c1": "C1: Fulvic-like",
+        "eem_comp_c2": "C2: Humic-like (Lignin)",
+        "eem_comp_c3": "C3: Protein-like",
+        "eem_em_prof_title": "Emission Loadings B",
+        "eem_ex_prof_title": "Excitation Loadings C",
+        "eem_rel_int": "Normalized Intensity",
+        "eem_scores_title": "Sample Contributions (Scores Matrix A)",
+        "eem_scores_chart_title": "Partial Fluorophore Intensities",
+        "eem_dl_ml_btn": "💾 Export Optical Descriptors (CSV for PLS-DA)",
+        # Module 3: ChemoSuite ML
+        "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
+        "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
+        "ml_err_missing": "⚠️ `chemo_ml.py` file not found in the application directory!",
+        "ml_sec1_title": "1. Merged Feature Matrix Preparation (Data Staging)",
+        "ml_load_demo_btn": "📥 Load Demo Benchmark (Baikal vs Slime-Lignin)",
+        "ml_demo_source_name": "Synthetic Benchmark (14 samples)",
+        "ml_custom_source_name": "Custom",
+        "ml_active_dataset_info": "Active dataset: **{src}** | Samples: **{n}**",
+        "ml_classes_caption": "Class labels: `1` — Slime-Lignin, `0` — Background waters.",
+        "ml_col_class_target": "Class (Target)",
+        "ml_sec2_title": "2. PLS-DA Model Hyperparameters",
+        "ml_lvs_slider": "Latent Variables (LVs):",
+        "ml_block_scale": "Block Scaling (1/√P)",
+        "ml_run_btn": "🚀 Fit PLS-DA Model",
+        "ml_spinner": "Fitting PLS-DA model & performing cross-validation...",
+        "ml_sec3_title": "3. Statistical Validation & Metrics",
+        "ml_m_r2x": "R²X (Spectral Variance)",
+        "ml_m_r2y": "R²Y (Class Variance)",
+        "ml_m_q2": "Q² (LOO-CV)",
+        "ml_q2_ok": "Reliable",
+        "ml_q2_warn": "Poor",
+        "ml_m_acc": "Accuracy",
+        "ml_scores_chart_title": "Scores Plot (t₁ vs t₂) with 95% Hotelling's Ellipse",
+        "ml_hotelling_name": "Hotelling T² (95%)",
+        "ml_class1_label": "Slime-Lignin (Class 1)",
+        "ml_class0_label": "Background / Baikal (Class 0)",
+        "ml_vip_chart_title": "Key Markers (VIP Scores > 1.0)",
+        "ml_vip_cutoff": "Cutoff VIP=1.0",
+        "ml_vip_tbl_title": "Ranked Descriptors by VIP Score:",
+        "ml_dl_vip_btn": "📥 Download VIP Descriptors (CSV)",
+        "ml_warn_input": "Input Data Error: {err}",
+        "ml_info_no_data": "💡 Click the button above to load a synchronized feature benchmark.",
     },
 }
 
@@ -464,7 +642,7 @@ TMDS_LIBRARY = [
 ]
 
 # ==============================================================================
-# ХЕЛПЕРЫ И ВЫЧИСЛИТЕЛЬНЫЕ ФУНКЦИИ FT-ICR MS
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЯДРО FT-ICR MS
 # ==============================================================================
 def st_df(data, **kwargs):
     try:
@@ -483,9 +661,7 @@ def st_plotly(fig, **kwargs):
     try:
         return st.plotly_chart(fig, width="stretch", config=config, **kwargs)
     except TypeError:
-        return st.plotly_chart(
-            fig, use_container_width=True, config=config, **kwargs
-        )
+        return st.plotly_chart(fig, use_container_width=True, config=config, **kwargs)
 
 
 def get_plot_download_buttons(fig, base_filename: str, lang: str):
@@ -529,9 +705,7 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
     den_ai = c - o - s - n
     ai = np.where((den_ai > 0) & (num_ai > 0), num_ai / den_ai, 0.0)
     res["AI"] = np.clip(ai, 0.0, 1.0)
-    res["NOSC"] = np.where(
-        c > 0, 4.0 - (4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s) / c, np.nan
-    )
+    res["NOSC"] = np.where(c > 0, 4.0 - (4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s) / c, np.nan)
 
     def get_hetero_class(row):
         has_n = row["N"] > 0
@@ -554,59 +728,32 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
         if pd.isna(hc) or pd.isna(oc):
             return "Undefined" if lang == "en" else "Не определено"
         if n_val > 0 and (0.3 < hc < 0.8) and (oc < 0.4):
-            return (
-                "CHON pool (0.3 < H/C < 0.8, O/C < 0.4)"
-                if lang == "en"
-                else "Пул CHON (0.3 < H/C < 0.8, O/C < 0.4)"
-            )
+            return "CHON pool (0.3 < H/C < 0.8, O/C < 0.4)" if lang == "en" else "Пул CHON (0.3 < H/C < 0.8, O/C < 0.4)"
         if ai_val >= 0.5 or (hc < 0.7 and oc <= 0.67):
-            return (
-                "Condensed tannins / Aromatics"
-                if lang == "en"
-                else "Конденсированные таннины / Ароматика"
-            )
+            return "Condensed tannins / Aromatics" if lang == "en" else "Конденсированные таннины / Ароматика"
         if 0.7 <= hc < 1.5 and 0.1 <= oc <= 0.67:
-            return (
-                "Lignin-like / CRAM" if lang == "en" else "Лигнины / CRAM"
-            )
+            return "Lignin-like / CRAM" if lang == "en" else "Лигнины / CRAM"
         if 0.5 <= hc < 1.5 and 0.67 < oc <= 1.0:
-            return (
-                "Hydrolyzable tannins"
-                if lang == "en"
-                else "Гидролизуемые таннины"
-            )
+            return "Hydrolyzable tannins" if lang == "en" else "Гидролизуемые таннины"
         if 1.5 <= hc <= 2.0 and oc <= 0.3:
             return "Lipids" if lang == "en" else "Липиды"
         if 1.5 <= hc <= 2.0 and 0.3 < oc <= 0.67:
-            return (
-                "Peptides / Proteins / Aliphatics"
-                if lang == "en"
-                else "Пептиды / Белки / Алифатика"
-            )
+            return "Peptides / Proteins / Aliphatics" if lang == "en" else "Пептиды / Белки / Алифатика"
         if 1.5 <= hc <= 2.0 and 0.67 < oc <= 1.0:
             return "Carbohydrates" if lang == "en" else "Углеводы"
-        return (
-            "Other / Unclassified" if lang == "en" else "Прочие компоненты"
-        )
+        return "Other / Unclassified" if lang == "en" else "Прочие компоненты"
 
     res["Compound_Class"] = res.apply(get_compound_class, axis=1)
     return res
 
 
-def parse_uploaded_file(
-    file_bytes: bytes, delimiter: str, decimal_sep: str, has_header: bool
-) -> pd.DataFrame:
+def parse_uploaded_file(file_bytes: bytes, delimiter: str, decimal_sep: str, has_header: bool) -> pd.DataFrame:
     sep_map = {
-        "Auto": None,
-        "Авто (автоопределение)": None,
-        "Comma (,)": ",",
-        "Запятая (,)": ",",
-        "Semicolon (;)": ";",
-        "Точка с запятой (;)": ";",
-        "Tab (\\t)": "\t",
-        "Табуляция (\\t)": "\t",
-        "Space": r"\s+",
-        "Пробел": r"\s+",
+        "Auto": None, "Авто (автоопределение)": None,
+        "Comma (,)": ",", "Запятая (,)": ",",
+        "Semicolon (;)": ";", "Точка с запятой (;)": ";",
+        "Tab (\\t)": "\t", "Табуляция (\\t)": "\t",
+        "Space": r"\s+", "Пробел": r"\s+",
     }
     actual_sep = sep_map.get(delimiter, ",")
     engine = "python" if (actual_sep is None or actual_sep == r"\s+") else "c"
@@ -614,22 +761,15 @@ def parse_uploaded_file(
     bio = io.BytesIO(file_bytes)
     try:
         df = pd.read_csv(
-            bio,
-            sep=actual_sep,
-            decimal=decimal_sep,
-            header=0 if has_header else None,
-            engine=engine,
-            skipinitialspace=True,
-            on_bad_lines="skip",
+            bio, sep=actual_sep, decimal=decimal_sep,
+            header=0 if has_header else None, engine=engine,
+            skipinitialspace=True, on_bad_lines="skip",
         )
     except Exception:
         bio.seek(0)
         df = pd.read_csv(
-            bio,
-            sep=r"\s+",
-            decimal=decimal_sep,
-            header=0 if has_header else None,
-            engine="python",
+            bio, sep=r"\s+", decimal=decimal_sep,
+            header=0 if has_header else None, engine="python",
             on_bad_lines="skip",
         )
 
@@ -640,15 +780,10 @@ def parse_uploaded_file(
 
 
 def fast_formula_assigner(
-    peaks_df: pd.DataFrame,
-    bounds: Dict[str, Tuple[int, int]],
-    max_hc: float,
-    max_oc: float,
-    ppm_tolerance: float,
-    ion_mode: str,
-    max_charge: int = 1,
-    iso_check: bool = False,
-    iso_strict: bool = False,
+    peaks_df: pd.DataFrame, bounds: Dict[str, Tuple[int, int]],
+    max_hc: float, max_oc: float, ppm_tolerance: float,
+    ion_mode: str, max_charge: int = 1,
+    iso_check: bool = False, iso_strict: bool = False,
 ) -> pd.DataFrame:
     c_min, c_max = bounds.get("C", (4, 120))
     h_min, h_max = bounds.get("H", (4, 200))
@@ -658,26 +793,14 @@ def fast_formula_assigner(
 
     peaks_m = peaks_df["mass"].values
     peaks_int = peaks_df["intensity"].values
-    peaks_norm = (
-        peaks_df["norm_intensity"].values
-        if "norm_intensity" in peaks_df.columns
-        else peaks_int
-    )
+    peaks_norm = peaks_df["norm_intensity"].values if "norm_intensity" in peaks_df.columns else peaks_int
 
-    min_mz = float(peaks_m.min())
-    max_mz = float(peaks_m.max())
-
+    min_mz, max_mz = float(peaks_m.min()), float(peaks_m.max())
     charges = [1, 2] if max_charge >= 2 else [1]
     all_assigned_rows = []
 
     for z in charges:
-        if "ESI(-)" in ion_mode:
-            ion_shift = -z * H_ION_MASS
-        elif "ESI(+)" in ion_mode:
-            ion_shift = z * H_ION_MASS
-        else:
-            ion_shift = 0.0
-
+        ion_shift = -z * H_ION_MASS if "ESI(-)" in ion_mode else (z * H_ION_MASS if "ESI(+)" in ion_mode else 0.0)
         c_list, h_list, o_list, n_list, s_list = [], [], [], [], []
 
         for n in range(n_min, n_max + 1):
@@ -685,39 +808,15 @@ def fast_formula_assigner(
                 for c in range(c_min, c_max + 1):
                     cur_o_max = min(o_max, int(max_oc * c))
                     for o in range(o_min, cur_o_max + 1):
-                        base_neut = (
-                            c * EXACT_MASSES["C"]
-                            + o * EXACT_MASSES["O"]
-                            + n * EXACT_MASSES["N"]
-                            + s * EXACT_MASSES["S"]
-                        )
+                        base_neut = c * EXACT_MASSES["C"] + o * EXACT_MASSES["O"] + n * EXACT_MASSES["N"] + s * EXACT_MASSES["S"]
                         base_mz = (base_neut + ion_shift) / z
                         if base_mz > max_mz + 2.0:
                             continue
 
-                        h_low = max(
-                            h_min,
-                            int(np.ceil(0.2 * c)),
-                            int(np.ceil(2 * (c - o - 9) + n)),
-                            int(
-                                np.ceil(
-                                    ((min_mz - 2.0) * z - base_neut - ion_shift)
-                                    / EXACT_MASSES["H"]
-                                )
-                            ),
-                        )
-                        h_high = min(
-                            h_max,
-                            int(max_hc * c),
-                            int(2 * c + n + 2),
-                            int(2 * (11 + c - o) + n),
-                            int(
-                                np.floor(
-                                    ((max_mz + 2.0) * z - base_neut - ion_shift)
-                                    / EXACT_MASSES["H"]
-                                )
-                            ),
-                        )
+                        h_low = max(h_min, int(np.ceil(0.2 * c)), int(np.ceil(2 * (c - o - 9) + n)),
+                                    int(np.ceil(((min_mz - 2.0) * z - base_neut - ion_shift) / EXACT_MASSES["H"])))
+                        h_high = min(h_max, int(max_hc * c), int(2 * c + n + 2), int(2 * (11 + c - o) + n),
+                                     int(np.floor(((max_mz + 2.0) * z - base_neut - ion_shift) / EXACT_MASSES["H"])))
 
                         if h_low > h_high:
                             continue
@@ -745,22 +844,14 @@ def fast_formula_assigner(
         n_arr = np.array(n_list, dtype=np.int8)
         s_arr = np.array(s_list, dtype=np.int8)
 
-        cand_masses = (
-            c_arr * EXACT_MASSES["C"]
-            + h_arr * EXACT_MASSES["H"]
-            + o_arr * EXACT_MASSES["O"]
-            + n_arr * EXACT_MASSES["N"]
-            + s_arr * EXACT_MASSES["S"]
-            + ion_shift
-        ) / z
+        cand_masses = (c_arr * EXACT_MASSES["C"] + h_arr * EXACT_MASSES["H"] + o_arr * EXACT_MASSES["O"]
+                       + n_arr * EXACT_MASSES["N"] + s_arr * EXACT_MASSES["S"] + ion_shift) / z
 
         sort_idx = np.argsort(cand_masses)
-        cand_masses = cand_masses[sort_idx]
-        c_arr = c_arr[sort_idx]
-        h_arr = h_arr[sort_idx]
-        o_arr = o_arr[sort_idx]
-        n_arr = n_arr[sort_idx]
-        s_arr = s_arr[sort_idx]
+        cand_masses, c_arr, h_arr, o_arr, n_arr, s_arr = (
+            cand_masses[sort_idx], c_arr[sort_idx], h_arr[sort_idx],
+            o_arr[sort_idx], n_arr[sort_idx], s_arr[sort_idx]
+        )
 
         delta = peaks_m * (ppm_tolerance * 1e-6)
         left_idx = np.searchsorted(cand_masses, peaks_m - delta)
@@ -769,143 +860,74 @@ def fast_formula_assigner(
         for i in range(len(peaks_m)):
             l, r = left_idx[i], right_idx[i]
             if r > l:
-                best_j = None
-                best_score = (1e9, 99)
+                best_j, best_score = None, (1e9, 99)
                 for j in range(l, r):
                     calc_m = cand_masses[j]
                     err_ppm = abs((peaks_m[i] - calc_m) / calc_m) * 1e6
-                    hetero_penalty = n_arr[j] + s_arr[j]
-                    score = (err_ppm, hetero_penalty)
+                    score = (err_ppm, n_arr[j] + s_arr[j])
                     if score < best_score:
-                        best_score = score
-                        best_j = j
+                        best_score, best_j = score, j
 
                 if best_j is not None:
                     calc_m = cand_masses[best_j]
-                    err_ppm = ((peaks_m[i] - calc_m) / calc_m) * 1e6
-                    c_val = int(c_arr[best_j])
-                    h_val = int(h_arr[best_j])
-                    o_val = int(o_arr[best_j])
-                    n_val = int(n_arr[best_j])
-                    s_val = int(s_arr[best_j])
-
+                    c_val, h_val, o_val, n_val, s_val = int(c_arr[best_j]), int(h_arr[best_j]), int(o_arr[best_j]), int(n_arr[best_j]), int(s_arr[best_j])
                     iso_confirmed = False
                     if iso_check:
                         expected_c13_m = peaks_m[i] + (C13_DIFF / z)
                         iso_tol = expected_c13_m * (ppm_tolerance * 2.0 * 1e-6)
-                        idx_c13 = np.where(
-                            (peaks_m >= expected_c13_m - iso_tol)
-                            & (peaks_m <= expected_c13_m + iso_tol)
-                        )[0]
-                        if len(idx_c13) > 0:
+                        if len(np.where((peaks_m >= expected_c13_m - iso_tol) & (peaks_m <= expected_c13_m + iso_tol))[0]) > 0:
                             iso_confirmed = True
 
-                    if (
-                        iso_strict
-                        and iso_check
-                        and (not iso_confirmed)
-                        and (c_val > 15)
-                    ):
+                    if iso_strict and iso_check and (not iso_confirmed) and (c_val > 15):
                         continue
 
-                    all_assigned_rows.append(
-                        {
-                            "mass": peaks_m[i],
-                            "intensity": peaks_int[i],
-                            "norm_intensity": peaks_norm[i],
-                            "calc_mass": calc_m,
-                            "error_ppm": err_ppm,
-                            "z": z,
-                            "C": c_val,
-                            "H": h_val,
-                            "O": o_val,
-                            "N": n_val,
-                            "S": s_val,
-                            "Formula": f"C{c_val}H{h_val}O{o_val}"
-                            + (f"N{n_val}" if n_val > 0 else "")
-                            + (f"S{s_val}" if s_val > 0 else ""),
-                            "Iso_13C_Confirmed": iso_confirmed
-                            if iso_check
-                            else True,
-                        }
-                    )
+                    all_assigned_rows.append({
+                        "mass": peaks_m[i], "intensity": peaks_int[i], "norm_intensity": peaks_norm[i],
+                        "calc_mass": calc_m, "error_ppm": ((peaks_m[i] - calc_m) / calc_m) * 1e6, "z": z,
+                        "C": c_val, "H": h_val, "O": o_val, "N": n_val, "S": s_val,
+                        "Formula": f"C{c_val}H{h_val}O{o_val}" + (f"N{n_val}" if n_val > 0 else "") + (f"S{s_val}" if s_val > 0 else ""),
+                        "Iso_13C_Confirmed": iso_confirmed if iso_check else True,
+                    })
 
     if not all_assigned_rows:
         return pd.DataFrame()
 
     res_df = pd.DataFrame(all_assigned_rows)
-    res_df = (
-        res_df.sort_values(by="error_ppm", key=abs)
-        .drop_duplicates(subset=["mass"])
-        .sort_values("mass")
-        .reset_index(drop=True)
-    )
-    return res_df
+    return res_df.sort_values(by="error_ppm", key=abs).drop_duplicates(subset=["mass"]).sort_values("mass").reset_index(drop=True)
 
 
 def run_formula_assignment(
-    peaks_df: pd.DataFrame,
-    bounds: Dict[str, Tuple[int, int]],
-    max_hc: float,
-    max_oc: float,
-    ppm_tolerance: float,
-    ion_mode: str,
-    max_charge: int = 1,
-    iso_check: bool = False,
-    iso_strict: bool = False,
-    lang: str = "ru",
+    peaks_df: pd.DataFrame, bounds: Dict[str, Tuple[int, int]],
+    max_hc: float, max_oc: float, ppm_tolerance: float,
+    ion_mode: str, max_charge: int = 1,
+    iso_check: bool = False, iso_strict: bool = False, lang: str = "ru",
 ) -> pd.DataFrame:
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".csv", delete=False, newline=""
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as tmp:
         tmp_path = tmp.name
         peaks_df.to_csv(tmp_path, sep="\t", index=False)
 
     assigned_df = pd.DataFrame()
-
     try:
         if NOMSPECTRA_INSTALLED and max_charge == 1 and not iso_check:
             try:
                 spec = Spectrum(tmp_path)
-                target_method = getattr(
-                    spec, "assign_formulas", None
-                ) or getattr(spec, "assign", None)
+                target_method = getattr(spec, "assign_formulas", None) or getattr(spec, "assign", None)
                 if target_method is not None:
                     sig = inspect.signature(target_method).parameters
                     kwargs = {}
-                    if "error" in sig:
-                        kwargs["error"] = ppm_tolerance
-                    elif "ppm" in sig:
-                        kwargs["ppm"] = ppm_tolerance
-                    elif "tolerance" in sig:
-                        kwargs["tolerance"] = ppm_tolerance
+                    if "error" in sig: kwargs["error"] = ppm_tolerance
+                    elif "ppm" in sig: kwargs["ppm"] = ppm_tolerance
+                    elif "tolerance" in sig: kwargs["tolerance"] = ppm_tolerance
 
                     for elem, (low, high) in bounds.items():
-                        if elem in sig:
-                            kwargs[elem] = (low, high)
-
-                    if "elements" in sig:
-                        kwargs["elements"] = bounds
-                    if "hc_limits" in sig:
-                        kwargs["hc_limits"] = (0.2, max_hc)
-                    if "oc_limits" in sig:
-                        kwargs["oc_limits"] = (0.0, max_oc)
-                    if "mode" in sig:
-                        kwargs["mode"] = (
-                            "neg"
-                            if "ESI(-)" in ion_mode
-                            else ("pos" if "ESI(+)" in ion_mode else "neutral")
-                        )
+                        if elem in sig: kwargs[elem] = (low, high)
+                    if "elements" in sig: kwargs["elements"] = bounds
+                    if "hc_limits" in sig: kwargs["hc_limits"] = (0.2, max_hc)
+                    if "oc_limits" in sig: kwargs["oc_limits"] = (0.0, max_oc)
+                    if "mode" in sig: kwargs["mode"] = ("neg" if "ESI(-)" in ion_mode else ("pos" if "ESI(+)" in ion_mode else "neutral"))
 
                     target_method(**kwargs)
-
-                    for attr in [
-                        "data",
-                        "df",
-                        "assigned",
-                        "assigned_data",
-                        "peaks",
-                    ]:
+                    for attr in ["data", "df", "assigned", "assigned_data", "peaks"]:
                         if hasattr(spec, attr):
                             val = getattr(spec, attr)
                             if isinstance(val, pd.DataFrame) and not val.empty:
@@ -916,15 +938,9 @@ def run_formula_assignment(
 
         if assigned_df.empty or "C" not in assigned_df.columns:
             assigned_df = fast_formula_assigner(
-                peaks_df=peaks_df,
-                bounds=bounds,
-                max_hc=max_hc,
-                max_oc=max_oc,
-                ppm_tolerance=ppm_tolerance,
-                ion_mode=ion_mode,
-                max_charge=max_charge,
-                iso_check=iso_check,
-                iso_strict=iso_strict,
+                peaks_df=peaks_df, bounds=bounds, max_hc=max_hc, max_oc=max_oc,
+                ppm_tolerance=ppm_tolerance, ion_mode=ion_mode, max_charge=max_charge,
+                iso_check=iso_check, iso_strict=iso_strict,
             )
     finally:
         if os.path.exists(tmp_path):
@@ -936,29 +952,17 @@ def run_formula_assignment(
     return assigned_df
 
 
-def compute_kmd(
-    masses: np.ndarray, base_key: str
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    nom = KMD_BASES[base_key]["nom"]
-    exact = KMD_BASES[base_key]["exact"]
+def compute_kmd(masses: np.ndarray, base_key: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    nom, exact = KMD_BASES[base_key]["nom"], KMD_BASES[base_key]["exact"]
     km = masses * (nom / exact)
-    kmd = km - np.floor(km)
-    nkm = np.floor(km).astype(int)
-    return km, nkm, kmd
+    return km, np.floor(km).astype(int), km - np.floor(km)
 
 
-def compute_vk20_grid(
-    df: pd.DataFrame,
-) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+def compute_vk20_grid(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     oc_bins = [0.00, 0.25, 0.50, 0.75, 1.000001]
     hc_bins = [0.20, 0.60, 1.00, 1.40, 1.80, 2.200001]
 
-    sub = df[
-        (df["O/C"] >= 0.0)
-        & (df["O/C"] <= 1.0)
-        & (df["H/C"] >= 0.2)
-        & (df["H/C"] <= 2.2)
-    ].copy()
+    sub = df[(df["O/C"] >= 0.0) & (df["O/C"] <= 1.0) & (df["H/C"] >= 0.2) & (df["H/C"] <= 2.2)].copy()
     if sub.empty:
         return np.zeros((5, 4)), np.zeros((5, 4)), pd.DataFrame()
 
@@ -969,11 +973,7 @@ def compute_vk20_grid(
     grid_weight = np.zeros((5, 4), dtype=float)
 
     total_count = len(sub)
-    total_int = (
-        sub["intensity"].sum()
-        if "intensity" in sub.columns
-        else float(total_count)
-    )
+    total_int = sub["intensity"].sum() if "intensity" in sub.columns else float(total_count)
 
     np.add.at(grid_count, (r_idx, c_idx), 1.0)
     if "intensity" in sub.columns:
@@ -981,152 +981,90 @@ def compute_vk20_grid(
     else:
         grid_weight = grid_count.copy()
 
-    pct_count = (
-        (grid_count / total_count) * 100.0 if total_count > 0 else grid_count
-    )
-    pct_weight = (
-        (grid_weight / total_int) * 100.0 if total_int > 0 else grid_weight
-    )
+    pct_count = (grid_count / total_count) * 100.0 if total_count > 0 else grid_count
+    pct_weight = (grid_weight / total_int) * 100.0 if total_int > 0 else grid_weight
 
     features = []
     for r in range(5):
         for c in range(4):
-            vk_num = 1 + r * 4 + c
-            features.append(
-                {
-                    "Zone": f"VK_{vk_num}",
-                    "Count": int(grid_count[r, c]),
-                    "Relative_Count_pct": round(pct_count[r, c], 3),
-                    "Weighted_Intensity_pct": round(pct_weight[r, c], 3),
-                }
-            )
+            features.append({
+                "Zone": f"VK_{1 + r * 4 + c}",
+                "Count": int(grid_count[r, c]),
+                "Relative_Count_pct": round(pct_count[r, c], 3),
+                "Weighted_Intensity_pct": round(pct_weight[r, c], 3),
+            })
     return pct_count, pct_weight, pd.DataFrame(features)
 
 
-def align_two_spectra_fast(
-    df_a: pd.DataFrame, df_b: pd.DataFrame, ppm_tol: float = 1.5
-):
+def align_two_spectra_fast(df_a: pd.DataFrame, df_b: pd.DataFrame, ppm_tol: float = 1.5):
     a = df_a.sort_values("mass").reset_index(drop=True)
     b = df_b.sort_values("mass").reset_index(drop=True)
-
-    ma = a["mass"].values
-    mb = b["mass"].values
+    ma, mb = a["mass"].values, b["mass"].values
 
     delta = ma * (ppm_tol * 1e-6)
     left = np.searchsorted(mb, ma - delta)
     right = np.searchsorted(mb, ma + delta)
 
-    matched_a = []
-    matched_b = []
-    b_used = set()
-
+    matched_a, matched_b, b_used = [], [], set()
     for i in range(len(ma)):
         l, r = left[i], right[i]
         if r > l:
-            best_j = None
-            min_d = 1e9
+            best_j, min_d = None, 1e9
             for j in range(l, r):
-                if j in b_used:
-                    continue
+                if j in b_used: continue
                 diff = abs(ma[i] - mb[j])
                 if diff < min_d:
-                    min_d = diff
-                    best_j = j
+                    min_d, best_j = diff, j
             if best_j is not None:
                 b_used.add(best_j)
                 matched_a.append(i)
                 matched_b.append(best_j)
 
-    n_a = len(a)
-    n_b = len(b)
+    n_a, n_b = len(a), len(b)
     n_common = len(matched_a)
     n_union = n_a + n_b - n_common
     jaccard = n_common / n_union if n_union > 0 else 0.0
 
     if n_common > 0:
-        ia = a.loc[matched_a, "intensity"].values
-        ib = b.loc[matched_b, "intensity"].values
-        cos_sim = np.dot(ia, ib) / (
-            np.linalg.norm(ia) * np.linalg.norm(ib) + 1e-12
-        )
+        ia, ib = a.loc[matched_a, "intensity"].values, b.loc[matched_b, "intensity"].values
+        cos_sim = np.dot(ia, ib) / (np.linalg.norm(ia) * np.linalg.norm(ib) + 1e-12)
     else:
         cos_sim = 0.0
 
     return {
-        "df_a": a,
-        "df_b": b,
-        "matched_a": matched_a,
-        "matched_b": matched_b,
-        "n_a": n_a,
-        "n_b": n_b,
-        "n_common": n_common,
-        "jaccard": jaccard,
-        "cos_sim": cos_sim,
+        "df_a": a, "df_b": b, "matched_a": matched_a, "matched_b": matched_b,
+        "n_a": n_a, "n_b": n_b, "n_common": n_common, "jaccard": jaccard, "cos_sim": cos_sim,
     }
 
 
-def perform_spectral_algebra(
-    df_a: pd.DataFrame, df_b: pd.DataFrame, operation: str, ppm_tol: float = 1.5
-) -> pd.DataFrame:
+def perform_spectral_algebra(df_a: pd.DataFrame, df_b: pd.DataFrame, operation: str, ppm_tol: float = 1.5) -> pd.DataFrame:
     align = align_two_spectra_fast(df_a, df_b, ppm_tol=ppm_tol)
-    a = align["df_a"]
-    b = align["df_b"]
-    m_a_set = set(align["matched_a"])
-    m_b_set = set(align["matched_b"])
+    a, b = align["df_a"], align["df_b"]
+    m_a_set, m_b_set = set(align["matched_a"]), set(align["matched_b"])
 
     if operation == "and":
         return a.iloc[align["matched_a"]].copy().reset_index(drop=True)
     elif operation == "sub_a_b":
-        mask = [i not in m_a_set for i in range(len(a))]
-        return a[mask].copy().reset_index(drop=True)
+        return a[[i not in m_a_set for i in range(len(a))]].copy().reset_index(drop=True)
     elif operation == "sub_b_a":
-        mask = [j not in m_b_set for j in range(len(b))]
-        return b[mask].copy().reset_index(drop=True)
+        return b[[j not in m_b_set for j in range(len(b))]].copy().reset_index(drop=True)
     elif operation == "xor":
         a_uniq = a[[i not in m_a_set for i in range(len(a))]]
         b_uniq = b[[j not in m_b_set for j in range(len(b))]]
-        return (
-            pd.concat([a_uniq, b_uniq], ignore_index=True)
-            .sort_values("mass")
-            .reset_index(drop=True)
-        )
+        return pd.concat([a_uniq, b_uniq], ignore_index=True).sort_values("mass").reset_index(drop=True)
     elif operation == "or":
-        common_rows = []
-        for i_a, i_b in zip(align["matched_a"], align["matched_b"]):
-            common_rows.append(
-                {
-                    "mass": (a.loc[i_a, "mass"] + b.loc[i_b, "mass"]) / 2.0,
-                    "intensity": a.loc[i_a, "intensity"]
-                    + b.loc[i_b, "intensity"],
-                }
-            )
-        a_uniq = a[[i not in m_a_set for i in range(len(a))]]
-        b_uniq = b[[j not in m_b_set for j in range(len(b))]]
-        res = pd.concat(
-            [
-                pd.DataFrame(common_rows),
-                a_uniq[["mass", "intensity"]],
-                b_uniq[["mass", "intensity"]],
-            ],
-            ignore_index=True,
-        )
-        return res.sort_values("mass").reset_index(drop=True)
+        common_rows = [{"mass": (a.loc[i_a, "mass"] + b.loc[i_b, "mass"]) / 2.0, "intensity": a.loc[i_a, "intensity"] + b.loc[i_b, "intensity"]}
+                       for i_a, i_b in zip(align["matched_a"], align["matched_b"])]
+        return pd.concat([pd.DataFrame(common_rows), a[[i not in m_a_set for i in range(len(a))]][["mass", "intensity"]],
+                          b[[j not in m_b_set for j in range(len(b))]][["mass", "intensity"]]], ignore_index=True).sort_values("mass").reset_index(drop=True)
     return pd.DataFrame()
 
 
-def run_tmds_screening(
-    peaks_df: pd.DataFrame, top_n: int = 1500, tol_mda: float = 2.0
-):
-    sub = (
-        peaks_df.sort_values("intensity", ascending=False)
-        .head(top_n)
-        .sort_values("mass")
-        .reset_index(drop=True)
-    )
+def run_tmds_screening(peaks_df: pd.DataFrame, top_n: int = 1500, tol_mda: float = 2.0):
+    sub = peaks_df.sort_values("intensity", ascending=False).head(top_n).sort_values("mass").reset_index(drop=True)
     masses = sub["mass"].values
     n = len(masses)
-    if n < 2:
-        return pd.DataFrame(), pd.DataFrame()
+    if n < 2: return pd.DataFrame(), pd.DataFrame()
 
     diff_matrix = np.abs(masses[:, None] - masses[None, :])
     i_upper, j_upper = np.triu_indices(n, k=1)
@@ -1134,40 +1072,23 @@ def run_tmds_screening(
 
     tol_da = tol_mda / 1000.0
     total_pairs = len(diffs)
-    summary_rows = []
-    pair_rows = []
+    summary_rows, pair_rows = [], []
 
     for item in TMDS_LIBRARY:
         delta_theor = item["delta"]
         mask = np.abs(diffs - delta_theor) <= tol_da
         hit_count = int(np.sum(mask))
-        share = (hit_count / total_pairs * 100.0) if total_pairs > 0 else 0.0
-
-        summary_rows.append(
-            {
-                "Transformation": item["name"],
-                "Delta_m": delta_theor,
-                "Count": hit_count,
-                "Share_pct": round(share, 3),
-            }
-        )
-
+        summary_rows.append({
+            "Transformation": item["name"], "Delta_m": delta_theor,
+            "Count": hit_count, "Share_pct": round((hit_count / total_pairs * 100.0) if total_pairs > 0 else 0.0, 3),
+        })
         if hit_count > 0:
-            hit_i = i_upper[mask]
-            hit_j = j_upper[mask]
-            for idx_a, idx_b in zip(hit_i[:300], hit_j[:300]):
-                pair_rows.append(
-                    {
-                        "Transformation": item["name"],
-                        "Mass_1": masses[idx_a],
-                        "Mass_2": masses[idx_b],
-                        "Delta_obs": abs(masses[idx_a] - masses[idx_b]),
-                        "Error_mDa": (
-                            abs(masses[idx_a] - masses[idx_b]) - delta_theor
-                        )
-                        * 1000.0,
-                    }
-                )
+            for idx_a, idx_b in zip(i_upper[mask][:300], j_upper[mask][:300]):
+                pair_rows.append({
+                    "Transformation": item["name"], "Mass_1": masses[idx_a], "Mass_2": masses[idx_b],
+                    "Delta_obs": abs(masses[idx_a] - masses[idx_b]),
+                    "Error_mDa": (abs(masses[idx_a] - masses[idx_b]) - delta_theor) * 1000.0,
+                })
 
     return pd.DataFrame(summary_rows), pd.DataFrame(pair_rows)
 
@@ -1176,37 +1097,14 @@ def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
     calibrants = []
     if "FA" in series_name or "Жирные" in series_name or "Fatty" in series_name:
         for n in range(12, 34):
-            m_neut = (
-                n * EXACT_MASSES["C"]
-                + 2 * n * EXACT_MASSES["H"]
-                + 2 * EXACT_MASSES["O"]
-            )
-            m_ion = (
-                m_neut - H_ION_MASS
-                if "ESI(-)" in ion_mode
-                else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)
-            )
-            calibrants.append(
-                {"name": f"FA {n}:0 (C{n}H{2*n}O2)", "m_theor": m_ion}
-            )
+            m_neut = n * EXACT_MASSES["C"] + 2 * n * EXACT_MASSES["H"] + 2 * EXACT_MASSES["O"]
+            calibrants.append({"name": f"FA {n}:0 (C{n}H{2*n}O2)", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
     elif "CHO" in series_name:
         for n in range(14, 32):
             h_count = 2 * n - 8
-            m_neut = (
-                n * EXACT_MASSES["C"]
-                + h_count * EXACT_MASSES["H"]
-                + 7 * EXACT_MASSES["O"]
-            )
-            m_ion = (
-                m_neut - H_ION_MASS
-                if "ESI(-)" in ion_mode
-                else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)
-            )
-            calibrants.append(
-                {"name": f"CHO C{n}H{h_count}O7", "m_theor": m_ion}
-            )
+            m_neut = n * EXACT_MASSES["C"] + h_count * EXACT_MASSES["H"] + 7 * EXACT_MASSES["O"]
+            calibrants.append({"name": f"CHO C{n}H{h_count}O7", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
     return pd.DataFrame(calibrants)
-
 
 # ==============================================================================
 # ИНИЦИАЛИЗАЦИЯ ХРАНИЛИЩА SESSION_STATE
@@ -1217,14 +1115,10 @@ if "spectra_db" not in st.session_state:
         if fname.lower().endswith((".csv", ".txt", ".tsv", ".xy")):
             fpath = os.path.join(STORAGE_DIR, fname)
             try:
-                with open(fpath, "rb") as f:
-                    content = f.read()
+                with open(fpath, "rb") as f: content = f.read()
                 st.session_state["spectra_db"][fname] = {
-                    "raw_path": fpath,
-                    "file_bytes": content,
-                    "parsed_peaks": None,
-                    "assigned_df": None,
-                    "raw_df": None,
+                    "raw_path": fpath, "file_bytes": content,
+                    "parsed_peaks": None, "assigned_df": None, "raw_df": None,
                 }
             except Exception:
                 pass
@@ -1236,30 +1130,24 @@ if "eem_ml_descriptors" not in st.session_state:
 # БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
 # ==============================================================================
 with st.sidebar:
-    st.markdown("### ⚗️ Платформа ChemoSuite")
+    lang_choice = st.selectbox("🌐 Язык / Language", ["Русский", "English"], index=0)
+    lang = "ru" if lang_choice == "Русский" else "en"
+    st.session_state["lang"] = lang
+
+    st.markdown(T[lang]["nav_title"])
     active_module = st.radio(
-        "Аналитический модуль / Analytical Module:",
-        [
-            "🧪 NOM-Spectra FT-ICR MS",
-            "💡 EEM-PARAFAC (Флуоресценция)",
-            "🧬 ChemoSuite ML (Data Fusion)",
-        ],
+        T[lang]["nav_module_label"],
+        [T[lang]["mod1_name"], T[lang]["mod2_name"], T[lang]["mod3_name"]],
         index=0,
     )
     st.markdown("---")
 
-    lang_choice = st.selectbox(
-        "🌐 Язык / Language", ["Русский", "English"], index=0
-    )
-    lang = "ru" if lang_choice == "Русский" else "en"
-    st.session_state["lang"] = lang
-
 # Фирменный баннер платформы
 st.markdown(
-    """
+    f"""
     <div class="platform-header">
-        <h2>⚗️ ChemoSuite: Анализ РОВ и Шлам-лигнина</h2>
-        <p>Кафедра аналитической химии & Лаборатория природных гуминовых систем химфака МГУ</p>
+        <h2>{T[lang]["header_title"]}</h2>
+        <p>{T[lang]["header_subtitle"]}</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1268,39 +1156,30 @@ st.markdown(
 # ==============================================================================
 # МОДУЛЬ 1: NOM-SPECTRA FT-ICR MS STUDIO
 # ==============================================================================
-if active_module == "🧪 NOM-Spectra FT-ICR MS":
+if active_module == T[lang]["mod1_name"]:
     with st.sidebar:
         st.title(T[lang]["sidebar_mgr"])
         if not NOMSPECTRA_INSTALLED:
             st.info(T[lang]["nomspectra_missing"])
 
         uploaded_files = st.file_uploader(
-            T[lang]["uploader_label"],
-            type=["csv", "txt", "tsv", "xy"],
-            accept_multiple_files=True,
+            T[lang]["uploader_label"], type=["csv", "txt", "tsv", "xy"], accept_multiple_files=True
         )
-
         if uploaded_files:
             for uf in uploaded_files:
                 if uf.name not in st.session_state["spectra_db"]:
                     save_path = os.path.join(STORAGE_DIR, uf.name)
                     b_content = uf.getvalue()
-                    with open(save_path, "wb") as f:
-                        f.write(b_content)
+                    with open(save_path, "wb") as f: f.write(b_content)
                     st.session_state["spectra_db"][uf.name] = {
-                        "raw_path": save_path,
-                        "file_bytes": b_content,
-                        "parsed_peaks": None,
-                        "assigned_df": None,
-                        "raw_df": None,
+                        "raw_path": save_path, "file_bytes": b_content,
+                        "parsed_peaks": None, "assigned_df": None, "raw_df": None,
                     }
 
         with st.expander(T[lang]["folder_expander"], expanded=False):
             local_folder = st.text_input(
                 T[lang]["folder_input"],
-                placeholder="C:/data/spectra"
-                if lang == "en"
-                else "например, C:/data/spectra",
+                placeholder="C:/data/spectra" if lang == "en" else "например, C:/data/spectra",
                 help=T[lang]["folder_help"],
             )
             if st.button(T[lang]["folder_btn"]):
@@ -1308,124 +1187,57 @@ if active_module == "🧪 NOM-Spectra FT-ICR MS":
                     added_count = 0
                     for root, _, files in os.walk(local_folder):
                         for file in files:
-                            if file.lower().endswith(
-                                (".csv", ".txt", ".tsv", ".xy")
-                            ):
-                                if file not in st.session_state["spectra_db"]:
-                                    src_path = os.path.join(root, file)
-                                    dst_path = os.path.join(STORAGE_DIR, file)
-                                    try:
-                                        with open(src_path, "rb") as sf:
-                                            content = sf.read()
-                                        with open(dst_path, "wb") as df:
-                                            df.write(content)
-                                        st.session_state["spectra_db"][file] = {
-                                            "raw_path": dst_path,
-                                            "file_bytes": content,
-                                            "parsed_peaks": None,
-                                            "assigned_df": None,
-                                            "raw_df": None,
-                                        }
-                                        added_count += 1
-                                    except Exception:
-                                        pass
+                            if file.lower().endswith((".csv", ".txt", ".tsv", ".xy")) and file not in st.session_state["spectra_db"]:
+                                src_path = os.path.join(root, file)
+                                dst_path = os.path.join(STORAGE_DIR, file)
+                                try:
+                                    with open(src_path, "rb") as sf: content = sf.read()
+                                    with open(dst_path, "wb") as df: df.write(content)
+                                    st.session_state["spectra_db"][file] = {
+                                        "raw_path": dst_path, "file_bytes": content,
+                                        "parsed_peaks": None, "assigned_df": None, "raw_df": None,
+                                    }
+                                    added_count += 1
+                                except Exception:
+                                    pass
                     st.success(T[lang]["folder_success"].format(n=added_count))
                     st.rerun()
                 else:
                     st.error(T[lang]["folder_err"])
 
         all_spectra = list(st.session_state["spectra_db"].keys())
-
         if all_spectra:
             st.markdown("---")
-            search_query = (
-                st.text_input(
-                    T[lang]["search_label"],
-                    placeholder=T[lang]["search_ph"],
-                )
-                .strip()
-                .lower()
-            )
-
-            if search_query:
-                available_spectra = [
-                    s for s in all_spectra if search_query in s.lower()
-                ]
-                st.caption(
-                    T[lang]["found_n"].format(
-                        found=len(available_spectra), total=len(all_spectra)
-                    )
-                )
-            else:
-                available_spectra = all_spectra
+            search_query = st.text_input(T[lang]["search_label"], placeholder=T[lang]["search_ph"]).strip().lower()
+            available_spectra = [s for s in all_spectra if search_query in s.lower()] if search_query else all_spectra
 
             if not available_spectra:
                 st.warning(T[lang]["search_empty"])
-                active_spectrum_name = None
-                current_sample = None
+                active_spectrum_name, current_sample = None, None
             else:
-                active_spectrum_name = st.selectbox(
-                    T[lang]["active_sample"],
-                    options=available_spectra,
-                    index=0,
-                    key="active_spectrum_selector",
-                )
-                current_sample = st.session_state["spectra_db"][
-                    active_spectrum_name
-                ]
+                active_spectrum_name = st.selectbox(T[lang]["active_sample"], options=available_spectra, index=0, key="active_spectrum_selector")
+                current_sample = st.session_state["spectra_db"][active_spectrum_name]
 
                 if st.button(T[lang]["del_sample"], type="secondary"):
                     if os.path.exists(current_sample["raw_path"]):
-                        try:
-                            os.remove(current_sample["raw_path"])
-                        except Exception:
-                            pass
+                        try: os.remove(current_sample["raw_path"])
+                        except Exception: pass
                     del st.session_state["spectra_db"][active_spectrum_name]
                     st.rerun()
 
                 with st.expander(T[lang]["parse_expander"], expanded=False):
-                    delim_opts = [
-                        "Auto" if lang == "en" else "Авто (автоопределение)",
-                        "Tab (\\t)" if lang == "en" else "Табуляция (\\t)",
-                        "Comma (,)" if lang == "en" else "Запятая (,)",
-                        "Semicolon (;)"
-                        if lang == "en"
-                        else "Точка с запятой (;)",
-                        "Space" if lang == "en" else "Пробел",
-                    ]
-                    delimiter = st.selectbox(
-                        T[lang]["delimiter"],
-                        delim_opts,
-                        index=0,
-                        key=f"delim_{active_spectrum_name}",
-                    )
-                    decimal_sep = st.selectbox(
-                        T[lang]["decimal_sep"],
-                        [".", ","],
-                        index=0,
-                        key=f"dec_{active_spectrum_name}",
-                    )
-                    has_header = st.checkbox(
-                        T[lang]["has_header"],
-                        value=True,
-                        key=f"head_{active_spectrum_name}",
-                    )
+                    delim_opts = ["Auto" if lang == "en" else "Авто (автоопределение)", "Tab (\\t)" if lang == "en" else "Табуляция (\\t)",
+                                  "Comma (,)" if lang == "en" else "Запятая (,)", "Semicolon (;)" if lang == "en" else "Точка с запятой (;)",
+                                  "Space" if lang == "en" else "Пробел"]
+                    delimiter = st.selectbox(T[lang]["delimiter"], delim_opts, index=0, key=f"delim_{active_spectrum_name}")
+                    decimal_sep = st.selectbox(T[lang]["decimal_sep"], [".", ","], index=0, key=f"dec_{active_spectrum_name}")
+                    has_header = st.checkbox(T[lang]["has_header"], value=True, key=f"head_{active_spectrum_name}")
 
                 try:
-                    raw_df = parse_uploaded_file(
-                        current_sample["file_bytes"],
-                        delimiter,
-                        decimal_sep,
-                        has_header,
-                    )
+                    raw_df = parse_uploaded_file(current_sample["file_bytes"], delimiter, decimal_sep, has_header)
                     current_sample["raw_df"] = raw_df
-
                     if raw_df.empty:
-                        st.error(
-                            "Error: File is empty or failed to parse rows."
-                            if lang == "en"
-                            else "Ошибка: Файл пуст или не удалось распознать строки."
-                        )
+                        st.error("Error: File is empty or failed to parse." if lang == "en" else "Ошибка: Файл пуст или не распознан.")
                         st.stop()
 
                     st.write(T[lang]["preview_caption"])
@@ -1436,1501 +1248,400 @@ if active_module == "🧪 NOM-Spectra FT-ICR MS":
                     def_int_idx = 1 if len(col_names) > 1 else 0
                     for idx, cname in enumerate(col_names):
                         cn_low = str(cname).lower()
-                        if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]):
-                            def_mz_idx = idx
-                        elif any(
-                            k in cn_low for k in ["int", "i", "count", "abund"]
-                        ):
-                            def_int_idx = idx
+                        if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]): def_mz_idx = idx
+                        elif any(k in cn_low for k in ["int", "i", "count", "abund"]): def_int_idx = idx
 
-                    col_mz = st.selectbox(
-                        T[lang]["col_mz"],
-                        col_names,
-                        index=def_mz_idx,
-                        key=f"mzcol_{active_spectrum_name}",
-                    )
-                    col_int = st.selectbox(
-                        T[lang]["col_int"],
-                        col_names,
-                        index=def_int_idx,
-                        key=f"intcol_{active_spectrum_name}",
-                    )
-
-                    if col_mz == col_int:
-                        st.warning(T[lang]["same_col_warn"])
+                    col_mz = st.selectbox(T[lang]["col_mz"], col_names, index=def_mz_idx, key=f"mzcol_{active_spectrum_name}")
+                    col_int = st.selectbox(T[lang]["col_int"], col_names, index=def_int_idx, key=f"intcol_{active_spectrum_name}")
+                    if col_mz == col_int: st.warning(T[lang]["same_col_warn"])
 
                     st.markdown("---")
                     st.subheader(T[lang]["filtering_header"])
 
-                    norm_choice = st.selectbox(
-                        T[lang]["norm_mode_label"],
-                        [
-                            T[lang]["norm_base"],
-                            T[lang]["norm_tic"],
-                            T[lang]["norm_raw"],
-                        ],
-                        index=0,
-                        key=f"norm_mode_{active_spectrum_name}",
-                    )
-
+                    norm_choice = st.selectbox(T[lang]["norm_mode_label"], [T[lang]["norm_base"], T[lang]["norm_tic"], T[lang]["norm_raw"]], index=0, key=f"norm_mode_{active_spectrum_name}")
                     clean_mass = pd.to_numeric(raw_df[col_mz], errors="coerce")
                     clean_int = pd.to_numeric(raw_df[col_int], errors="coerce")
                     valid_mask = clean_mass.notna() & clean_int.notna()
 
-                    valid_df = pd.DataFrame(
-                        {
-                            "mass": clean_mass[valid_mask].astype(float),
-                            "intensity": clean_int[valid_mask].astype(float),
-                        }
-                    )
+                    valid_df = pd.DataFrame({"mass": clean_mass[valid_mask].astype(float), "intensity": clean_int[valid_mask].astype(float)})
                     valid_df = valid_df[valid_df["mass"] > 0]
-
                     if valid_df.empty:
-                        st.error(
-                            "Error: No valid numeric data found in selected columns."
-                            if lang == "en"
-                            else "Ошибка: В выбранных колонках нет корректных числовых данных."
-                        )
+                        st.error("Error: No valid numeric data found." if lang == "en" else "Ошибка: Нет корректных числовых данных.")
                         st.stop()
 
-                    min_m_data = float(valid_df["mass"].min())
-                    max_m_data = float(valid_df["mass"].max())
-
-                    mz_range = st.slider(
-                        T[lang]["mz_range"],
-                        min_value=max(50.0, float(np.floor(min_m_data))),
-                        max_value=min(2500.0, float(np.ceil(max_m_data))),
-                        value=(
-                            max(100.0, float(np.floor(min_m_data))),
-                            min(1200.0, float(np.ceil(max_m_data))),
-                        ),
-                        step=10.0,
-                        key=f"mzrange_{active_spectrum_name}",
-                    )
+                    min_m_data, max_m_data = float(valid_df["mass"].min()), float(valid_df["mass"].max())
+                    mz_range = st.slider(T[lang]["mz_range"], min_value=max(50.0, float(np.floor(min_m_data))),
+                                         max_value=min(2500.0, float(np.ceil(max_m_data))),
+                                         value=(max(100.0, float(np.floor(min_m_data))), min(1200.0, float(np.ceil(max_m_data)))),
+                                         step=10.0, key=f"mzrange_{active_spectrum_name}")
 
                     max_int_data = float(valid_df["intensity"].max())
-                    cutoff_intensity = st.number_input(
-                        T[lang]["cutoff_int"],
-                        min_value=0.0,
-                        max_value=max_int_data,
-                        value=0.0,
-                        step=max_int_data * 0.001 if max_int_data > 0 else 1.0,
-                        format="%.2e",
-                        key=f"cutoff_{active_spectrum_name}",
-                    )
+                    cutoff_intensity = st.number_input(T[lang]["cutoff_int"], min_value=0.0, max_value=max_int_data, value=0.0,
+                                                       step=max_int_data * 0.001 if max_int_data > 0 else 1.0, format="%.2e", key=f"cutoff_{active_spectrum_name}")
 
-                    filtered_df = valid_df[
-                        (valid_df["mass"] >= mz_range[0])
-                        & (valid_df["mass"] <= mz_range[1])
-                        & (valid_df["intensity"] >= cutoff_intensity)
-                    ].sort_values("mass").reset_index(drop=True)
-
+                    filtered_df = valid_df[(valid_df["mass"] >= mz_range[0]) & (valid_df["mass"] <= mz_range[1]) & (valid_df["intensity"] >= cutoff_intensity)].sort_values("mass").reset_index(drop=True)
                     if not filtered_df.empty:
                         if norm_choice == T[lang]["norm_base"]:
-                            max_i = filtered_df["intensity"].max()
-                            filtered_df["norm_intensity"] = (
-                                filtered_df["intensity"] / max_i
-                            ) * 100.0
+                            filtered_df["norm_intensity"] = (filtered_df["intensity"] / filtered_df["intensity"].max()) * 100.0
                         elif norm_choice == T[lang]["norm_tic"]:
-                            sum_i = filtered_df["intensity"].sum()
-                            filtered_df["norm_intensity"] = (
-                                filtered_df["intensity"] / sum_i
-                            ) * 100.0
+                            filtered_df["norm_intensity"] = (filtered_df["intensity"] / filtered_df["intensity"].sum()) * 100.0
                         else:
-                            filtered_df["norm_intensity"] = filtered_df[
-                                "intensity"
-                            ]
+                            filtered_df["norm_intensity"] = filtered_df["intensity"]
                     else:
                         filtered_df["norm_intensity"] = []
 
                     current_sample["parsed_peaks"] = filtered_df
-                    st.success(
-                        T[lang]["loaded_peaks_success"].format(
-                            n=len(filtered_df)
-                        )
-                    )
-
-                except KeyError as e:
-                    st.error(f"Mapping error: {e}")
-                    st.stop()
+                    st.success(T[lang]["loaded_peaks_success"].format(n=len(filtered_df)))
                 except Exception as err:
                     st.error(f"Error parsing file: {err}")
                     st.stop()
         else:
-            active_spectrum_name = None
-            current_sample = None
+            active_spectrum_name, current_sample = None, None
             st.info(T[lang]["no_spectra_info"])
 
     st.title(T[lang]["title"])
-
-    tabs = st.tabs(
-        [
-            T[lang]["tab_stick"],
-            T[lang]["tab_recal"],
-            T[lang]["tab_assign"],
-            T[lang]["tab_vk"],
-            T[lang]["tab_kmd"],
-            T[lang]["tab_vk20"],
-            T[lang]["tab_cmp"],
-            T[lang]["tab_tmds"],
-            T[lang]["tab_desc"],
-        ]
-    )
+    tabs = st.tabs([
+        T[lang]["tab_stick"], T[lang]["tab_recal"], T[lang]["tab_assign"],
+        T[lang]["tab_vk"], T[lang]["tab_kmd"], T[lang]["tab_vk20"],
+        T[lang]["tab_cmp"], T[lang]["tab_tmds"], T[lang]["tab_desc"],
+    ])
 
     # 1. Stick Plot
     with tabs[0]:
-        if (
-            current_sample is None
-            or current_sample["parsed_peaks"] is None
-            or current_sample["parsed_peaks"].empty
-        ):
+        if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
             st.info(T[lang]["no_spectra_info"])
         else:
             peaks_df = current_sample["parsed_peaks"]
             st.subheader(f"{T[lang]['tab_stick']}: {active_spectrum_name}")
+            c_ctrl1, c_ctrl2 = st.columns([3, 1])
+            with c_ctrl1: st.caption(T[lang]["stick_signals"].format(n=len(peaks_df)))
+            with c_ctrl2: annotate_top = st.checkbox(T[lang]["annotate_top"], value=True, key=f"ann_{active_spectrum_name}")
 
-            col_ctrl1, col_ctrl2 = st.columns([3, 1])
-            with col_ctrl1:
-                st.caption(T[lang]["stick_signals"].format(n=len(peaks_df)))
-            with col_ctrl2:
-                annotate_top = st.checkbox(
-                    T[lang]["annotate_top"],
-                    value=True,
-                    key=f"ann_{active_spectrum_name}",
-                )
-
-            m_vals = peaks_df["mass"].values
-            i_vals = peaks_df["norm_intensity"].values
-
-            x_stick = np.empty(len(m_vals) * 3)
-            y_stick = np.empty(len(m_vals) * 3)
-            x_stick[0::3] = m_vals
-            x_stick[1::3] = m_vals
-            x_stick[2::3] = None
-            y_stick[0::3] = 0
-            y_stick[1::3] = i_vals
-            y_stick[2::3] = None
+            m_vals, i_vals = peaks_df["mass"].values, peaks_df["norm_intensity"].values
+            x_stick, y_stick = np.empty(len(m_vals) * 3), np.empty(len(m_vals) * 3)
+            x_stick[0::3], x_stick[1::3], x_stick[2::3] = m_vals, m_vals, None
+            y_stick[0::3], y_stick[1::3], y_stick[2::3] = 0, i_vals, None
 
             fig_stick = go.Figure()
-            fig_stick.add_trace(
-                go.Scattergl(
-                    x=x_stick,
-                    y=y_stick,
-                    mode="lines",
-                    line=dict(color="#0b5394", width=1.1),
-                    hoverinfo="skip",
-                    name=T[lang]["peak_trace"],
-                )
-            )
-
+            fig_stick.add_trace(go.Scattergl(x=x_stick, y=y_stick, mode="lines", line=dict(color="#0b5394", width=1.1), hoverinfo="skip", name=T[lang]["peak_trace"]))
             if annotate_top and len(peaks_df) > 0:
                 top5 = peaks_df.nlargest(5, "norm_intensity")
-                fig_stick.add_trace(
-                    go.Scattergl(
-                        x=top5["mass"],
-                        y=top5["norm_intensity"],
-                        mode="markers+text",
-                        text=[f"{val:.4f}" for val in top5["mass"]],
-                        textposition="top center",
-                        marker=dict(color="#b45f06", size=7),
-                        textfont=dict(
-                            color="#b45f06", size=10, family="sans-serif"
-                        ),
-                        name=T[lang]["top5_trace"],
-                        hovertemplate="<b>m/z</b>: %{x:.4f}<br><b>Int</b>: %{y:.1f}<extra></extra>",
-                    )
-                )
-
-            y_max_plot = (
-                float(peaks_df["norm_intensity"].max() * 1.15)
-                if not peaks_df.empty
-                else 100.0
-            )
-            fig_stick.update_layout(
-                xaxis=dict(
-                    title=T[lang]["mz_axis"],
-                    gridcolor="#f1f3f5",
-                    zerolinecolor="#ced4da",
-                ),
-                yaxis=dict(
-                    title=T[lang]["rel_int_axis"],
-                    range=[0, y_max_plot],
-                    gridcolor="#f1f3f5",
-                    zerolinecolor="#ced4da",
-                ),
-                plot_bgcolor="white",
-                height=500,
-                margin=dict(l=45, r=30, t=30, b=40),
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1,
-                ),
-            )
-            st.caption(T[lang]["nav_caption"])
+                fig_stick.add_trace(go.Scattergl(
+                    x=top5["mass"], y=top5["norm_intensity"], mode="markers+text",
+                    text=[f"{val:.4f}" for val in top5["mass"]], textposition="top center",
+                    marker=dict(color="#b45f06", size=7), textfont=dict(color="#b45f06", size=10),
+                    name=T[lang]["top5_trace"], hovertemplate="<b>m/z</b>: %{x:.4f}<br><b>Int</b>: %{y:.1f}<extra></extra>",
+                ))
+            y_max_plot = float(peaks_df["norm_intensity"].max() * 1.15) if not peaks_df.empty else 100.0
+            fig_stick.update_layout(xaxis=dict(title=T[lang]["mz_axis"], gridcolor="#f1f3f5"), yaxis=dict(title=T[lang]["rel_int_axis"], range=[0, y_max_plot], gridcolor="#f1f3f5"),
+                                    plot_bgcolor="white", height=500, margin=dict(l=45, r=30, t=30, b=40))
             st_plotly(fig_stick)
 
-    # 2. Рекалибровка m/z
+    # 2. Рекалибровка
     with tabs[1]:
-        if (
-            current_sample is None
-            or current_sample["parsed_peaks"] is None
-            or current_sample["parsed_peaks"].empty
-        ):
+        if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
             st.info(T[lang]["no_spectra_info"])
         else:
             peaks_df = current_sample["parsed_peaks"]
             st.subheader(f"{T[lang]['tab_recal']}: {active_spectrum_name}")
-
-            cal_opts = [
-                "Fatty Acids (C12–C33 saturated FA)"
-                if lang == "en"
-                else "Жирные кислоты (C12–C33 насыщенные ЖК)",
-                "CHO Homologues (C_n H_{2n-8} O7)"
-                if lang == "en"
-                else "Гомологи CHO (C_n H_{2n-8} O7)",
-            ]
-
+            cal_opts = ["Fatty Acids (C12–C33 saturated FA)" if lang == "en" else "Жирные кислоты (C12–C33 насыщенные ЖК)",
+                        "CHO Homologues (C_n H_{2n-8} O7)" if lang == "en" else "Гомологи CHO (C_n H_{2n-8} O7)"]
             c_r1, c_r2, c_r3 = st.columns([2, 1.5, 1.5])
-            with c_r1:
-                calib_type = st.selectbox(
-                    T[lang]["recal_cal_set"],
-                    cal_opts,
-                    index=0,
-                    key=f"calibtype_{active_spectrum_name}",
-                )
-            with c_r2:
-                search_tol = st.number_input(
-                    T[lang]["recal_tol"],
-                    min_value=2.0,
-                    max_value=25.0,
-                    value=8.0,
-                    step=0.5,
-                    key=f"stol_{active_spectrum_name}",
-                )
-            with c_r3:
-                poly_order = st.selectbox(
-                    T[lang]["recal_poly"],
-                    [1, 2],
-                    index=1,
-                    key=f"polyord_{active_spectrum_name}",
-                )
+            with c_r1: calib_type = st.selectbox(T[lang]["recal_cal_set"], cal_opts, index=0, key=f"calibtype_{active_spectrum_name}")
+            with c_r2: search_tol = st.number_input(T[lang]["recal_tol"], min_value=2.0, max_value=25.0, value=8.0, step=0.5, key=f"stol_{active_spectrum_name}")
+            with c_r3: poly_order = st.selectbox(T[lang]["recal_poly"], [1, 2], index=1, key=f"polyord_{active_spectrum_name}")
 
-            calib_ion_mode = st.selectbox(
-                T[lang]["recal_ion"],
-                [
-                    "ESI(-) [M - H]⁻",
-                    "ESI(+) [M + H]⁺",
-                    "Neutral masses [M]"
-                    if lang == "en"
-                    else "Нейтральные массы [M]",
-                ],
-                index=0,
-                key=f"calib_ion_{active_spectrum_name}",
-            )
+            calib_ion_mode = st.selectbox(T[lang]["recal_ion"], ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Neutral masses [M]" if lang == "en" else "Нейтральные массы [M]"], index=0, key=f"calib_ion_{active_spectrum_name}")
             calib_lib = get_calibrant_library(calib_type, calib_ion_mode)
-
             exp_masses = peaks_df["mass"].values
             matched_calibs = []
 
             for _, row in calib_lib.iterrows():
                 m_th = row["m_theor"]
                 delta_lim = m_th * (search_tol * 1e-6)
-                candidates = exp_masses[
-                    (exp_masses >= m_th - delta_lim)
-                    & (exp_masses <= m_th + delta_lim)
-                ]
+                candidates = exp_masses[(exp_masses >= m_th - delta_lim) & (exp_masses <= m_th + delta_lim)]
                 if len(candidates) > 0:
                     best_m = candidates[np.argmin(np.abs(candidates - m_th))]
-                    err_ppm = ((best_m - m_th) / m_th) * 1e6
-                    delta_m = best_m - m_th
-                    matched_calibs.append(
-                        {
-                            "Calibrant": row["name"],
-                            "m_theor": m_th,
-                            "m_exp": best_m,
-                            "delta_m": delta_m,
-                            "error_ppm": err_ppm,
-                        }
-                    )
+                    matched_calibs.append({"Calibrant": row["name"], "m_theor": m_th, "m_exp": best_m, "delta_m": best_m - m_th, "error_ppm": ((best_m - m_th) / m_th) * 1e6})
 
             if len(matched_calibs) < 3:
-                st.warning(
-                    T[lang]["recal_few_peaks"].format(n=len(matched_calibs))
-                )
+                st.warning(T[lang]["recal_few_peaks"].format(n=len(matched_calibs)))
             else:
                 calib_df = pd.DataFrame(matched_calibs)
                 st.write(T[lang]["recal_found"].format(n=len(calib_df)))
+                actual_poly_order = 1 if (poly_order > 1 and (float(calib_df["m_exp"].max() - calib_df["m_exp"].min()) / max(1.0, float(peaks_df["mass"].max() - peaks_df["mass"].min()))) < 0.60) else poly_order
 
-                spec_min = float(peaks_df["mass"].min())
-                spec_max = float(peaks_df["mass"].max())
-                spec_span = max(1.0, spec_max - spec_min)
+                poly_fn = np.poly1d(np.polyfit(calib_df["m_exp"].values, calib_df["delta_m"].values, deg=actual_poly_order))
+                residual_ppm = (((calib_df["m_exp"] - poly_fn(calib_df["m_exp"])) - calib_df["m_theor"]) / calib_df["m_theor"]) * 1e6
 
-                calib_min = float(calib_df["m_exp"].min())
-                calib_max = float(calib_df["m_exp"].max())
-                calib_span = max(0.0, calib_max - calib_min)
-                coverage = calib_span / spec_span
-
-                actual_poly_order = poly_order
-                if poly_order > 1 and coverage < 0.60:
-                    actual_poly_order = 1
-                    st.warning(
-                        T[lang]["recal_runge_warn"].format(
-                            cmin=calib_min,
-                            cmax=calib_max,
-                            cov=coverage * 100,
-                        )
-                    )
-
-                coeffs = np.polyfit(
-                    calib_df["m_exp"].values,
-                    calib_df["delta_m"].values,
-                    deg=actual_poly_order,
-                )
-                poly_fn = np.poly1d(coeffs)
-
-                corrected_exp = calib_df["m_exp"] - poly_fn(calib_df["m_exp"])
-                residual_ppm = (
-                    (corrected_exp - calib_df["m_theor"]) / calib_df["m_theor"]
-                ) * 1e6
-
-                fig_rec, (ax1, ax2) = plt.subplots(
-                    1, 2, figsize=(13, 5), dpi=150
-                )
-                ax1.scatter(
-                    calib_df["m_exp"],
-                    calib_df["error_ppm"],
-                    color="#D62728",
-                    s=35,
-                    label=T[lang]["recal_scatter_before"],
-                )
-                m_grid = np.linspace(
-                    peaks_df["mass"].min(), peaks_df["mass"].max(), 200
-                )
-                grid_ppm_drift = (poly_fn(m_grid) / m_grid) * 1e6
-                poly_lbl = (
-                    f"Degree {actual_poly_order} poly"
-                    if lang == "en"
-                    else f"Полином степени {actual_poly_order}"
-                )
-                ax1.plot(
-                    m_grid,
-                    grid_ppm_drift,
-                    color="black",
-                    linestyle="--",
-                    linewidth=1.2,
-                    label=poly_lbl,
-                )
-                ax1.set_xlabel("m/z", fontsize=10)
-                ax1.set_ylabel(T[lang]["ppm_axis"], fontsize=10)
-                ax1.set_title(T[lang]["recal_title_before"], fontsize=11)
-                ax1.grid(True, linestyle="--", alpha=0.4)
-                ax1.legend()
-
-                ax2.scatter(
-                    calib_df["m_exp"],
-                    residual_ppm,
-                    color="#2CA02C",
-                    s=35,
-                    label=T[lang]["recal_scatter_after"],
-                )
-                ax2.axhline(0, color="black", linestyle="-", linewidth=0.8)
-                ax2.set_xlabel("m/z", fontsize=10)
-                ax2.set_ylabel(T[lang]["res_ppm_axis"], fontsize=10)
-                ax2.set_title(T[lang]["recal_title_after"], fontsize=11)
-                ax2.grid(True, linestyle="--", alpha=0.4)
-                ax2.legend()
+                fig_rec, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.5), dpi=120)
+                ax1.scatter(calib_df["m_exp"], calib_df["error_ppm"], color="#D62728", s=30, label=T[lang]["recal_scatter_before"])
+                m_grid = np.linspace(peaks_df["mass"].min(), peaks_df["mass"].max(), 200)
+                ax1.plot(m_grid, (poly_fn(m_grid) / m_grid) * 1e6, color="black", linestyle="--", linewidth=1.2)
+                ax1.set_xlabel("m/z"); ax1.set_ylabel(T[lang]["ppm_axis"]); ax1.set_title(T[lang]["recal_title_before"]); ax1.grid(True, alpha=0.3)
+                ax2.scatter(calib_df["m_exp"], residual_ppm, color="#2CA02C", s=30, label=T[lang]["recal_scatter_after"])
+                ax2.axhline(0, color="black", linewidth=0.8); ax2.set_xlabel("m/z"); ax2.set_ylabel(T[lang]["res_ppm_axis"]); ax2.set_title(T[lang]["recal_title_after"]); ax2.grid(True, alpha=0.3)
                 plt.tight_layout()
                 st.pyplot(fig_rec)
                 plt.close(fig_rec)
 
-                if st.button(
-                    T[lang]["recal_btn"],
-                    type="primary",
-                    key=f"btn_recal_{active_spectrum_name}",
-                ):
-                    m_orig = peaks_df["mass"].values
-                    m_recalibrated = m_orig - poly_fn(m_orig)
-                    current_sample["parsed_peaks"]["mass"] = m_recalibrated
+                if st.button(T[lang]["recal_btn"], type="primary", key=f"btn_recal_{active_spectrum_name}"):
+                    current_sample["parsed_peaks"]["mass"] = peaks_df["mass"].values - poly_fn(peaks_df["mass"].values)
                     current_sample["assigned_df"] = None
-                    st.success(
-                        T[lang]["recal_success"].format(
-                            n=len(m_recalibrated),
-                            before=calib_df["error_ppm"].abs().mean(),
-                            after=residual_ppm.abs().mean(),
-                        )
-                    )
+                    st.success(T[lang]["recal_success"].format(n=len(peaks_df), before=calib_df["error_ppm"].abs().mean(), after=residual_ppm.abs().mean()))
 
     # 3. Приписывание формул
     with tabs[2]:
-        if (
-            current_sample is None
-            or current_sample["parsed_peaks"] is None
-            or current_sample["parsed_peaks"].empty
-        ):
+        if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
             st.info(T[lang]["no_spectra_info"])
         else:
             peaks_df = current_sample["parsed_peaks"]
             st.subheader(f"{T[lang]['tab_assign']}: {active_spectrum_name}")
-
             with st.expander(T[lang]["assign_expander"], expanded=True):
                 col_m1, col_m2, col_m3 = st.columns([2, 1, 1])
-                with col_m1:
-                    ion_mode = st.selectbox(
-                        T[lang]["ion_mode"],
-                        [
-                            "ESI(-) [M - H]⁻",
-                            "ESI(+) [M + H]⁺",
-                            "Neutral masses [M]"
-                            if lang == "en"
-                            else "Нейтральные массы [M]",
-                        ],
-                        index=0,
-                        key=f"ionmode_{active_spectrum_name}",
-                    )
-                with col_m2:
-                    max_charge_val = st.selectbox(
-                        T[lang]["max_charge"],
-                        [1, 2],
-                        index=0,
-                        key=f"zmax_{active_spectrum_name}",
-                    )
-                with col_m3:
-                    ppm_tol = st.number_input(
-                        T[lang]["ppm_tol"],
-                        min_value=0.1,
-                        max_value=5.0,
-                        value=1.0,
-                        step=0.1,
-                        key=f"ppmtol_{active_spectrum_name}",
-                    )
+                with col_m1: ion_mode = st.selectbox(T[lang]["ion_mode"], ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Neutral masses [M]" if lang == "en" else "Нейтральные массы [M]"], index=0, key=f"ionmode_{active_spectrum_name}")
+                with col_m2: max_charge_val = st.selectbox(T[lang]["max_charge"], [1, 2], index=0, key=f"zmax_{active_spectrum_name}")
+                with col_m3: ppm_tol = st.number_input(T[lang]["ppm_tol"], min_value=0.1, max_value=5.0, value=1.0, step=0.1, key=f"ppmtol_{active_spectrum_name}")
 
                 col_el1, col_el2, col_el3 = st.columns(3)
                 with col_el1:
-                    c_bounds = st.slider(
-                        T[lang]["c_lim"],
-                        4,
-                        120,
-                        (4, 120),
-                        key=f"cb_{active_spectrum_name}",
-                    )
-                    h_bounds = st.slider(
-                        T[lang]["h_lim"],
-                        4,
-                        200,
-                        (4, 200),
-                        key=f"hb_{active_spectrum_name}",
-                    )
+                    c_bounds = st.slider(T[lang]["c_lim"], 4, 120, (4, 120), key=f"cb_{active_spectrum_name}")
+                    h_bounds = st.slider(T[lang]["h_lim"], 4, 200, (4, 200), key=f"hb_{active_spectrum_name}")
                 with col_el2:
-                    o_bounds = st.slider(
-                        T[lang]["o_lim"],
-                        1,
-                        60,
-                        (1, 60),
-                        key=f"ob_{active_spectrum_name}",
-                    )
-                    n_bounds = st.slider(
-                        T[lang]["n_lim"],
-                        0,
-                        3,
-                        (0, 2),
-                        key=f"nb_{active_spectrum_name}",
-                    )
+                    o_bounds = st.slider(T[lang]["o_lim"], 1, 60, (1, 60), key=f"ob_{active_spectrum_name}")
+                    n_bounds = st.slider(T[lang]["n_lim"], 0, 3, (0, 2), key=f"nb_{active_spectrum_name}")
                 with col_el3:
-                    s_bounds = st.slider(
-                        T[lang]["s_lim"],
-                        0,
-                        2,
-                        (0, 1),
-                        key=f"sb_{active_spectrum_name}",
-                    )
-                    max_oc_val = st.slider(
-                        T[lang]["max_oc"],
-                        0.1,
-                        1.0,
-                        1.0,
-                        step=0.05,
-                        key=f"moc_{active_spectrum_name}",
-                    )
-                    max_hc_val = st.slider(
-                        T[lang]["max_hc"],
-                        0.2,
-                        2.2,
-                        2.0,
-                        step=0.05,
-                        key=f"mhc_{active_spectrum_name}",
-                    )
+                    s_bounds = st.slider(T[lang]["s_lim"], 0, 2, (0, 1), key=f"sb_{active_spectrum_name}")
+                    max_oc_val = st.slider(T[lang]["max_oc"], 0.1, 1.0, 1.0, step=0.05, key=f"moc_{active_spectrum_name}")
+                    max_hc_val = st.slider(T[lang]["max_hc"], 0.2, 2.2, 2.0, step=0.05, key=f"mhc_{active_spectrum_name}")
 
                 col_iso1, col_iso2 = st.columns(2)
-                with col_iso1:
-                    iso_chk = st.checkbox(
-                        T[lang]["iso_filter_label"],
-                        value=False,
-                        key=f"isochk_{active_spectrum_name}",
-                    )
-                with col_iso2:
-                    iso_strict_chk = st.checkbox(
-                        T[lang]["iso_strict_label"],
-                        value=False,
-                        disabled=not iso_chk,
-                        key=f"isostrict_{active_spectrum_name}",
-                    )
+                with col_iso1: iso_chk = st.checkbox(T[lang]["iso_filter_label"], value=False, key=f"isochk_{active_spectrum_name}")
+                with col_iso2: iso_strict_chk = st.checkbox(T[lang]["iso_strict_label"], value=False, disabled=not iso_chk, key=f"isostrict_{active_spectrum_name}")
 
-            if st.button(
-                T[lang]["assign_btn"],
-                type="primary",
-                key=f"btn_assign_{active_spectrum_name}",
-            ):
-                elem_bounds = {
-                    "C": c_bounds,
-                    "H": h_bounds,
-                    "O": o_bounds,
-                    "N": n_bounds,
-                    "S": s_bounds,
-                }
+            if st.button(T[lang]["assign_btn"], type="primary", key=f"btn_assign_{active_spectrum_name}"):
                 with st.spinner(T[lang]["assign_spinner"]):
                     assigned_res = run_formula_assignment(
-                        peaks_df=peaks_df,
-                        bounds=elem_bounds,
-                        max_hc=max_hc_val,
-                        max_oc=max_oc_val,
-                        ppm_tolerance=ppm_tol,
-                        ion_mode=ion_mode,
-                        max_charge=max_charge_val,
-                        iso_check=iso_chk,
-                        iso_strict=iso_strict_chk,
-                        lang=lang,
+                        peaks_df=peaks_df, bounds={"C": c_bounds, "H": h_bounds, "O": o_bounds, "N": n_bounds, "S": s_bounds},
+                        max_hc=max_hc_val, max_oc=max_oc_val, ppm_tolerance=ppm_tol,
+                        ion_mode=ion_mode, max_charge=max_charge_val, iso_check=iso_chk, iso_strict=iso_strict_chk, lang=lang
                     )
                     current_sample["assigned_df"] = assigned_res
 
             assigned_data = current_sample["assigned_df"]
             if assigned_data is not None and not assigned_data.empty:
-                total_n = len(peaks_df)
-                assigned_n = len(assigned_data)
-                rate = (
-                    (assigned_n / total_n * 100.0) if total_n > 0 else 0.0
-                )
-                mean_ppm = (
-                    assigned_data["error_ppm"].abs().mean()
-                    if "error_ppm" in assigned_data.columns
-                    else 0.0
-                )
-
                 st.markdown("---")
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric(T[lang]["metric_total"], f"{total_n:,}")
-                m2.metric(T[lang]["metric_assigned"], f"{assigned_n:,}")
-                m3.metric(T[lang]["metric_rate"], f"{rate:.1f}%")
-                m4.metric(T[lang]["metric_err"], f"{mean_ppm:.3f}")
-
-                st.write(T[lang]["assign_tbl_title"])
+                m1.metric(T[lang]["metric_total"], f"{len(peaks_df):,}")
+                m2.metric(T[lang]["metric_assigned"], f"{len(assigned_data):,}")
+                m3.metric(T[lang]["metric_rate"], f"{(len(assigned_data) / len(peaks_df) * 100.0):.1f}%")
+                m4.metric(T[lang]["metric_err"], f"{assigned_data['error_ppm'].abs().mean():.3f}")
                 st_df(assigned_data)
-
-                csv_data = assigned_data.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label=T[lang]["dl_csv_formulas"],
-                    data=csv_data,
-                    file_name=f"{active_spectrum_name}_formulas.csv",
-                    mime="text/csv",
-                    key=f"dl_csv_formulas_{active_spectrum_name}",
-                )
-            elif assigned_data is not None and assigned_data.empty:
+                st.download_button(label=T[lang]["dl_csv_formulas"], data=assigned_data.to_csv(index=False).encode("utf-8"),
+                                   file_name=f"{active_spectrum_name}_formulas.csv", mime="text/csv", key=f"dl_csv_formulas_{active_spectrum_name}")
+            elif assigned_data is not None:
                 st.warning(T[lang]["no_formulas_warn"])
 
-    # 4. Диаграммы и проекции
+    # 4. Проекции
     with tabs[3]:
-        assigned_data = (
-            current_sample.get("assigned_df") if current_sample else None
-        )
+        assigned_data = current_sample.get("assigned_df") if current_sample else None
         if assigned_data is None or assigned_data.empty:
             st.warning(T[lang]["need_assign_first"])
         else:
             st.subheader(f"{T[lang]['tab_vk']}: {active_spectrum_name}")
-            proj_type = st.radio(
-                T[lang]["proj_mode"],
-                [
-                    T[lang]["proj_vk"],
-                    T[lang]["proj_dbe_c"],
-                    T[lang]["proj_custom"],
-                ],
-                horizontal=True,
-                key=f"proj_type_{active_spectrum_name}",
-            )
-            pow_exp = st.slider(
-                T[lang]["pow_exp"],
-                min_value=0.1,
-                max_value=1.0,
-                value=0.5,
-                step=0.05,
-                key=f"pow_{active_spectrum_name}",
-            )
-
-            palette = {
-                "CHO": "#0020C2",
-                "CHON": "#FF7F0E",
-                "CHOS": "#2CA02C",
-                "CHONS": "#D62728",
-            }
-            draw_order = ["CHO", "CHON", "CHOS", "CHONS"]
+            proj_type = st.radio(T[lang]["proj_mode"], [T[lang]["proj_vk"], T[lang]["proj_dbe_c"], T[lang]["proj_custom"]], horizontal=True, key=f"proj_type_{active_spectrum_name}")
+            pow_exp = st.slider(T[lang]["pow_exp"], min_value=0.1, max_value=1.0, value=0.5, step=0.05, key=f"pow_{active_spectrum_name}")
+            palette = {"CHO": "#0020C2", "CHON": "#FF7F0E", "CHOS": "#2CA02C", "CHONS": "#D62728"}
 
             if proj_type == T[lang]["proj_vk"]:
-                fig_inter = go.Figure()
-                for cls in draw_order:
+                fig_vk = go.Figure()
+                for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
                     sub = assigned_data[assigned_data["Hetero_Class"] == cls]
-                    if sub.empty:
-                        continue
-                    scaled_sizes = (
-                        2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp
-                    )
-                    hover_text = [
-                        f"<b>{row.get('Formula', '')}</b><br>m/z: {row['mass']:.4f}<br>Err: {row.get('error_ppm', 0):.2f} ppm<br>DBE: {row.get('DBE', 0):.1f}<br>AI: {row.get('AI', 0):.2f}<br>Int: {row.get('norm_intensity', 0):.1f}"
-                        for _, row in sub.iterrows()
-                    ]
-                    fig_inter.add_trace(
-                        go.Scattergl(
-                            x=sub["O/C"],
-                            y=sub["H/C"],
-                            mode="markers",
-                            name=f"{cls} ({len(sub):,})",
-                            marker=dict(
-                                color=palette[cls],
-                                size=scaled_sizes,
-                                opacity=0.65,
-                            ),
-                            text=hover_text,
-                            hoverinfo="text",
-                        )
-                    )
-                fig_inter.update_layout(
-                    xaxis=dict(
-                        title=T[lang]["oc_axis"],
-                        range=[0.0, 1.0],
-                        gridcolor="#f1f3f5",
-                    ),
-                    yaxis=dict(
-                        title=T[lang]["hc_axis"],
-                        range=[0.2, 2.2],
-                        gridcolor="#f1f3f5",
-                    ),
-                    plot_bgcolor="white",
-                    height=560,
-                )
-                st.caption(T[lang]["nav_caption"])
-                st_plotly(fig_inter)
-
+                    if sub.empty: continue
+                    fig_vk.add_trace(go.Scattergl(
+                        x=sub["O/C"], y=sub["H/C"], mode="markers", name=f"{cls} ({len(sub):,})",
+                        marker=dict(color=palette[cls], size=2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp, opacity=0.65),
+                        text=[f"<b>{r.get('Formula', '')}</b><br>m/z: {r['mass']:.4f}<br>AI: {r.get('AI', 0):.2f}" for _, r in sub.iterrows()], hoverinfo="text"
+                    ))
+                fig_vk.update_layout(xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5"), yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5"), plot_bgcolor="white", height=560)
+                st_plotly(fig_vk)
             elif proj_type == T[lang]["proj_dbe_c"]:
-                fig_inter = go.Figure()
-                for cls in draw_order:
+                fig_dbe = go.Figure()
+                for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
                     sub = assigned_data[assigned_data["Hetero_Class"] == cls]
-                    if sub.empty:
-                        continue
-                    scaled_sizes = (
-                        2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp
-                    )
-                    fig_inter.add_trace(
-                        go.Scattergl(
-                            x=sub["C"],
-                            y=sub["DBE"],
-                            mode="markers",
-                            name=f"{cls} ({len(sub):,})",
-                            marker=dict(
-                                color=palette[cls],
-                                size=scaled_sizes,
-                                opacity=0.65,
-                            ),
-                            text=[
-                                f"{row.get('Formula', '')}<br>AI: {row.get('AI', 0):.2f}"
-                                for _, row in sub.iterrows()
-                            ],
-                            hoverinfo="text",
-                        )
-                    )
+                    if sub.empty: continue
+                    fig_dbe.add_trace(go.Scattergl(x=sub["C"], y=sub["DBE"], mode="markers", name=f"{cls} ({len(sub):,})",
+                                                   marker=dict(color=palette[cls], size=2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp, opacity=0.65)))
                 c_line = np.linspace(4, 60, 100)
-                fig_inter.add_trace(
-                    go.Scatter(
-                        x=c_line,
-                        y=c_line * 0.9,
-                        mode="lines",
-                        name="Planar limit (AI=0.67)",
-                        line=dict(color="red", dash="dot"),
-                    )
-                )
-                fig_inter.add_trace(
-                    go.Scatter(
-                        x=c_line,
-                        y=c_line * 0.5,
-                        mode="lines",
-                        name="Aromatic (AI=0.5)",
-                        line=dict(color="gray", dash="dash"),
-                    )
-                )
-                fig_inter.update_layout(
-                    xaxis=dict(
-                        title="Carbon atoms (C)",
-                        range=[0, assigned_data["C"].max() + 5],
-                    ),
-                    yaxis=dict(
-                        title="Double Bond Equivalent (DBE)",
-                        range=[0, assigned_data["DBE"].max() + 3],
-                    ),
-                    plot_bgcolor="white",
-                    height=560,
-                )
-                st.caption(T[lang]["nav_caption"])
-                st_plotly(fig_inter)
-
+                fig_dbe.add_trace(go.Scatter(x=c_line, y=c_line * 0.9, mode="lines", name="Planar limit", line=dict(color="red", dash="dot")))
+                fig_dbe.update_layout(xaxis=dict(title="Carbon (C)"), yaxis=dict(title="DBE"), plot_bgcolor="white", height=560)
+                st_plotly(fig_dbe)
             else:
-                avail_cols = [
-                    "mass",
-                    "intensity",
-                    "norm_intensity",
-                    "C",
-                    "H",
-                    "O",
-                    "N",
-                    "S",
-                    "H/C",
-                    "O/C",
-                    "DBE",
-                    "DBE-O",
-                    "AI",
-                    "NOSC",
-                    "error_ppm",
-                ]
-                c_sel1, c_sel2, c_sel3 = st.columns(3)
-                with c_sel1:
-                    cx = st.selectbox(
-                        "Ось X / X Axis:",
-                        avail_cols,
-                        index=avail_cols.index("mass"),
-                    )
-                with c_sel2:
-                    cy = st.selectbox(
-                        "Ось Y / Y Axis:",
-                        avail_cols,
-                        index=avail_cols.index("DBE"),
-                    )
-                with c_sel3:
-                    cc = st.selectbox(
-                        "Цвет / Color map:",
-                        avail_cols,
-                        index=avail_cols.index("AI"),
-                    )
-
-                fig_cust = px.scatter(
-                    assigned_data,
-                    x=cx,
-                    y=cy,
-                    color=cc,
-                    color_continuous_scale="Viridis",
-                    hover_data=["Formula", "mass", "AI"],
-                    opacity=0.7,
-                    render_mode="webgl",
-                )
+                avail_cols = ["mass", "intensity", "norm_intensity", "C", "H", "O", "N", "S", "H/C", "O/C", "DBE", "AI", "NOSC", "error_ppm"]
+                c1, c2, c3 = st.columns(3)
+                with c1: cx = st.selectbox("X:", avail_cols, index=avail_cols.index("mass"))
+                with c2: cy = st.selectbox("Y:", avail_cols, index=avail_cols.index("DBE"))
+                with c3: cc = st.selectbox("Color:", avail_cols, index=avail_cols.index("AI"))
+                fig_cust = px.scatter(assigned_data, x=cx, y=cy, color=cc, color_continuous_scale="Viridis", opacity=0.7, render_mode="webgl")
                 fig_cust.update_layout(height=560, plot_bgcolor="white")
                 st_plotly(fig_cust)
 
     # 5. KMD
     with tabs[4]:
-        st.subheader(
-            f"{T[lang]['tab_kmd']}: {active_spectrum_name if active_spectrum_name else ''}"
-        )
-        assigned_df = (
-            current_sample.get("assigned_df") if current_sample else None
-        )
-        peaks_df = current_sample.get("parsed_peaks") if current_sample else None
-
-        if assigned_df is not None and not assigned_df.empty:
-            work_df = assigned_df.copy()
-            has_formulas = True
-        elif peaks_df is not None and not peaks_df.empty:
-            work_df = peaks_df.copy()
-            has_formulas = False
-        else:
-            st.info(T[lang]["no_spectra_info"])
-            work_df = None
-
-        if work_df is not None:
-            col_b1, col_b2, col_b3 = st.columns([2, 2, 1])
-            with col_b1:
-                base_choice = st.selectbox(
-                    T[lang]["kmd_base_group"],
-                    list(KMD_BASES.keys()),
-                    index=0,
-                    key=f"kmd_base_{active_spectrum_name}",
-                )
-            with col_b2:
-                color_options = [
-                    T[lang]["kmd_parity_mode"],
-                    T[lang]["kmd_int_mode"],
-                ]
-                if has_formulas:
-                    color_options.extend(
-                        [
-                            T[lang]["kmd_o_mode"],
-                            T[lang]["kmd_dbe_mode"],
-                            T[lang]["kmd_hetero_mode"],
-                        ]
-                    )
-                color_mode = st.selectbox(
-                    T[lang]["kmd_color_mode"],
-                    color_options,
-                    index=0,
-                    key=f"kmd_color_{active_spectrum_name}",
-                )
-            with col_b3:
-                point_sz = st.slider(
-                    T[lang]["kmd_pt_size"],
-                    1,
-                    8,
-                    3,
-                    key=f"kmd_pt_{active_spectrum_name}",
-                )
-
+        st.subheader(f"{T[lang]['tab_kmd']}: {active_spectrum_name if active_spectrum_name else ''}")
+        work_df = current_sample.get("assigned_df") if current_sample and current_sample.get("assigned_df") is not None and not current_sample["assigned_df"].empty else (current_sample.get("parsed_peaks") if current_sample else None)
+        if work_df is not None and not work_df.empty:
+            c1, c2 = st.columns(2)
+            with c1: base_choice = st.selectbox(T[lang]["kmd_base_group"], list(KMD_BASES.keys()), index=0, key=f"kmd_base_{active_spectrum_name}")
+            with c2: point_sz = st.slider(T[lang]["kmd_pt_size"], 1, 8, 3, key=f"kmd_pt_{active_spectrum_name}")
             km, nkm, kmd = compute_kmd(work_df["mass"].values, base_choice)
-            work_df["KM"] = km
-            work_df["NKM"] = nkm
-            work_df["KMD"] = kmd
-            base_label = KMD_BASES[base_choice]["label"]
-
-            fig_kmd_inter = go.Figure()
-            if color_mode == T[lang]["kmd_parity_mode"]:
-                even_mask = work_df["NKM"] % 2 == 0
-                fig_kmd_inter.add_trace(
-                    go.Scattergl(
-                        x=work_df.loc[even_mask, "NKM"],
-                        y=work_df.loc[even_mask, "KMD"],
-                        mode="markers",
-                        name=T[lang]["kmd_even"],
-                        marker=dict(color="#0020C2", size=point_sz, opacity=0.6),
-                    )
-                )
-                fig_kmd_inter.add_trace(
-                    go.Scattergl(
-                        x=work_df.loc[~even_mask, "NKM"],
-                        y=work_df.loc[~even_mask, "KMD"],
-                        mode="markers",
-                        name=T[lang]["kmd_odd"],
-                        marker=dict(color="#FF7F0E", size=point_sz, opacity=0.7),
-                    )
-                )
-            elif color_mode == T[lang]["kmd_hetero_mode"] and has_formulas:
-                palette = {
-                    "CHO": "#0020C2",
-                    "CHON": "#FF7F0E",
-                    "CHOS": "#2CA02C",
-                    "CHONS": "#D62728",
-                }
-                for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
-                    sub = work_df[work_df["Hetero_Class"] == cls]
-                    if not sub.empty:
-                        fig_kmd_inter.add_trace(
-                            go.Scattergl(
-                                x=sub["NKM"],
-                                y=sub["KMD"],
-                                mode="markers",
-                                name=f"{cls} ({len(sub):,})",
-                                marker=dict(
-                                    color=palette[cls],
-                                    size=point_sz,
-                                    opacity=0.65,
-                                ),
-                            )
-                        )
-            else:
-                c_vals = (
-                    work_df["O"]
-                    if (color_mode == T[lang]["kmd_o_mode"] and has_formulas)
-                    else (
-                        work_df["DBE"]
-                        if (
-                            color_mode == T[lang]["kmd_dbe_mode"]
-                            and has_formulas
-                        )
-                        else work_df["norm_intensity"]
-                    )
-                )
-                c_scale = "Viridis" if "O" in color_mode else "Cividis"
-                fig_kmd_inter.add_trace(
-                    go.Scattergl(
-                        x=work_df["NKM"],
-                        y=work_df["KMD"],
-                        mode="markers",
-                        marker=dict(
-                            color=c_vals,
-                            colorscale=c_scale,
-                            size=point_sz,
-                            opacity=0.65,
-                        ),
-                    )
-                )
-
-            fig_kmd_inter.update_layout(
-                xaxis=dict(
-                    title=T[lang]["kmd_x_axis"].format(base=base_label),
-                    gridcolor="#f1f3f5",
-                ),
-                yaxis=dict(
-                    title=T[lang]["kmd_y_axis"].format(base=base_label),
-                    range=[-0.02, 1.02],
-                    gridcolor="#f1f3f5",
-                ),
-                plot_bgcolor="white",
-                height=540,
-            )
-            st.caption(T[lang]["nav_caption"])
-            st_plotly(fig_kmd_inter)
+            fig_kmd = go.Figure()
+            even_mask = (nkm % 2 == 0)
+            fig_kmd.add_trace(go.Scattergl(x=nkm[even_mask], y=kmd[even_mask], mode="markers", name=T[lang]["kmd_even"], marker=dict(color="#0020C2", size=point_sz, opacity=0.6)))
+            fig_kmd.add_trace(go.Scattergl(x=nkm[~even_mask], y=kmd[~even_mask], mode="markers", name=T[lang]["kmd_odd"], marker=dict(color="#FF7F0E", size=point_sz, opacity=0.7)))
+            fig_kmd.update_layout(xaxis=dict(title=T[lang]["kmd_x_axis"].format(base=base_choice), gridcolor="#f1f3f5"), yaxis=dict(title=T[lang]["kmd_y_axis"].format(base=base_choice), range=[-0.02, 1.02]), height=540, plot_bgcolor="white")
+            st_plotly(fig_kmd)
 
     # 6. Хемотипирование 20 ячеек
     with tabs[5]:
-        st.subheader(
-            f"{T[lang]['tab_vk20']}: {active_spectrum_name if active_spectrum_name else ''}"
-        )
-        assigned_df = (
-            current_sample.get("assigned_df") if current_sample else None
-        )
+        st.subheader(f"{T[lang]['tab_vk20']}: {active_spectrum_name if active_spectrum_name else ''}")
+        assigned_df = current_sample.get("assigned_df") if current_sample else None
         if assigned_df is None or assigned_df.empty:
             st.warning(T[lang]["need_assign_first"])
         else:
             pct_count, pct_weight, feat_df = compute_vk20_grid(assigned_df)
-            metric_mode = st.radio(
-                T[lang]["vk20_basis"],
-                [T[lang]["vk20_opt_count"], T[lang]["vk20_opt_weight"]],
-                horizontal=True,
-                key=f"vk20_mode_{active_spectrum_name}",
-            )
-            active_matrix = (
-                pct_count
-                if metric_mode == T[lang]["vk20_opt_count"]
-                else pct_weight
-            )
+            metric_mode = st.radio(T[lang]["vk20_basis"], [T[lang]["vk20_opt_count"], T[lang]["vk20_opt_weight"]], horizontal=True, key=f"vk20_mode_{active_spectrum_name}")
+            active_matrix = pct_count if metric_mode == T[lang]["vk20_opt_count"] else pct_weight
 
-            fig_hm, ax_hm = plt.subplots(figsize=(9, 6), dpi=150)
-            im = ax_hm.imshow(
-                active_matrix, origin="lower", cmap="YlOrRd", aspect="auto"
-            )
-            ax_hm.set_xticks(range(4))
-            ax_hm.set_xticklabels(
-                [
-                    "C1 [0.00-0.25)",
-                    "C2 [0.25-0.50)",
-                    "C3 [0.50-0.75)",
-                    "C4 [0.75-1.00]",
-                ],
-                fontsize=9,
-            )
-            ax_hm.set_yticks(range(5))
-            ax_hm.set_yticklabels(
-                [
-                    "R1 [0.20-0.60)",
-                    "R2 [0.60-1.00)",
-                    "R3 [1.00-1.40)",
-                    "R4 [1.40-1.80)",
-                    "R5 [1.80-2.20]",
-                ],
-                fontsize=9,
-            )
-            ax_hm.set_xlabel(
-                T[lang]["oc_axis"], fontsize=10, fontweight="medium"
-            )
-            ax_hm.set_ylabel(
-                T[lang]["hc_axis"], fontsize=10, fontweight="medium"
-            )
-            ax_hm.set_title(
-                T[lang]["vk20_heatmap_title"].format(mode=metric_mode),
-                fontsize=11,
-            )
-
+            fig_hm, ax_hm = plt.subplots(figsize=(9, 5.5), dpi=120)
+            im = ax_hm.imshow(active_matrix, origin="lower", cmap="YlOrRd", aspect="auto")
+            ax_hm.set_xticks(range(4)); ax_hm.set_xticklabels(["C1 [0-0.25)", "C2 [0.25-0.5)", "C3 [0.5-0.75)", "C4 [0.75-1.0]"], fontsize=8)
+            ax_hm.set_yticks(range(5)); ax_hm.set_yticklabels(["R1 [0.2-0.6)", "R2 [0.6-1.0)", "R3 [1.0-1.4)", "R4 [1.4-1.8)", "R5 [1.8-2.2]"], fontsize=8)
+            ax_hm.set_title(T[lang]["vk20_heatmap_title"].format(mode=metric_mode), fontsize=10)
             for r in range(5):
                 for c in range(4):
-                    vk_num = 1 + r * 4 + c
                     val = active_matrix[r, c]
-                    txt_color = (
-                        "white"
-                        if val > (active_matrix.max() * 0.65)
-                        else "black"
-                    )
-                    ax_hm.text(
-                        c,
-                        r,
-                        f"VK_{vk_num}\n{val:.1f}%",
-                        ha="center",
-                        va="center",
-                        color=txt_color,
-                        fontsize=9,
-                        fontweight="bold",
-                    )
-
-            plt.colorbar(im, ax=ax_hm, pad=0.02, label="Density (%)")
+                    ax_hm.text(c, r, f"VK_{1 + r * 4 + c}\n{val:.1f}%", ha="center", va="center", color="white" if val > (active_matrix.max() * 0.65) else "black", fontsize=8, fontweight="bold")
+            plt.colorbar(im, ax=ax_hm, pad=0.02)
             plt.tight_layout()
             st.pyplot(fig_hm)
             plt.close(fig_hm)
+            st_df(feat_df)
+            st.download_button(label=T[lang]["vk20_dl_csv"], data=feat_df.to_csv(index=False).encode("utf-8"), file_name=f"{active_spectrum_name}_vk20.csv", mime="text/csv", key=f"dl_vk20_{active_spectrum_name}")
 
-            st.write(feat_df)
-            st.download_button(
-                label=T[lang]["vk20_dl_csv"],
-                data=feat_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"{active_spectrum_name}_vk20.csv",
-                mime="text/csv",
-                key=f"dl_vk20_{active_spectrum_name}",
-            )
-
-    # 7. Сравнение и алгебра
+    # 7. Сравнение
     with tabs[6]:
         st.subheader(T[lang]["tab_cmp"])
         if len(all_spectra) < 2:
             st.info(T[lang]["cmp_need_two"])
         else:
-            cmp_tab_choice = st.radio(
-                "Раздел / Mode:",
-                [
-                    T[lang]["cmp_subtab_view"],
-                    T[lang]["cmp_subtab_sub"],
-                    T[lang]["cmp_subtab_algebra"],
-                ],
-                horizontal=True,
-                key="cmp_internal_mode",
-            )
-            col_s1, col_s2, col_s3 = st.columns([2, 2, 1.5])
-            with col_s1:
-                name_a = st.selectbox(
-                    T[lang]["cmp_spec_a"],
-                    all_spectra,
-                    index=0,
-                    key="cmp_spec_a",
-                )
-            with col_s2:
-                name_b = st.selectbox(
-                    T[lang]["cmp_spec_b"],
-                    all_spectra,
-                    index=1 if len(all_spectra) > 1 else 0,
-                    key="cmp_spec_b",
-                )
-            with col_s3:
-                tol_comp = st.number_input(
-                    T[lang]["cmp_tol"],
-                    min_value=0.1,
-                    max_value=5.0,
-                    value=1.5,
-                    step=0.1,
-                    key="cmp_ppm_tol",
-                )
-
-            sample_a = st.session_state["spectra_db"][name_a]
-            sample_b = st.session_state["spectra_db"][name_b]
-            peaks_a = sample_a.get("parsed_peaks")
-            peaks_b = sample_b.get("parsed_peaks")
-
-            if (
-                peaks_a is None
-                or peaks_a.empty
-                or peaks_b is None
-                or peaks_b.empty
-            ):
-                st.warning("Один из выбранных образцов еще не отфильтрован.")
-            elif name_a == name_b:
-                st.warning("Выбран один и тот же образец!")
-            else:
-                align_res = align_two_spectra_fast(
-                    peaks_a, peaks_b, ppm_tol=tol_comp
-                )
-
-                if cmp_tab_choice == T[lang]["cmp_subtab_view"]:
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric(f"Пиков в {name_a}", f"{align_res['n_a']:,}")
-                    m2.metric(f"Пиков в {name_b}", f"{align_res['n_b']:,}")
-                    m3.metric(
-                        T[lang]["cmp_common"],
-                        f"{align_res['n_common']:,}",
-                        delta=T[lang]["cmp_jaccard"].format(
-                            val=align_res["jaccard"]
-                        ),
-                    )
-                    m4.metric(
-                        T[lang]["cmp_cosine"], f"{align_res['cos_sim']:.4f}"
-                    )
-
-                elif cmp_tab_choice == T[lang]["cmp_subtab_sub"]:
-                    sub_factor = st.slider(
-                        T[lang]["sub_factor_label"],
-                        min_value=0.1,
-                        max_value=3.0,
-                        value=1.0,
-                        step=0.05,
-                    )
-                    if st.button(T[lang]["sub_btn"], type="primary"):
-                        sub_peaks = peaks_a.copy()
-                        matched_dict = dict(
-                            zip(align_res["matched_a"], align_res["matched_b"])
-                        )
-                        new_ints = [
-                            max(
-                                0.0,
-                                sub_peaks.loc[i, "intensity"]
-                                - sub_factor
-                                * peaks_b.loc[matched_dict[i], "intensity"],
-                            )
-                            if i in matched_dict
-                            else sub_peaks.loc[i, "intensity"]
-                            for i in range(len(sub_peaks))
-                        ]
-                        sub_peaks["intensity"] = new_ints
-                        clean_sub_df = sub_peaks[
-                            sub_peaks["intensity"] > 0
-                        ].copy().reset_index(drop=True)
-                        if not clean_sub_df.empty:
-                            clean_sub_df["norm_intensity"] = (
-                                clean_sub_df["intensity"]
-                                / clean_sub_df["intensity"].max()
-                            ) * 100.0
-
-                        new_sample_name = f"{name_a}_sub_{name_b}.csv"
-                        st.session_state["spectra_db"][new_sample_name] = {
-                            "raw_path": os.path.join(
-                                STORAGE_DIR, new_sample_name
-                            ),
-                            "file_bytes": clean_sub_df.to_csv(
-                                sep="\t", index=False
-                            ).encode("utf-8"),
-                            "parsed_peaks": clean_sub_df,
-                            "assigned_df": None,
-                            "raw_df": clean_sub_df,
-                        }
-                        st.success(
-                            T[lang]["sub_success"].format(
-                                name=new_sample_name, n=len(clean_sub_df)
-                            )
-                        )
-                        st.rerun()
-
-                else:
-                    op_choice = st.selectbox(
-                        T[lang]["alg_op_label"],
-                        [
-                            ("and", T[lang]["alg_and"]),
-                            ("or", T[lang]["alg_or"]),
-                            (
-                                "sub_a_b",
-                                T[lang]["alg_sub_a_b"].format(
-                                    a=name_a, b=name_b
-                                ),
-                            ),
-                            (
-                                "sub_b_a",
-                                T[lang]["alg_sub_b_a"].format(
-                                    a=name_a, b=name_b
-                                ),
-                            ),
-                            ("xor", T[lang]["alg_xor"]),
-                        ],
-                        format_func=lambda x: x[1],
-                    )
-
-                    fig_v, ax_v = plt.subplots(figsize=(8, 4), dpi=150)
-                    c_a = patches.Circle(
-                        (0.35, 0.5),
-                        0.3,
-                        facecolor="#0020C2",
-                        alpha=0.4,
-                        edgecolor="black",
-                        linewidth=1.5,
-                    )
-                    c_b = patches.Circle(
-                        (0.65, 0.5),
-                        0.3,
-                        facecolor="#2CA02C",
-                        alpha=0.4,
-                        edgecolor="black",
-                        linewidth=1.5,
-                    )
-                    ax_v.add_patch(c_a)
-                    ax_v.add_patch(c_b)
-                    ax_v.text(
-                        0.22,
-                        0.5,
-                        f"{name_a}\n\n{align_res['n_a'] - align_res['n_common']:,}",
-                        ha="center",
-                        va="center",
-                        fontsize=10,
-                        fontweight="bold",
-                    )
-                    ax_v.text(
-                        0.78,
-                        0.5,
-                        f"{name_b}\n\n{align_res['n_b'] - align_res['n_common']:,}",
-                        ha="center",
-                        va="center",
-                        fontsize=10,
-                        fontweight="bold",
-                    )
-                    ax_v.text(
-                        0.50,
-                        0.5,
-                        f"A ∩ B\n\n{align_res['n_common']:,}",
-                        ha="center",
-                        va="center",
-                        fontsize=10,
-                        fontweight="bold",
-                        color="#800000",
-                    )
-                    ax_v.set_xlim(0, 1)
-                    ax_v.set_ylim(0.1, 0.9)
-                    ax_v.axis("off")
-                    st.pyplot(fig_v)
-                    plt.close(fig_v)
-
-                    if st.button(T[lang]["alg_btn"], type="primary"):
-                        alg_df = perform_spectral_algebra(
-                            peaks_a,
-                            peaks_b,
-                            operation=op_choice[0],
-                            ppm_tol=tol_comp,
-                        )
-                        if not alg_df.empty:
-                            alg_df["norm_intensity"] = (
-                                alg_df["intensity"] / alg_df["intensity"].max()
-                            ) * 100.0
-                        new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
-                        st.session_state["spectra_db"][new_alg_name] = {
-                            "raw_path": os.path.join(
-                                STORAGE_DIR, new_alg_name
-                            ),
-                            "file_bytes": alg_df.to_csv(
-                                sep="\t", index=False
-                            ).encode("utf-8"),
-                            "parsed_peaks": alg_df,
-                            "assigned_df": None,
-                            "raw_df": alg_df,
-                        }
-                        st.success(
-                            T[lang]["alg_success"].format(
-                                name=new_alg_name, n=len(alg_df)
-                            )
-                        )
-                        st.rerun()
+            c1, c2, c3 = st.columns([2, 2, 1.5])
+            with c1: name_a = st.selectbox(T[lang]["cmp_spec_a"], all_spectra, index=0, key="cmp_spec_a")
+            with c2: name_b = st.selectbox(T[lang]["cmp_spec_b"], all_spectra, index=1 if len(all_spectra) > 1 else 0, key="cmp_spec_b")
+            with c3: tol_comp = st.number_input(T[lang]["cmp_tol"], min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
+            peaks_a = st.session_state["spectra_db"][name_a].get("parsed_peaks")
+            peaks_b = st.session_state["spectra_db"][name_b].get("parsed_peaks")
+            if peaks_a is not None and peaks_b is not None and not peaks_a.empty and not peaks_b.empty:
+                align_res = align_two_spectra_fast(peaks_a, peaks_b, ppm_tol=tol_comp)
+                m1, m2, m3 = st.columns(3)
+                m1.metric(f"Peaks {name_a}", f"{align_res['n_a']:,}")
+                m2.metric(f"Peaks {name_b}", f"{align_res['n_b']:,}")
+                m3.metric(T[lang]["cmp_common"], f"{align_res['n_common']:,}", delta=f"Jaccard: {align_res['jaccard']:.3f}")
 
     # 8. TMDS
     with tabs[7]:
-        st.subheader(
-            f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}"
-        )
+        st.subheader(f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}")
         peaks_df = current_sample.get("parsed_peaks") if current_sample else None
-        if peaks_df is None or peaks_df.empty:
-            st.info(T[lang]["no_spectra_info"])
-        else:
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                top_peaks_tmds = st.slider(
-                    T[lang]["tmds_top_label"], 200, 3000, 1200, step=100
-                )
-            with col_t2:
-                tol_mda_val = st.number_input(
-                    T[lang]["tmds_tol_label"],
-                    min_value=0.5,
-                    max_value=10.0,
-                    value=2.0,
-                    step=0.5,
-                )
-
-            tmds_summary, tmds_pairs = run_tmds_screening(
-                peaks_df, top_n=top_peaks_tmds, tol_mda=tol_mda_val
-            )
-            if not tmds_summary.empty:
-                fig_tmds_bar = px.bar(
-                    tmds_summary,
-                    x="Transformation",
-                    y="Count",
-                    color="Transformation",
-                    text=tmds_summary["Share_pct"].apply(lambda v: f"{v:.2f}%"),
-                    title=T[lang]["tmds_trans_title"],
-                )
-                fig_tmds_bar.update_layout(
-                    showlegend=False, xaxis_tickangle=-25, height=450
-                )
-                st_plotly(fig_tmds_bar)
-                st.write(tmds_summary)
+        if peaks_df is not None and not peaks_df.empty:
+            tmds_sum, _ = run_tmds_screening(peaks_df, top_n=1000, tol_mda=2.0)
+            if not tmds_sum.empty:
+                fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Transformation", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
+                fig_tmds.update_layout(showlegend=False, xaxis_tickangle=-25, height=420)
+                st_plotly(fig_tmds)
 
     # 9. Сводные характеристики
     with tabs[8]:
-        assigned_data = (
-            current_sample.get("assigned_df") if current_sample else None
-        )
-        if assigned_data is None or assigned_data.empty:
-            st.warning(T[lang]["need_assign_first"])
-        else:
+        assigned_data = current_sample.get("assigned_df") if current_sample else None
+        if assigned_data is not None and not assigned_data.empty:
             st.subheader(f"{T[lang]['tab_desc']}: {active_spectrum_name}")
-            mw_n = assigned_data["mass"].mean()
-            hc_n = assigned_data["H/C"].mean()
-            oc_n = assigned_data["O/C"].mean()
-            dbe_n = assigned_data["DBE"].mean()
-            dbe_o_n = assigned_data["DBE-O"].mean()
-            ai_n = assigned_data["AI"].mean()
-
-            weights = assigned_data["intensity"].values
-            sum_weights = np.sum(weights)
-
-            if sum_weights > 0:
-                mw_w = (
-                    np.sum(assigned_data["mass"].values * weights) / sum_weights
-                )
-                hc_w = np.sum(assigned_data["H/C"].values * weights) / sum_weights
-                oc_w = np.sum(assigned_data["O/C"].values * weights) / sum_weights
-                dbe_w = (
-                    np.sum(assigned_data["DBE"].values * weights) / sum_weights
-                )
-                dbe_o_w = (
-                    np.sum(assigned_data["DBE-O"].values * weights) / sum_weights
-                )
-                ai_w = np.sum(assigned_data["AI"].values * weights) / sum_weights
-            else:
-                mw_w, hc_w, oc_w, dbe_w, dbe_o_w, ai_w = (
-                    mw_n,
-                    hc_n,
-                    oc_n,
-                    dbe_n,
-                    dbe_o_n,
-                    ai_n,
-                )
-
-            st.markdown(f"#### {T[lang]['desc_num_avg']}")
-            c1, c2, c3 = st.columns(3)
-            c1.metric(T[lang]["desc_mn"], f"{mw_n:.2f} Da")
-            c2.metric("H/C (Mn)", f"{hc_n:.3f}")
-            c3.metric("O/C (Mn)", f"{oc_n:.3f}")
-
-            c4, c5, c6 = st.columns(3)
-            c4.metric(T[lang]["desc_dbe"], f"{dbe_n:.2f}")
-            c5.metric(T[lang]["desc_dbe_o"], f"{dbe_o_n:.2f}")
-            c6.metric(T[lang]["desc_ai"], f"{ai_n:.3f}")
-
-            st.markdown("---")
-            st.markdown(f"#### {T[lang]['desc_weighted_header']}")
-            w1, w2, w3, w4 = st.columns(4)
-            w1.metric(
-                T[lang]["desc_mw"], f"{mw_w:.2f} Da", delta=f"{mw_w - mw_n:+.2f}"
-            )
-            w2.metric("H/C (Mw)", f"{hc_w:.3f}", delta=f"{hc_w - hc_n:+.3f}")
-            w3.metric("O/C (Mw)", f"{oc_w:.3f}", delta=f"{oc_w - oc_n:+.3f}")
-            w4.metric("AI (Mw)", f"{ai_w:.3f}", delta=f"{ai_w - ai_n:+.3f}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(T[lang]["desc_mn"], f"{assigned_data['mass'].mean():.2f} Da")
+            c2.metric("H/C (Mn)", f"{assigned_data['H/C'].mean():.3f}")
+            c3.metric("O/C (Mn)", f"{assigned_data['O/C'].mean():.3f}")
+            c4.metric(T[lang]["desc_ai"], f"{assigned_data['AI'].mean():.3f}")
 
 # ==============================================================================
 # МОДУЛЬ 2: 3D ОПТИЧЕСКАЯ СПЕКТРОСКОПИЯ (EEM-PARAFAC)
 # ==============================================================================
-elif active_module == "💡 EEM-PARAFAC (Флуоресценция)":
-    st.title("💡 Анализ флуоресценции: EEM-PARAFAC")
-    st.caption(
-        "Методология лаборатории природных гуминовых систем химфака МГУ | Анализ РОВ и шлам-лигнина"
-    )
+elif active_module == T[lang]["mod2_name"]:
+    st.title(T[lang]["eem_title"])
+    st.caption(T[lang]["eem_subtitle"])
 
     if not EEM_CORE_AVAILABLE:
-        st.error(
-            "⚠️ Файл `eem_core.py` не обнаружен! Поместите файл `eem_core.py` в ту же директорию, где запущен `app.py`."
-        )
+        st.error(T[lang]["eem_err_missing"])
         st.stop()
 
     with st.sidebar:
-        st.header("📁 Менеджер EEM матриц")
+        st.header(T[lang]["eem_sidebar_hdr"])
         eem_data_src = st.radio(
-            "Источник оптических данных:",
-            [
-                "Синтетический бенчмарк (Байкал / Лигнин)",
-                "Загрузка файлов (CSV/TXT/DAT)",
-            ],
+            T[lang]["eem_src_label"],
+            [T[lang]["eem_src_synth"], T[lang]["eem_src_upload"]],
             key="eem_data_source_radio",
         )
 
         eem_files = []
-        if eem_data_src == "Загрузка файлов (CSV/TXT/DAT)":
+        if eem_data_src == T[lang]["eem_src_upload"]:
             eem_files = st.file_uploader(
-                "Загрузите таблицы EEM:",
+                T[lang]["eem_uploader_label"],
                 accept_multiple_files=True,
                 type=["csv", "txt", "dat"],
                 key="eem_files_uploader",
             )
 
         st.markdown("---")
-        st.subheader("Параметры предобработки")
-        clean_scatter = st.checkbox(
-            "Удалять Рэлеевское рассеяние 1 и 2 порядка",
-            value=True,
-            key="eem_clean_scatter",
-        )
-        norm_raman = st.checkbox(
-            "Нормировка на Raman пик воды (R.U.)",
-            value=False,
-            key="eem_norm_raman",
-        )
-        palette = st.selectbox(
-            "Цветовая шкала EEM:",
-            ["Viridis", "Plasma", "Inferno", "Turbo"],
-            key="eem_palette_select",
-        )
+        st.subheader(T[lang]["eem_preproc_hdr"])
+        clean_scatter = st.checkbox(T[lang]["eem_clean_scatter"], value=True, key="eem_clean_scatter")
+        norm_raman = st.checkbox(T[lang]["eem_norm_raman"], value=False, key="eem_norm_raman")
+        palette = st.selectbox(T[lang]["eem_palette_label"], ["Viridis", "Plasma", "Inferno", "Turbo"], key="eem_palette_select")
 
-    # Загрузка и подготовка EEM
     samples = []
-    if eem_data_src == "Синтетический бенчмарк (Байкал / Лигнин)":
+    if eem_data_src == T[lang]["eem_src_synth"]:
         samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
     elif eem_files:
         for f in eem_files:
             try:
                 df = pd.read_csv(f, index_col=0)
-                parsed = eem_core.parse_eem_dataframe(
-                    df, sample_id=f.name.split(".")[0]
-                )
+                parsed = eem_core.parse_eem_dataframe(df, sample_id=f.name.split(".")[0])
                 if clean_scatter:
-                    parsed.data = eem_core.remove_scatter_bands(
-                        parsed.data, parsed.ex, parsed.em
-                    )
+                    parsed.data = eem_core.remove_scatter_bands(parsed.data, parsed.ex, parsed.em)
                 if norm_raman:
-                    parsed.data, _ = eem_core.normalize_to_raman_units(
-                        parsed.data, parsed.ex, parsed.em
-                    )
+                    parsed.data, _ = eem_core.normalize_to_raman_units(parsed.data, parsed.ex, parsed.em)
                 samples.append(parsed)
             except Exception as e:
-                st.error(f"Ошибка чтения {f.name}: {e}")
+                st.error(f"Error reading {f.name}: {e}")
 
     if not samples:
-        st.warning(
-            "Загрузите файлы матриц флуоресценции или выберите синтетический бенчмарк."
-        )
+        st.warning(T[lang]["eem_warn_no_data"])
     else:
-        tab_eem1, tab_eem2, tab_eem3 = st.tabs(
-            [
-                "📊 Экран 1: 2D Контурная карта EEM",
-                "📈 Экран 2: Спектральные индексы (FI, HIX, SUVA)",
-                "🧬 Экран 3: Моделирование PARAFAC",
-            ]
-        )
+        tab_eem1, tab_eem2, tab_eem3 = st.tabs([
+            T[lang]["eem_tab1"], T[lang]["eem_tab2"], T[lang]["eem_tab3"]
+        ])
 
         # Экран 1: Контурные карты EEM
         with tab_eem1:
-            st.subheader("Визуализация матриц возбуждения-испускания")
             s_names = [s.sample_id for s in samples]
-            selected_sname = st.selectbox(
-                "Выберите пробу:", s_names, key="eem_active_sample"
-            )
+            selected_sname = st.selectbox(T[lang]["eem_select_sample"], s_names, key="eem_active_sample")
             s_obj = next(s for s in samples if s.sample_id == selected_sname)
 
-            fig_eem = go.Figure(
-                data=go.Contour(
-                    z=s_obj.data,
-                    x=s_obj.ex,
-                    y=s_obj.em,
-                    colorscale=palette.lower(),
-                    contours=dict(
-                        coloring="heatmap",
-                        showlabels=True,
-                        labelfont=dict(size=10, color="white"),
-                    ),
-                    colorbar=dict(title="Интенсивность"),
-                )
-            )
+            fig_eem = go.Figure(data=go.Contour(
+                z=s_obj.data, x=s_obj.ex, y=s_obj.em, colorscale=palette.lower(),
+                contours=dict(coloring="heatmap", showlabels=True, labelfont=dict(size=10, color="white")),
+                colorbar=dict(title=T[lang]["eem_int_label"]),
+            ))
             fig_eem.update_layout(
-                title=f"Контурная карта флуоресценции: {s_obj.sample_id}",
-                xaxis_title="Длина волны возбуждения, Ex (нм)",
-                yaxis_title="Длина волны эмиссии, Em (нм)",
+                title=T[lang]["eem_contour_title"].format(name=s_obj.sample_id),
+                xaxis_title=T[lang]["eem_ex_axis"],
+                yaxis_title=T[lang]["eem_em_axis"],
                 height=560,
                 template="plotly_dark",
             )
@@ -2938,23 +1649,16 @@ elif active_module == "💡 EEM-PARAFAC (Флуоресценция)":
 
         # Экран 2: Индексы
         with tab_eem2:
-            st.subheader("Оптические хемометрические индексы")
-            indices_list = [
-                eem_core.calculate_spectral_indices(s) for s in samples
-            ]
+            st.subheader(T[lang]["eem_indices_title"])
+            indices_list = [eem_core.calculate_spectral_indices(s) for s in samples]
             df_indices = pd.DataFrame(indices_list)
 
             c_idx1, c_idx2 = st.columns([3, 1])
             with c_idx1:
-                st.dataframe(
-                    df_indices.style.format(
-                        {"FI": "{:.2f}", "HIX": "{:.2f}", "SUVA254": "{:.2f}"}
-                    ),
-                    use_container_width=True,
-                )
+                st.dataframe(df_indices.style.format({"FI": "{:.2f}", "HIX": "{:.2f}", "SUVA254": "{:.2f}"}), use_container_width=True)
             with c_idx2:
                 st.download_button(
-                    label="📥 Скачать индексы (CSV)",
+                    label=T[lang]["eem_dl_indices"],
                     data=df_indices.to_csv(index=False).encode("utf-8"),
                     file_name="EEM_Indices.csv",
                     mime="text/csv",
@@ -2963,104 +1667,53 @@ elif active_module == "💡 EEM-PARAFAC (Флуоресценция)":
 
         # Экран 3: PARAFAC
         with tab_eem3:
-            st.subheader("Неотрицательное трехкомпонентное PARAFAC-разложение")
-            with st.spinner("Идет расчет модели PARAFAC..."):
-                tensor_x, em_ax, ex_ax, s_ids = eem_core.build_eem_tensor(
-                    samples
-                )
-                results = eem_core.fit_parafac(
-                    tensor_x, n_components=3, random_state=42
-                )
+            st.subheader(T[lang]["eem_parafac_title"])
+            with st.spinner(T[lang]["eem_parafac_spinner"]):
+                tensor_x, em_ax, ex_ax, s_ids = eem_core.build_eem_tensor(samples)
+                results = eem_core.fit_parafac(tensor_x, n_components=3, random_state=42)
 
             m_c1, m_c2, m_c3 = st.columns(3)
-            m_c1.metric(
-                "Объясненная дисперсия", f"{results['explained_variance']:.2f}%"
-            )
+            m_c1.metric(T[lang]["eem_m_exp_var"], f"{results['explained_variance']:.2f}%")
             m_c2.metric(
-                "CORCONDIA (Диагностика)",
+                T[lang]["eem_m_corcondia"],
                 f"{results['corcondia']:.1f}%",
-                delta="Модель адекватна"
-                if results["corcondia"] > 85.0
-                else "Внимание",
+                delta=T[lang]["eem_corcondia_ok"] if results["corcondia"] > 85.0 else T[lang]["eem_corcondia_warn"],
             )
-            m_c3.metric("Число флуорофоров", "3 компонента")
+            m_c3.metric(T[lang]["eem_m_components"], T[lang]["eem_m_comp_val"])
 
             st.markdown("---")
             col_p1, col_p2 = st.columns(2)
-            c_labels = [
-                "C1: Фульвоподобный",
-                "C2: Гуминовый (Лигнин)",
-                "C3: Белковоподобный",
-            ]
+            c_labels = [T[lang]["eem_comp_c1"], T[lang]["eem_comp_c2"], T[lang]["eem_comp_c3"]]
 
             with col_p1:
                 fig_em = go.Figure()
                 for r in range(3):
-                    fig_em.add_trace(
-                        go.Scatter(
-                            x=em_ax,
-                            y=results["em_profiles"][:, r],
-                            mode="lines",
-                            name=c_labels[r],
-                            line=dict(width=2.5),
-                        )
-                    )
-                fig_em.update_layout(
-                    title="Спектры эмиссии (Loading B)",
-                    xaxis_title="Длина волны эмиссии Em (нм)",
-                    yaxis_title="Относительная интенсивность",
-                    template="plotly_white",
-                )
+                    fig_em.add_trace(go.Scatter(x=em_ax, y=results["em_profiles"][:, r], mode="lines", name=c_labels[r], line=dict(width=2.5)))
+                fig_em.update_layout(title=T[lang]["eem_em_prof_title"], xaxis_title=T[lang]["eem_em_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
                 st_plotly(fig_em)
 
             with col_p2:
                 fig_ex = go.Figure()
                 for r in range(3):
-                    fig_ex.add_trace(
-                        go.Scatter(
-                            x=ex_ax,
-                            y=results["ex_profiles"][:, r],
-                            mode="lines",
-                            name=c_labels[r],
-                            line=dict(width=2.5),
-                        )
-                    )
-                fig_ex.update_layout(
-                    title="Спектры возбуждения (Loading C)",
-                    xaxis_title="Длина волны возбуждения Ex (нм)",
-                    yaxis_title="Относительная интенсивность",
-                    template="plotly_white",
-                )
+                    fig_ex.add_trace(go.Scatter(x=ex_ax, y=results["ex_profiles"][:, r], mode="lines", name=c_labels[r], line=dict(width=2.5)))
+                fig_ex.update_layout(title=T[lang]["eem_ex_prof_title"], xaxis_title=T[lang]["eem_ex_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
                 st_plotly(fig_ex)
 
-            st.subheader(
-                "Вклады компонент по пробам (Концентрационная матрица Scores A)"
-            )
-            scores_df = pd.DataFrame(
-                results["scores"],
-                columns=["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"],
-            )
+            st.subheader(T[lang]["eem_scores_title"])
+            scores_df = pd.DataFrame(results["scores"], columns=["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"])
             scores_df.insert(0, "Sample_ID", s_ids)
 
             fig_scores = px.bar(
-                scores_df,
-                x="Sample_ID",
-                y=["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"],
-                title="Парциальные интенсивности флуорофоров",
-                labels={
-                    "value": "Интенсивность Fmax",
-                    "variable": "Флуорофор",
-                },
-                barmode="stack",
-                template="plotly_white",
+                scores_df, x="Sample_ID", y=["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"],
+                title=T[lang]["eem_scores_chart_title"], labels={"value": T[lang]["eem_int_label"], "variable": "Component"},
+                barmode="stack", template="plotly_white",
             )
             st_plotly(fig_scores)
 
             ml_export_df = pd.merge(df_indices, scores_df, on="Sample_ID")
             st.session_state["eem_ml_descriptors"] = ml_export_df
-
             st.download_button(
-                label="💾 Экспорт оптических дескрипторов (CSV для PLS-DA)",
+                label=T[lang]["eem_dl_ml_btn"],
                 data=ml_export_df.to_csv(index=False).encode("utf-8"),
                 file_name="ChemoSuite_EEM_ML_Features.csv",
                 mime="text/csv",
@@ -3068,50 +1721,39 @@ elif active_module == "💡 EEM-PARAFAC (Флуоресценция)":
             )
 
 # ==============================================================================
-# МОДУЛЬ 3: DATA FUSION И КРОСС-МОДУЛЬНЫЙ ХЕМОМЕТРИЧЕСКИЙ АНАЛИЗ (PLS-DA)
+# МОДУЛЬ 3: DATA FUSION И ХЕМОМЕТРИКА (PLS-DA)
 # ==============================================================================
-elif active_module == "🧬 ChemoSuite ML (Data Fusion)":
-    try:
-        import chemo_ml
-    except ImportError:
-        try:
-            from modules import chemo_ml
-        except ImportError:
-            chemo_ml = None
+elif active_module == T[lang]["mod3_name"]:
+    st.title(T[lang]["ml_title"])
+    st.caption(T[lang]["ml_subtitle"])
 
-    st.title("🧬 ChemoSuite ML: Интеграция данных и PLS-DA")
-    st.caption(
-        "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)"
-    )
-
-    if chemo_ml is None:
-        st.error("⚠️ Файл `chemo_ml.py` не найден в рабочей директории приложения!")
+    if not CHEMO_ML_AVAILABLE or chemo_ml is None:
+        st.error(T[lang]["ml_err_missing"])
         st.stop()
 
-    st.subheader("1. Подготовка объединенной матрицы признаков (Data Staging)")
-
-    col_btn1, col_btn2 = st.columns([2, 3])
+    st.subheader(T[lang]["ml_sec1_title"])
+    col_btn1, _ = st.columns([2, 3])
     with col_btn1:
-        if st.button("📥 Загрузить демо-бенчмарк (Байкал vs Шлам-лигнин)", type="primary", key="btn_ml_load_demo"):
+        if st.button(T[lang]["ml_load_demo_btn"], type="primary", key="btn_ml_load_demo"):
             demo_df, demo_y = chemo_ml.generate_multimodal_benchmark()
             demo_df["Class_Target"] = demo_y
             st.session_state["fused_data"] = demo_df
-            st.session_state["fused_source"] = "Синтетический бенчмарк (14 проб)"
+            st.session_state["fused_source"] = T[lang]["ml_demo_source_name"]
             st.rerun()
 
     fused_df = st.session_state.get("fused_data", None)
-
     if fused_df is None:
-        st.info("💡 Нажмите кнопку выше, чтобы загрузить согласованный датасет дескрипторов.")
+        st.info(T[lang]["ml_info_no_data"])
     else:
-        st.markdown(f"Активный датасет: **{st.session_state.get('fused_source', 'Пользовательский')}** | Число образцов: **{len(fused_df)}**")
-        st.caption("Разметка классов: `1` — Шлам-лигнин, `0` — Фоновые воды.")
+        src_name = st.session_state.get("fused_source", T[lang]["ml_custom_source_name"])
+        st.markdown(T[lang]["ml_active_dataset_info"].format(src=src_name, n=len(fused_df)))
+        st.caption(T[lang]["ml_classes_caption"])
 
         edited_df = st.data_editor(
             fused_df,
             column_config={
                 "Class_Target": st.column_config.SelectboxColumn(
-                    "Класс (Target)",
+                    T[lang]["ml_col_class_target"],
                     options=[0, 1],
                     required=True,
                 )
@@ -3122,17 +1764,17 @@ elif active_module == "🧬 ChemoSuite ML (Data Fusion)":
         )
 
         st.markdown("---")
-        st.subheader("2. Параметры моделирования PLS-DA")
+        st.subheader(T[lang]["ml_sec2_title"])
 
         max_allowed_lvs = max(2, min(5, len(edited_df) - 1))
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            n_lvs = st.slider("Скрытые переменные (LVs):", min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+            n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
         with col_p2:
-            use_block_scale = st.checkbox("Блочное шкалирование (1/√P)", value=True, key="pls_block_scale_chk")
+            use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
         with col_p3:
             st.write("")
-            run_pls = st.button("🚀 Обучить модель PLS-DA", type="primary", key="btn_run_pls_da")
+            run_pls = st.button(T[lang]["ml_run_btn"], type="primary", key="btn_run_pls_da")
 
         if run_pls:
             feat_cols = [c for c in edited_df.columns if c not in ["Sample_ID", "Class_Target"]]
@@ -3140,12 +1782,9 @@ elif active_module == "🧬 ChemoSuite ML (Data Fusion)":
             y_input = edited_df["Class_Target"].values
 
             try:
-                with st.spinner("Обучение модели PLS-DA и кросс-валидация..."):
-                    res = chemo_ml.train_plsda_model(
-                        X_input, y_input, n_components=n_lvs, block_scaling=use_block_scale
-                    )
+                with st.spinner(T[lang]["ml_spinner"]):
+                    res = chemo_ml.train_plsda_model(X_input, y_input, n_components=n_lvs, block_scaling=use_block_scale)
 
-                # Безопасное чтение ключей без риска KeyError
                 t1_vals = res.get("t1", res.get("scores_t1"))
                 t2_vals = res.get("t2", res.get("scores_t2"))
                 ell_x = res.get("ell_x", res.get("ellipse_x", np.array([])))
@@ -3153,46 +1792,41 @@ elif active_module == "🧬 ChemoSuite ML (Data Fusion)":
                 vip_df = res.get("VIP_df", res.get("vip_df", pd.DataFrame()))
 
                 st.markdown("---")
-                st.subheader("3. Результаты и статистическая валидация")
+                st.subheader(T[lang]["ml_sec3_title"])
 
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("R²X (Дисперсия спектров)", f"{res.get('R2X', 0.0):.1f}%")
-                m2.metric("R²Y (Объяснение классов)", f"{res.get('R2Y', 0.0):.1f}%")
+                m1.metric(T[lang]["ml_m_r2x"], f"{res.get('R2X', 0.0):.1f}%")
+                m2.metric(T[lang]["ml_m_r2y"], f"{res.get('R2Y', 0.0):.1f}%")
                 q2_val = res.get("Q2", 0.0)
-                m3.metric("Q² (Валидация LOO-CV)", f"{q2_val:.1f}%", delta="Надежна" if q2_val > 50 else "Слабая")
-                m4.metric("Точность (Accuracy)", f"{res.get('Accuracy', 0.0):.1f}%")
+                m3.metric(T[lang]["ml_m_q2"], f"{q2_val:.1f}%", delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"])
+                m4.metric(T[lang]["ml_m_acc"], f"{res.get('Accuracy', 0.0):.1f}%")
 
                 col_g1, col_g2 = st.columns(2)
                 with col_g1:
-                    st.markdown("##### Scores Plot ($t_1$ vs $t_2$) с эллипсом Хотеллинга 95%")
+                    st.markdown(f"##### {T[lang]['ml_scores_chart_title']}")
                     fig_sc = go.Figure()
 
                     if ell_x is not None and len(ell_x) > 0:
                         fig_sc.add_trace(go.Scatter(
                             x=ell_x, y=ell_y, mode="lines",
                             line=dict(dash="dot", color="#7f7f7f", width=1.5),
-                            name="Hotelling T² (95%)", hoverinfo="skip"
+                            name=T[lang]["ml_hotelling_name"], hoverinfo="skip"
                         ))
 
                     colors = ["#D62728" if int(y) == 1 else "#0020C2" for y in y_input]
+                    labels = [T[lang]["ml_class1_label"] if int(y) == 1 else T[lang]["ml_class0_label"] for y in y_input]
                     fig_sc.add_trace(go.Scatter(
                         x=t1_vals, y=t2_vals, mode="markers+text",
                         text=edited_df["Sample_ID"], textposition="top center",
                         marker=dict(size=11, color=colors, line=dict(width=1, color="black"), opacity=0.85),
-                        hovertext=[f"<b>{s}</b><br>Класс: {y}<br>t1: {t1:.2f}, t2: {t2:.2f}"
-                                   for s, y, t1, t2 in zip(edited_df["Sample_ID"], y_input, t1_vals, t2_vals)],
-                        hoverinfo="text", name="Образцы",
+                        hovertext=[f"<b>{s}</b><br>{lbl}<br>LV1: {t1:.2f}, LV2: {t2:.2f}" for s, lbl, t1, t2 in zip(edited_df["Sample_ID"], labels, t1_vals, t2_vals)],
+                        hoverinfo="text", name="Samples",
                     ))
-                    fig_sc.update_layout(
-                        xaxis_title="Скрытая переменная 1 (LV1)",
-                        yaxis_title="Скрытая переменная 2 (LV2)",
-                        plot_bgcolor="white", height=480,
-                        margin=dict(l=40, r=30, t=30, b=40),
-                    )
-                    st.plotly_chart(fig_sc, use_container_width=True)
+                    fig_sc.update_layout(xaxis_title="LV1", yaxis_title="LV2", plot_bgcolor="white", height=480, margin=dict(l=40, r=30, t=30, b=40))
+                    st_plotly(fig_sc)
 
                 with col_g2:
-                    st.markdown("##### Ключевые маркеры (VIP Scores > 1.0)")
+                    st.markdown(f"##### {T[lang]['ml_vip_chart_title']}")
                     if not vip_df.empty:
                         top_vip = vip_df.head(12)
                         fig_vip = px.bar(
@@ -3200,27 +1834,22 @@ elif active_module == "🧬 ChemoSuite ML (Data Fusion)":
                             color="VIP", color_continuous_scale="Reds",
                             text=top_vip["VIP"].apply(lambda v: f"{v:.2f}")
                         )
-                        fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text="Порог VIP=1.0")
-                        fig_vip.update_layout(
-                            yaxis=dict(autorange="reversed", title="Дескриптор"),
-                            xaxis=dict(title="Индекс VIP"),
-                            plot_bgcolor="white", height=480,
-                            margin=dict(l=40, r=30, t=30, b=40),
-                        )
-                        st.plotly_chart(fig_vip, use_container_width=True)
+                        fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text=T[lang]["ml_vip_cutoff"])
+                        fig_vip.update_layout(yaxis=dict(autorange="reversed", title="Descriptor"), xaxis=dict(title="VIP Score"), plot_bgcolor="white", height=480, margin=dict(l=40, r=30, t=30, b=40))
+                        st_plotly(fig_vip)
 
                 st.markdown("---")
                 col_csv1, col_csv2 = st.columns([3, 1])
                 with col_csv1:
-                    st.write("**Ранжированный список дескрипторов по VIP:**")
+                    st.write(f"**{T[lang]['ml_vip_tbl_title']}**")
                     st.dataframe(vip_df, use_container_width=True)
                 with col_csv2:
                     st.download_button(
-                        label="📥 Скачать VIP дескрипторы (CSV)",
+                        label=T[lang]["ml_dl_vip_btn"],
                         data=vip_df.to_csv(index=False).encode("utf-8"),
                         file_name="ChemoSuite_PLSDA_VIP.csv",
                         mime="text/csv",
                         key="dl_pls_vip_csv_btn",
                     )
             except ValueError as val_err:
-                st.error(f"Ошибка входных данных: {val_err}")
+                st.error(T[lang]["ml_warn_input"].format(err=val_err))
