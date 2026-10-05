@@ -98,7 +98,7 @@ ChemoSuite/
 │   ├── fticr_van_krevelen.png
 │   ├── fticr_kmd_plot.png
 │   ├── fticr_vk20_grid.png
-│   ├── eem_contour_map.jpg
+│   ├── eem_contour_map.png
 │   ├── eem_parafac_profiles.png
 │   ├── eem_parafac_scores.png
 │   └── ml_plsda_validation.png

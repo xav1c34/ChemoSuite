@@ -60,7 +60,7 @@ The platform addresses a critical environmental challenge: distinguishing autoch
 ### Module 2: 3D Fluorescence Spectroscopy (EEM-PARAFAC)
 
 #### EEM Contour Map
-<img src="assets/eem_contour_map.jpg" width="100%" alt="EEM Contour Map" />
+<img src="assets/eem_contour_map.png" width="100%" alt="EEM Contour Map" />
 
 * Interactive 2D visualization of excitation-emission matrices ($Ex$ 240–450 nm, $Em$ 280–600 nm) rendered in Viridis colorscale following automated 1st- and 2nd-order Rayleigh scatter removal via Delaunay interpolation.
 
@@ -98,7 +98,7 @@ ChemoSuite/
 │   ├── fticr_van_krevelen.png
 │   ├── fticr_kmd_plot.png
 │   ├── fticr_vk20_grid.png
-│   ├── eem_contour_map.jpg
+│   ├── eem_contour_map.png
 │   ├── eem_parafac_profiles.png
 │   ├── eem_parafac_scores.png
 │   └── ml_plsda_validation.png
