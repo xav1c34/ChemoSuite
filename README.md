@@ -1,140 +1,152 @@
-# 🧪 NOM-Spectra FT-ICR MS Studio
+# ⚗️ ChemoSuite: Multimodal Chemometrics Platform
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![Streamlit App](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B.svg)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**ChemoSuite** — комплексная модульная веб-платформа на Python + Streamlit для глубокого хемометрического анализа природного органического вещества (РОВ/NOM) и техногенного шлам-лигнина. Платформа объединяет масс-спектрометрию сверхвысокого разрешения (**FT-ICR MS**), спектроскопию трехмерных матриц возбуждения-испускания флуоресценции (**EEM-PARAFAC**) и методы мультиблочной интеграции данных (**Data Fusion + PLS-DA**).
 
-An advanced, high-performance cheminformatics web application designed for processing, molecular formula assignment, and chemotyping of ultra-high-resolution mass spectrometry (**FT-ICR MS** and **Orbitrap**) data from **Natural Organic Matter (NOM)** and **Humic Substances (HS)**.
-
-The analytical pipeline is built upon methodologies developed at the **Laboratory of Natural Humic Systems, Department of Chemistry, Lomonosov Moscow State University (MSU)**.
+Разработано в соответствии с методологией лаборатории природных гуминовых систем кафедры аналитической химии Химического факультета МГУ им. М.В. Ломоносова.
 
 ---
 
-## ✨ Key Features
+## 🔬 Аналитические модули
 
-- **Robust Data Ingestion & Preprocessing:**
-  - Native support for `.csv`, `.txt`, `.tsv`, and `.xy` formats with flexible delimiter and decimal separator detection.
-  - Interactive column mapping, $m/z$ range trimming, and noise cutoff filtering.
-  - Flexible intensity normalization: Base Peak (I_max = 100%), Total Ion Current (TIC / ∑I = 100%), or unnormalized Raw intensities.
+### 1. 🧪 NOM-Spectra FT-ICR MS Studio
 
-- **Stick Mass Spectrum (Stick Plot):**
-  - Ultra-fast vector rendering with `matplotlib.pyplot.vlines` optimized for dense spectra (>20,000 peaks).
-  - Automated apex labeling for the top-5 most abundant ions.
-  - High-res publication-ready export (300 DPI PNG and vector SVG).
+Полнофункциональная среда обработки масс-спектров сверхвысокого разрешения:
 
-- **Internal $m/z$ Recalibration:**
-  - Identification of reference homologous series (saturated fatty acids C12–C33 or CHO series).
-  - Polynomial drift correction ($\Delta m = a \cdot m^2 + b \cdot m + c$).
-  - **Runge phenomenon guard:** Automatic fallback to degree-1 linear regression if calibrant range covers less than 60% of the spectrum span.
+* **Интерактивный Stick Plot:** высокопроизводительный рендеринг WebGL (Plotly) с автоматической аннотацией доминирующих пиков и экспортом векторной графики высокого разрешения (SVG/PNG 300 DPI).
+* **Внутренняя рекалибровка шкалы $m/z$:** полиномиальная коррекция дрейфа прибора по реперным сериям жирных кислот ($C_{12}–C_{33}$) или гомологов $CHO$ с защитой от эффекта Рунге на краевых массах.
+* **Приписывание брутто-формул:** векторный высокоскоростной генератор формул с жесткими стехиометрическими фильтрами ($H/C$, $O/C$, $DBE$, $DBE-O$), азотным правилом и изотопной валидацией по $^{13}\text{C}$ ($+1.00335$ Да).
+* **Проекции химического пространства:**
+* Диаграммы Ван-Кревелена ($H/C$ vs $O/C$) с дифференциацией по классам гетероатомов ($CHO$, $CHON$, $CHOS$, $CHONS$) и биохимическим пулам.
+* Конденсированность $DBE$ vs $C$ с границами ароматичности и планарного предела Коха.
+* Анализ дефекта массы Кендрика (**KMD**) по базовым группам $\text{CH}_2$, $\text{COO}$, $\text{O}$, $\text{H}_2$.
 
-- **Strict Molecular Formula Assignment:**
-  - Integration with `nomspectra` core alongside an ultra-fast vectorized Diophantine solver (`np.searchsorted`).
-  - Strict NOM domain filters: $\text{C} \in [4, 120]$, $\text{H} \in [4, 200]$, $\text{O} \in [1, 60]$, $\text{N} \le 2$, $\text{S} \le 1$.
-  - Nitrogen parity rule, alkane valence boundary ($H \le 2C + N + 2$), $DBE \ge 0$, and oxygen density limit ($-10 \le DBE - O \le 10$).
-  - Ionization mode awareness: $\text{ESI}(-)\ [M - H]^-$, $\text{ESI}(+)\ [M + H]^+$, and neutral mass $[M]$.
-  - Multi-charge assignment: Flexible ionization modes (ESI(-), ESI(+), neutral) with support for singly and doubly charged ions (z = 1, 2).
-  - 13C Isotopic Verification: Confirmation of assigned formulas using monoisotopic +1.00335 Da satellite peaks and strict false-positive pruning.
 
-- **Multi-Dimensional Projections & Plots:**
-  - Van Krevelen diagram with dynamic power scaling (I^γ) to visualize low-abundance signals without peak saturation.
-  - Aromaticity projection (DBE vs C / BE vs n) with planar limits (AI = 0.67) and polyene condensation boundaries.
-  - Fully customizable 2D scatter plots (user-selected X, Y, and color dimensions).
-  - Biochemical zoning (lignin-like/CRAM, lipids, carbohydrates, condensed tannins, and specialized CHON pools).
-
-- **Kendrick Mass Defect (KMD) Analysis:**
-  - Support for multiple functional bases: $\text{CH}_2$, $\text{COO}$, $\text{O}$, and $\text{H}_2$.
-  - Marshall scale mapping: $\text{KMD} = \text{KM} - \lfloor \text{KM} \rfloor \in [0, 1)$ to eliminate plane bifurcation and yield continuous horizontal homologous series.
-
-- **Perminova 20-Grid Chemotyping (VK 20-Grid):**
-  - Partitioning of the $O/C$ vs $H/C$ space into 20 characteristic zones ($4 \times 5$ matrix).
-  - Heatmap representation of relative formula counts (%) and weighted intensity densities (%).
-  - Direct export of 20-dimensional feature vectors (`VK_1` ... `VK_20`) for PCA / multivariate statistics.
-
-- **Spectral Algebra, Set Operations & Blank Subtraction:**
-  - Solvent/Blank subtraction (int_sub): Corrects matrix peaks (I_corr = I_sample - k · I_blank) and creates clean spectra in one click.
-  - Set algebra engine: Intersection (A ∩ B), Union (A ∪ B), Set Difference (A \ B), and Symmetric Difference (A ⊕ B).
-  - Built-in Venn diagram generation for two-sample overlaps with high-res export.
-  - Pairwise alignment: Jaccard index, Cosine similarity, Head-to-Tail mirror plots, and comparative Van Krevelen overlays.
-
-- **Reaction Networks & TMDS (Targeted Mass Difference Screening):**
-  - Pairwise mass difference analysis screening for fundamental biogeochemical steps: CH2, O, H2O, H2, CO2, NH3, CO, and SO3.
-  - Transformation frequency distributions and downloadable network pair tables.
-
-- **Ensemble Descriptors:**
-  - Comprehensive statistical cards: number-averaged ($M_n$) vs weight-averaged ($M_w$) masses, $H/C$, $O/C$, $DBE$, $DBE - O$, Koch & Dittmar Modified Aromaticity Index ($AI_{\text{mod}}$), and NOSC.
+* **Хемотипирование по 20 ячейкам:** расчет матриц заселенности фазового пространства $H/C$–$O/C$ (методология проф. И.В. Перминовой) по относительному числу формул и средневзвешенной интенсивности.
+* **Спектральная алгебра и парное сравнение:** зеркальные спектры (Head-to-Tail), попиковое вычитание холостой пробы (Blank Subtraction), диаграммы Венна и теоретико-множественные операции ($A \cap B$, $A \cup B$, $A \setminus B$, $A \oplus B$).
+* **Скрининг реакционных сетей (TMDS):** таргетированный поиск характеристических биогеохимических трансформаций ($\Delta m$ с точностью до миллидальтон).
 
 ---
 
-## 📸 Interface & Visualizations
+### 2. 💡 EEM-PARAFAC (3D Флуоресценция)
 
-<p align="center">
-  <img src="assets/van_krevelen.png" alt="Van Krevelen Diagram" width="850">
-  <br>
-  <em>Interactive Van Krevelen diagram with stoichiometric classification</em>
-</p>
+Модуль спектрофлуориметрии матриц возбуждения-испускания:
 
-<p align="center">
-  <img src="assets/kmd_plot.png" alt="Kendrick Mass Defect Plot" width="850">
-  <br>
-  <em>Kendrick Mass Defect (KMD) mapping across homologous series</em>
-</p>
+* **Предобработка оптических матриц:** автоматическое вырезание рэлеевского рассеяния 1-го порядка ($Em = Ex \pm 12$ нм) и 2-го порядка ($Em = 2Ex \pm 15$ нм) с двумерной интерполяцией методом Делоне.
+* **Рамановская нормировка:** приведение интенсивностей к стандартным рамановским единицам (R.U.) по площади пика чистой воды ($Ex = 350$ нм).
+* **Спектральные дескрипторы гумификации:**
+* **FI (Fluorescence Index):** отношение $Em$ 470/520 нм при $Ex = 370$ нм (дифференциация автохтонного микробного и аллохтонного терригенного пулов).
+* **HIX (Humification Index):** отношение интегралов эмиссии $\int_{435}^{480} / \int_{300}^{345}$ при $Ex = 254$ нм (степень конденсации ароматического каркаса).
+* **$\text{SUVA}_{254}$:** удельное поглощение на 254 нм на единицу растворенного органического углерода (DOC).
 
-<p align="center">
-  <img src="assets/vk20_grid.png" alt="20-Grid Chemotyping" width="850">
-  <br>
-  <em>Perminova 20-Grid chemotyping density matrix</em>
-</p>
 
-## 🚀 Quick Start
+* **Неотрицательное тензорное разложение PARAFAC:**
+* Построение 3D-тензора: Образцы $\times$ Эмиссия ($Em$) $\times$ Возбуждение ($Ex$).
+* Извлечение 3 независимых чистых компонентов:
+* **C1:** автохтонный фульвоподобный флуорофор ($Ex \approx 250(320)$ нм, $Em \approx 405$ нм).
+* **C2:** гуминоподобный полифенольный флуорофор шлам-лигнина ($Ex \approx 260(365)$ нм, $Em \approx 470$ нм).
+* **C3:** белковоподобный/триптофановый автохтонный компонент ($Ex \approx 275$ нм, $Em \approx 340$ нм).
 
-### 1. Clone the repository
+
+* Оценка стабильности факторизации по критерию **CORCONDIA** (Core Consistency Diagnostic) и доле объясненной дисперсии.
+
+
+
+---
+
+### 3. 🧬 ChemoSuite ML (Data Fusion & PLS-DA)
+
+Кросс-модульная хемометрическая среда для задач таксономии и экологического мониторинга:
+
+* **Low-Level Data Fusion:** низкоуровневая склейка матриц признаков FT-ICR MS (векторы заселенности 20 ячеек, средневзвешенные $AI$, $DBE$) и оптических профилей EEM (индексы $FI$, $HIX$, $SUVA_{254}$, парциальные вклады $C_1–C_3$).
+* **Блочное масштабирование (Block Scaling):** уравнивание статистического веса спектральных блоков с коэффициентом $1 / \sqrt{P_k}$ с последующей $Z$-score стандартизацией.
+* **Классификатор PLS-DA:** проекция на ортогональные скрытые переменные ($LV_1$ vs $LV_2$) с построением 95% эллипса Хотеллинга ($T^2$) для детекции спектральных выбросов.
+* **Кросс-валидация и валидация надежности:** расчет метрик объясненной дисперсии ($R^2X$, $R^2Y$), предсказательной способности ($Q^2$ по Leave-One-Out кросс-валидации) и точности классификации.
+* **Идентификация маркеров (VIP Scores):** ранжирование дескрипторов по индексу значимости в проекции (Variable Importance in Projection). Переменные с $VIP > 1.0$ выделяются как ключевые маркеры техногенного воздействия шлам-лигнина.
+
+---
+
+## 📂 Структура проекта
+
+```text
+ChemoSuite/
+│
+├── app.py                  # Главный супер-апп Streamlit (навигация, роутинг, дашборды)
+├── eem_core.py             # Расчетное ядро 3D флуоресценции (рассеяние, индексы, PARAFAC, CORCONDIA)
+├── chemo_ml.py             # Расчетное ядро хемометрики (Data Fusion, PLS-DA, VIP, эллипс Хотеллинга)
+│
+├── user_spectra/           # Локальное хранилище загруженных масс-спектров (в .gitignore)
+├── requirements.txt        # Список зависимостей проекта
+├── .gitignore              # Исключения системных и временных файлов
+└── README.md               # Документация платформы
 
 ```
-git clone https://github.com/xav1c34/NOM-SPECTRa.git
-cd NOM-SPECTRa
+
+---
+
+## 🚀 Установка и запуск
+
+### 1. Клонирование репозитория
+
+```bash
+git clone https://github.com/xav1c34/ChemoSuite.git
+cd ChemoSuite
+
 ```
-2. Create a virtual environment
+
+### 2. Развертывание виртуального окружения
+
+**В среде Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
 ```
-python -m venv venv
+
+**В среде Linux / macOS:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+
 ```
-# Linux / macOS:
-```
-source venv/bin/activate
-```
-# Windows PowerShell:
-```
-.\venv\Scripts\Activate.ps1
-```
-3. Install dependencies
-```
+
+### 3. Установка зависимостей
+
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
-(Optional) Install MSU Chemistry's nomspectra package:
-pip install git+https://github.com/nomspectra/nomspectra.git
+
 ```
-4. Launch the application
-```
+
+### 4. Запуск платформы
+
+```bash
 streamlit run app.py
+
 ```
-📦 Requirements
-Python 3.10+
 
-streamlit
+Приложение откроется в браузере по адресу `http://localhost:8501`.
 
-pandas
+---
 
-numpy
+## 📦 Форматы входных данных
 
-matplotlib
+* **Масс-спектрометрия (FT-ICR MS):** текстовые файлы списков пиков (`.csv`, `.tsv`, `.txt`, `.xy`). Требуется минимум две числовые колонки: экспериментальная масса ($m/z$) и интенсивность/высота пика.
+* **Флуориметрия (EEM):** 2D-таблицы матриц флуоресценции (`.csv`, `.dat`, `.txt`), где строки соответствуют длинам волн эмиссии ($Em$), а столбцы — возбуждения ($Ex$) (либо наоборот; парсер определяет ориентацию автоматически).
 
-plotly
+---
 
-scipy
+## 🏷️ История версий
 
-🔬 Methodology & References
-Volikov, A. B., et al. (2024). NOMspectra: An Open-Source Software Suite for Processing and Analyzing Ultrahigh-Resolution Mass Spectrometry Data of Natural Organic Matter. Journal of the American Society for Mass Spectrometry (JASMS). doi:10.1021/jasms.3c00003
+* **`v1.0.0-fticr`**: Автономная студия анализа масс-спектрометрии сверхвысокого разрешения NOM-SPECTRa.
+* **`v2.0.0` (ChemoSuite)**: Интеграция модуля оптической флуоресценции EEM-PARAFAC, мультиблочной интеграции данных (Data Fusion) и алгоритмов машинного обучения PLS-DA.
 
-Koch, B. P., & Dittmar, T. (2006/2016). From mass to structure: an aromaticity index for high-resolution mass data of natural organic matter. Rapid Communications in Mass Spectrometry.
+---
 
-Hughey, C. A., Hendrickson, C. L., Rodgers, R. P., Marshall, A. G., & Qian, K. (2001). Kendrick mass defect spectrum: a compact visual analysis for ultrahigh-resolution broadband mass spectra. Analytical Chemistry.
+## 👥 Авторы и академический контекст
 
-Perminova, I. V., et al. Stoichiometric grid-mapping (20-cell VK chemotyping) for humic systems characterization. Department of Chemistry, Lomonosov Moscow State University.
+Разработка ведется в рамках научно-исследовательских задач по комплексному молекулярному описанию природного органического вещества озера Байкал и мониторингу техногенного шлам-лигнина Байкальского ЦБК.
+
+* **Химический факультет МГУ имени М.В. Ломоносова**
+* Кафедра аналитической химии | Лаборатория природных гуминовых систем
