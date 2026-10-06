@@ -24,6 +24,7 @@ __pycache__/
 *.xy
 *.txt
 !requirements.txt
+!demo_data/**
 
 *.png
 *.svg
@@ -34,7 +35,6 @@ downloads/
 *.log
 .DS_Store
 Thumbs.db
-=======
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

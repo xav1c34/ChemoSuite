@@ -187,7 +187,12 @@ def prepare_fused_features(
     n_mid_components: int = 3,
 ) -> Tuple[np.ndarray, List[str], Dict[str, str]]:
     """Подготовка и слияние матриц признаков по стратегиям Low-Level или Mid-Level."""
-    feature_names = list(X_df.columns)
+    # Предобработка: очистка от нечисловых артефактов и заполнение пропусков (NaN) медианами
+    X_mat = X_df.apply(pd.to_numeric, errors="coerce").copy()
+    medians = X_mat.median()
+    X_mat = X_mat.fillna(medians).fillna(0.0)
+
+    feature_names = list(X_mat.columns)
     block_map = classify_feature_blocks(feature_names)
 
     fticr_cols = [c for c in feature_names if block_map[c] == "FT-ICR MS"]
@@ -196,8 +201,8 @@ def prepare_fused_features(
     other_cols = [c for c in feature_names if block_map[c] == "Other"]
 
     if strategy == "mid_level" and len(fticr_cols) >= 3:
-        X_ft = StandardScaler().fit_transform(X_df[fticr_cols].values.astype(float))
-        k_comp = min(n_mid_components, len(X_df) - 2, len(fticr_cols))
+        X_ft = StandardScaler().fit_transform(X_mat[fticr_cols].values.astype(float))
+        k_comp = min(n_mid_components, len(X_mat) - 2, len(fticr_cols))
         pca = PCA(n_components=k_comp, random_state=42)
         ft_scores = pca.fit_transform(X_ft)
 
@@ -206,7 +211,7 @@ def prepare_fused_features(
 
         rem_cols = eem_cols + uv_cols + other_cols
         if rem_cols:
-            X_rem = StandardScaler().fit_transform(X_df[rem_cols].values.astype(float))
+            X_rem = StandardScaler().fit_transform(X_mat[rem_cols].values.astype(float))
             for c in rem_cols:
                 new_block_map[c] = block_map[c]
             X_fused = np.hstack([ft_scores, X_rem])
@@ -217,7 +222,7 @@ def prepare_fused_features(
 
         return X_fused, all_names, new_block_map
     else:
-        X = X_df.values.astype(float).copy()
+        X = X_mat.values.astype(float).copy()
         if block_scaling:
             for b_name in ["FT-ICR MS", "EEM-PARAFAC", "UV-Vis", "Other"]:
                 b_cols = [c for c in feature_names if block_map[c] == b_name]
