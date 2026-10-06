@@ -43,6 +43,17 @@ except ImportError:
         chemo_ml = None
         CHEMO_ML_AVAILABLE = False
 
+try:
+    import report_generator
+    REPORT_GEN_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import report_generator
+        REPORT_GEN_AVAILABLE = True
+    except ImportError:
+        report_generator = None
+        REPORT_GEN_AVAILABLE = False
+
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
 # ==============================================================================
@@ -397,6 +408,8 @@ T = {
         "ml_m_r2x_pred": "R²X(pred)",
         "ml_m_r2x_ortho": "R²X(ortho)",
         "ml_warn_opls_binary": "ℹ️ OPLS-DA оптимизирован для двух контрастных классов. Для 3+ классов выберите PLS-DA.",
+        "ml_dl_passport_btn": "📑 Скачать полный аналитический паспорт (.xlsx)",
+        "ml_passport_desc": "Многостраничный Excel-паспорт: Сводка, матрица признаков, 20 ячеек FT-ICR, EEM, UV-Vis, VIP-биомаркеры, S-Plot.",
         #UV-Spectre
         "eem_uv_uploader_label": "Загрузить УФ-Вид спектры поглощения (CSV/TXT):",
         "eem_doc_expander": "Параметры DOC для расчета SUVA254",
@@ -706,6 +719,8 @@ T = {
         "ml_m_r2x_pred": "R²X(pred)",
         "ml_m_r2x_ortho": "R²X(ortho)",
         "ml_warn_opls_binary": "ℹ️ OPLS-DA is optimized for binary contrast. For 3+ classes, please select PLS-DA.",
+        "ml_dl_passport_btn": "📑 Download Full Analytical Passport (.xlsx)",
+        "ml_passport_desc": "Multi-sheet Excel workbook: Summary, Fused Matrix, FT-ICR 20-Grid, EEM, UV-Vis, VIP Biomarkers, S-Plot.",
         #UV-spectre
         "eem_uv_uploader_label": "Upload UV-Vis Absorbance Spectra (CSV/TXT):",
         "eem_doc_expander": "DOC Settings for SUVA254 Calculation",
@@ -2052,6 +2067,43 @@ elif active_module == T[lang]["mod3_name"]:
             # Таб 5: Экспорт
             with tab_ml5:
                 st.write("### 📥 Выгрузка аналитических отчетов" if lang == "ru" else "### 📥 Download Analytical Reports")
+
+                # Главный комплексный аналитический паспорт (.xlsx)
+                st.markdown(
+                    f"""
+                    <div style="background-color: #f0f4f8; padding: 14px 18px; border-radius: 8px; border-left: 5px solid #0b2545; margin-bottom: 16px;">
+                        <h4 style="margin: 0 0 6px 0; color: #0b2545;">{T[lang]["ml_dl_passport_btn"]}</h4>
+                        <p style="margin: 0; color: #495057; font-size: 13px;">{T[lang]["ml_passport_desc"]}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                if REPORT_GEN_AVAILABLE and report_generator is not None:
+                    try:
+                        passport_bytes = report_generator.generate_excel_passport(
+                            edited_df,
+                            model_results=res,
+                            metadata={
+                                "project_name": st.session_state.get("fused_source", "ChemoSuite Session"),
+                                "operator": "ChemoSuite Unified Analytical Engine",
+                            },
+                        )
+                        st.download_button(
+                            label=T[lang]["ml_dl_passport_btn"],
+                            data=passport_bytes,
+                            file_name=f"ChemoSuite_Analytical_Passport_{curr_model_type}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary",
+                            key="dl_passport_xlsx_btn",
+                        )
+                    except Exception as err:
+                        st.error(f"Ошибка формирования Excel-паспорта: {err}")
+                else:
+                    st.warning("Модуль `report_generator.py` или библиотека `openpyxl` недоступны.")
+
+                st.markdown("---")
+                st.write("#### 📄 Табличные выгрузки отдельных компонентов" if lang == "ru" else "#### 📄 Individual Component Exports")
                 c_dl1, c_dl2 = st.columns(2)
                 with c_dl1:
                     st.download_button(

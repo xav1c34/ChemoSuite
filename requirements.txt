@@ -6,4 +6,5 @@ matplotlib
 plotly
 tensorly
 scikit-learn
+openpyxl
 pytest

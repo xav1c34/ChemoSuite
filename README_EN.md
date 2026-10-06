@@ -97,6 +97,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 * **S-Plot Diagram (OPLS-DA):** covariance $p[1]$ (magnitude) vs correlation $p(\text{corr})[1]$ (reliability) visualization for biomarker discovery with block color tags.
 * **VIP Scores & Block Contributions:** ranking of biomarkers ($VIP > 1.0$) and relative percentage contribution of analytical blocks ($\text{VIP}^2$ share).
 * **Validation & Diagnostics:** Leave-One-Out / K-Fold cross-validation ($Q^2$) and permutation testing (50 iterations) with empirical $p$-value.
+* **Comprehensive Analytical Passport (.xlsx):** export multi-sheet styled Excel report containing metadata summary, fused feature matrix, FT-ICR MS 20-cells, EEM-PARAFAC, UV-Vis indices, VIP biomarkers, and S-Plot.
 
 ---
 
@@ -109,6 +110,7 @@ ChemoSuite/
 ├── fticr_core.py                     # Mass spec core: formulas, 13C isotopes, KMD, Perminova grid, TMDS
 ├── eem_core.py                       # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
 ├── chemo_ml.py                       # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, 3D Hotelling, S-Plot, permutation
+├── report_generator.py               # Analytical report generator (.xlsx) styled with openpyxl
 │
 ├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, ML)
 │   ├── eem/                          # 12 excitation-emission fluorescence matrices
@@ -117,16 +119,17 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
 │   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Automated test suite (21 unit tests)
+├── tests/                            # Automated test suite (24 unit tests)
 │   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS)
 │   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
-│   └── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
+│   └── test_report_generator.py      # Multi-sheet Excel passport generation tests (.xlsx)
 │
 ├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.12)
 ├── pytest.ini                        # Pytest configuration file
 ├── assets/                           # Screenshots and graphics for the README
 ├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
-├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, scipy, pytest)
+├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, openpyxl, pytest)
 ├── .gitignore                        # System and temporary file exclusions
 ├── README.md                         # Platform documentation (Russian)
 └── README_EN.md                      # Platform documentation (English)

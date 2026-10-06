@@ -97,6 +97,7 @@
 * **S-Plot диаграмма (OPLS-DA):** визуализация $p[1]$ (ковариация/вклад) vs $p(\text{corr})[1]$ (корреляция/надежность) с цветовой маркировкой аналитических блоков.
 * **VIP Scores & Вклад блоков:** ранжирование биомаркеров ($VIP > 1.0$) и расчет относительного веса спектральных блоков по сумме $\text{VIP}^2$.
 * **Валидация и диагностика:** Leave-One-Out / K-Fold кросс-валидация ($Q^2$) и пермутационный тест (50 итераций) с эмпирическим $p$-value.
+* **Комплексный аналитический паспорт (.xlsx):** экспорт многостраничного форматированного Excel-отчета с отдельными листами метаданных, сводной матрицы, 20 ячеек FT-ICR MS, EEM-PARAFAC, UV-Vis дескрипторов, VIP-маркеров и S-Plot.
 
 ---
 
@@ -109,6 +110,7 @@ ChemoSuite/
 ├── fticr_core.py                     # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, сетка 20 ячеек, TMDS
 ├── eem_core.py                       # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
 ├── chemo_ml.py                       # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, 3D Hotelling, S-Plot, пермутация
+├── report_generator.py               # Генератор многостраничных Excel-паспортов (.xlsx) с форматированием openpyxl
 │
 ├── demo_data/                        # Согласованные мультимодальные демо-данные (EEM, UV-Vis, FT-ICR MS, ML)
 │   ├── eem/                          # 12 матриц возбуждения-испускания флуоресценции
@@ -117,16 +119,17 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
 │   └── README.md                     # Инструкция по использованию демо-файлов
 │
-├── tests/                            # Набор модульных тестов pytest (21 unit-тест)
+├── tests/                            # Набор модульных тестов pytest (24 unit-теста)
 │   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS)
 │   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
-│   └── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
+│   └── test_report_generator.py      # Тесты генерации многостраничных Excel-паспортов (.xlsx)
 │
 ├── .github/workflows/ci.yml          # GitHub Actions CI пайплайн (Ubuntu/Windows, Python 3.10-3.12)
 ├── pytest.ini                        # Конфигурация запуска тестов pytest
 ├── assets/                           # Скриншоты и графические материалы для README
 ├── user_spectra/                     # Локальное хранилище загруженных масс-спектров (в .gitignore)
-├── requirements.txt                  # Зависимости проекта (streamlit, tensorly, scikit-learn, scipy, pytest)
+├── requirements.txt                  # Зависимости проекта (streamlit, tensorly, scikit-learn, openpyxl, pytest)
 ├── .gitignore                        # Исключения системных и временных файлов
 ├── README.md                         # Документация платформы (русский)
 └── README_EN.md                      # Документация платформы (английский)
