@@ -113,3 +113,66 @@ def test_permutation_test():
     assert "p_val_q2" in perm_res
     assert len(perm_res["perm_q2"]) == 15
     assert 0.0 <= perm_res["p_val_q2"] <= 1.0
+
+
+def test_hotelling_ellipsoid_3d():
+    """Тест вычисления координат 3D эллипсоида Хотеллинга T^2."""
+    x = np.random.normal(0, 1, 25)
+    y = np.random.normal(0, 1, 25)
+    z = np.random.normal(0, 1, 25)
+
+    x_ell, y_ell, z_ell = chemo_ml.compute_hotelling_ellipsoid_3d(x, y, z, n_theta=20, n_phi=20)
+    assert x_ell.shape == (20, 20)
+    assert y_ell.shape == (20, 20)
+    assert z_ell.shape == (20, 20)
+    assert np.isclose(np.mean(x_ell), np.mean(x), atol=0.2)
+    assert np.isclose(np.mean(y_ell), np.mean(y), atol=0.2)
+    assert np.isclose(np.mean(z_ell), np.mean(z), atol=0.2)
+
+
+def test_multiclass_plsda():
+    """Тест мультиклассовой PLS-DA классификации (3 класса, 3D Scores, confusion matrix)."""
+    df, _ = chemo_ml.generate_multimodal_benchmark()
+    X = df.drop(columns=["Sample_ID"])
+    # 3 класса
+    y_multi = np.array(["Baikal", "Baikal", "Baikal", "Baikal", "Baikal",
+                        "Lignin", "Lignin", "Lignin", "Lignin", "Lignin",
+                        "Sediment", "Sediment", "Sediment", "Sediment"])
+
+    res = chemo_ml.train_plsda_model(X, y_multi, n_components=3, fusion_strategy="low_level")
+    assert res["is_multiclass"] is True
+    assert len(res["classes"]) == 3
+    assert res["Confusion_Matrix"].shape == (3, 3)
+    assert "scores_t3" in res and len(res["scores_t3"]) == len(y_multi)
+    assert res["ell_x_3d"].shape == (30, 30)
+
+    # Проверка мультиклассового пермутационного теста
+    perm_res = chemo_ml.run_permutation_test(X, y_multi, n_components=3, n_permutations=10, random_state=42)
+    assert "q2_orig" in perm_res
+    assert len(perm_res["perm_q2"]) == 10
+    assert 0.0 <= perm_res["p_val_q2"] <= 1.0
+
+
+def test_oplsda_model_and_splot():
+    """Тест OPLS-DA модели: ортогональное расщепление вариаций и S-Plot."""
+    df, y = chemo_ml.generate_multimodal_benchmark()
+    X = df.drop(columns=["Sample_ID"])
+
+    res = chemo_ml.train_oplsda_model(X, y.values, n_ortho=1, fusion_strategy="low_level")
+    assert res["model_type"] == "OPLS-DA"
+    assert "t_pred" in res and "t_ortho" in res
+    assert len(res["t_pred"]) == len(df)
+    assert res["R2X_pred"] > 0
+    assert res["R2X_ortho"] > 0
+    assert res["R2Y"] > 0
+
+    s_plot = res["S_Plot_df"]
+    assert isinstance(s_plot, pd.DataFrame)
+    assert not s_plot.empty
+    assert "p1_cov" in s_plot.columns
+    assert "p_corr" in s_plot.columns
+    assert "VIP" in s_plot.columns
+    assert "Block" in s_plot.columns
+    # p_corr должен лежать в интервале [-1, 1]
+    assert (s_plot["p_corr"] >= -1.01).all() and (s_plot["p_corr"] <= 1.01).all()
+

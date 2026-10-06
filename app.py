@@ -384,7 +384,19 @@ T = {
         "ml_cm_title": "Матрица ошибок (Confusion Matrix)",
         "ml_perm_title": "Распределение пермутационного теста (H0: модель случайна)",
         "ml_donut_title": "Относительный вес аналитических блоков в модели (VIP²)",
-        "ml_warn_two_classes": "⚠️ Для классификации PLS-DA в колонке Class_Target должны присутствовать оба класса (0 и 1)!",
+        "ml_warn_two_classes": "⚠️ Для классификации в колонке Class_Target должны присутствовать как минимум два различных класса!",
+        "ml_model_type_label": "Архитектура модели:",
+        "ml_model_plsda": "PLS-DA (Мультикласс / Проекция LV)",
+        "ml_model_oplsda": "OPLS-DA (Ортогональный фильтр шума / S-Plot)",
+        "ml_ortho_slider": "Ортогональные компоненты (Orthogonal LVs):",
+        "ml_scores_mode_label": "Пространство проекции Scores:",
+        "ml_scores_2d": "2D Scores (LV1 vs LV2)",
+        "ml_scores_3d": "3D Scores (LV1 vs LV2 vs LV3)",
+        "ml_tab_splot": "💠 S-Plot (Маркеры OPLS-DA)",
+        "ml_splot_title": "S-Plot: Ковариация p[1] vs Корреляция p(corr)[1]",
+        "ml_m_r2x_pred": "R²X(pred)",
+        "ml_m_r2x_ortho": "R²X(ortho)",
+        "ml_warn_opls_binary": "ℹ️ OPLS-DA оптимизирован для двух контрастных классов. Для 3+ классов выберите PLS-DA.",
         #UV-Spectre
         "eem_uv_uploader_label": "Загрузить УФ-Вид спектры поглощения (CSV/TXT):",
         "eem_doc_expander": "Параметры DOC для расчета SUVA254",
@@ -681,7 +693,19 @@ T = {
         "ml_cm_title": "Confusion Matrix",
         "ml_perm_title": "Permutation Test Distribution (H0: Random Model)",
         "ml_donut_title": "Relative Analytical Block Contribution (VIP²)",
-        "ml_warn_two_classes": "⚠️ PLS-DA requires at least two distinct classes (0 and 1) in Class_Target!",
+        "ml_warn_two_classes": "⚠️ Classification requires at least two distinct classes in Class_Target!",
+        "ml_model_type_label": "Model Architecture:",
+        "ml_model_plsda": "PLS-DA (Multiclass / Latent Variables)",
+        "ml_model_oplsda": "OPLS-DA (Orthogonal Noise Filter / S-Plot)",
+        "ml_ortho_slider": "Orthogonal Components (Orthogonal LVs):",
+        "ml_scores_mode_label": "Scores Projection Space:",
+        "ml_scores_2d": "2D Scores (LV1 vs LV2)",
+        "ml_scores_3d": "3D Scores (LV1 vs LV2 vs LV3)",
+        "ml_tab_splot": "💠 S-Plot (OPLS-DA Markers)",
+        "ml_splot_title": "S-Plot: Covariance p[1] vs Correlation p(corr)[1]",
+        "ml_m_r2x_pred": "R²X(pred)",
+        "ml_m_r2x_ortho": "R²X(ortho)",
+        "ml_warn_opls_binary": "ℹ️ OPLS-DA is optimized for binary contrast. For 3+ classes, please select PLS-DA.",
         #UV-spectre
         "eem_uv_uploader_label": "Upload UV-Vis Absorbance Spectra (CSV/TXT):",
         "eem_doc_expander": "DOC Settings for SUVA254 Calculation",
@@ -1663,13 +1687,14 @@ elif active_module == T[lang]["mod3_name"]:
         st.markdown(T[lang]["ml_active_dataset_info"].format(src=src_name, n=len(fused_df)))
         st.caption(T[lang]["ml_classes_caption"])
 
+        # Редактор классов с поддержкой текстовых меток и мультиклассов
         edited_df = st.data_editor(
             fused_df,
             column_config={
-                "Class_Target": st.column_config.SelectboxColumn(
+                "Class_Target": st.column_config.TextColumn(
                     T[lang]["ml_col_class_target"],
-                    options=[0, 1],
                     required=True,
+                    help="Метка класса (например: 0, 1, 2 или Baikal, Lignin, Sediment)" if lang == "ru" else "Class label (e.g. 0, 1, 2 or Baikal, Lignin, Sediment)",
                 )
             },
             disabled=[c for c in fused_df.columns if c != "Class_Target"],
@@ -1680,6 +1705,16 @@ elif active_module == T[lang]["mod3_name"]:
         st.markdown("---")
         st.subheader(T[lang]["ml_sec2_title"])
 
+        col_m1, col_m2 = st.columns([1.3, 2.7])
+        with col_m1:
+            model_type_sel = st.selectbox(
+                T[lang]["ml_model_type_label"],
+                [T[lang]["ml_model_plsda"], T[lang]["ml_model_oplsda"]],
+                index=0,
+                key="ml_model_arch_select",
+            )
+            is_opls = (model_type_sel == T[lang]["ml_model_oplsda"])
+
         max_allowed_lvs = max(2, min(5, len(edited_df) - 1))
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
@@ -1687,50 +1722,68 @@ elif active_module == T[lang]["mod3_name"]:
                 T[lang]["ml_strategy_label"],
                 [T[lang]["ml_strat_low"], T[lang]["ml_strat_mid"]],
                 index=0,
-                key="pls_strategy_select"
+                key="pls_strategy_select",
             )
             strat_code = "mid_level" if strategy_choice == T[lang]["ml_strat_mid"] else "low_level"
         with col_p2:
-            n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
-            use_perm = st.checkbox(T[lang]["ml_perm_chk"], value=True, key="pls_perm_chk")
+            if is_opls:
+                n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=1, max_value=max(1, min(3, len(edited_df) - 2)), value=1, key="opls_ortho_slider")
+                use_perm = False
+            else:
+                n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+                use_perm = st.checkbox(T[lang]["ml_perm_chk"], value=True, key="pls_perm_chk")
         with col_p3:
             use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
             st.write("")
-            run_pls = st.button(T[lang]["ml_run_btn"], type="primary", key="btn_run_pls_da")
+            run_btn_label = "🚀 Обучить OPLS-DA" if (lang == "ru" and is_opls) else ("🚀 Fit OPLS-DA Model" if is_opls else T[lang]["ml_run_btn"])
+            run_model = st.button(run_btn_label, type="primary", key="btn_run_chemo_model")
 
-        if run_pls:
+        if run_model:
             feat_cols = [c for c in edited_df.columns if c not in ["Sample_ID", "Class_Target"]]
             X_input = edited_df[feat_cols]
             y_input = edited_df["Class_Target"].values
 
-            # Проверка наличия двух классов
             unique_classes = np.unique(y_input)
             if len(unique_classes) < 2:
                 st.warning(T[lang]["ml_warn_two_classes"])
+            elif is_opls and len(unique_classes) > 2:
+                st.warning(T[lang]["ml_warn_opls_binary"])
             else:
                 try:
                     with st.spinner(T[lang]["ml_spinner"]):
-                        res = chemo_ml.train_plsda_model(
-                            X_input, y_input,
-                            n_components=n_lvs,
-                            fusion_strategy=strat_code,
-                            block_scaling=use_block_scale
-                        )
-                        st.session_state["pls_results"] = res
-                        st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
-                        st.session_state["pls_y_input"] = y_input
-
-                        if use_perm:
-                            perm_res = chemo_ml.run_permutation_test(
+                        if is_opls:
+                            res = chemo_ml.train_oplsda_model(
+                                X_input, y_input,
+                                n_ortho=n_ortho,
+                                fusion_strategy=strat_code,
+                                block_scaling=use_block_scale,
+                            )
+                            st.session_state["pls_results"] = res
+                            st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
+                            st.session_state["pls_y_input"] = y_input
+                            st.session_state["perm_results"] = None
+                        else:
+                            res = chemo_ml.train_plsda_model(
                                 X_input, y_input,
                                 n_components=n_lvs,
-                                n_permutations=50,
                                 fusion_strategy=strat_code,
-                                block_scaling=use_block_scale
+                                block_scaling=use_block_scale,
                             )
-                            st.session_state["perm_results"] = perm_res
-                        else:
-                            st.session_state["perm_results"] = None
+                            st.session_state["pls_results"] = res
+                            st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
+                            st.session_state["pls_y_input"] = y_input
+
+                            if use_perm:
+                                perm_res = chemo_ml.run_permutation_test(
+                                    X_input, y_input,
+                                    n_components=n_lvs,
+                                    n_permutations=50,
+                                    fusion_strategy=strat_code,
+                                    block_scaling=use_block_scale,
+                                )
+                                st.session_state["perm_results"] = perm_res
+                            else:
+                                st.session_state["perm_results"] = None
 
                 except ValueError as val_err:
                     st.error(T[lang]["ml_warn_input"].format(err=val_err))
@@ -1740,54 +1793,146 @@ elif active_module == T[lang]["mod3_name"]:
         if res is not None:
             sample_ids_curr = st.session_state.get("pls_sample_ids", edited_df["Sample_ID"].values)
             y_curr = st.session_state.get("pls_y_input", edited_df["Class_Target"].values)
+            curr_model_type = res.get("model_type", "PLS-DA")
+            is_model_opls = (curr_model_type == "OPLS-DA")
+
             t1_vals = res.get("t1", res.get("scores_t1"))
             t2_vals = res.get("t2", res.get("scores_t2"))
+            t3_vals = res.get("t3", res.get("scores_t3", None))
             ell_x = res.get("ell_x", res.get("ellipse_x", np.array([])))
             ell_y = res.get("ell_y", res.get("ellipse_y", np.array([])))
             vip_df = res.get("VIP_df", res.get("vip_df", pd.DataFrame()))
             perm_res = st.session_state.get("perm_results", None)
 
+            # Палитра классов
+            unique_cls = list(pd.unique(y_curr))
+            palette = ["#D62728", "#0020C2", "#2CA02C", "#FF7F0E", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF"]
+            cls_color_map = {str(c): palette[i % len(palette)] for i, c in enumerate(unique_cls)}
+            point_colors = [cls_color_map.get(str(c), "#7F7F7F") for c in y_curr]
+
             st.markdown("---")
-            st.subheader(T[lang]["ml_sec3_title"])
+            st.subheader(f"{T[lang]['ml_sec3_title']} ({curr_model_type})")
 
             # 4 ключевые сводные метрики
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric(T[lang]["ml_m_r2x"], f"{res.get('R2X', 0.0):.1f}%")
+            if is_model_opls:
+                m1.metric(f"{T[lang]['ml_m_r2x_pred']} / {T[lang]['ml_m_r2x_ortho']}", f"{res.get('R2X_pred', 0.0):.1f}% / {res.get('R2X_ortho', 0.0):.1f}%")
+            else:
+                m1.metric(T[lang]["ml_m_r2x"], f"{res.get('R2X', 0.0):.1f}%")
             m2.metric(T[lang]["ml_m_r2y"], f"{res.get('R2Y', 0.0):.1f}%")
             q2_val = res.get("Q2", 0.0)
             m3.metric(T[lang]["ml_m_q2"], f"{q2_val:.1f}%", delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"])
-            m4.metric(T[lang]["ml_m_acc"], f"{res.get('Accuracy', 0.0):.1f}%")
+            acc_val = res.get("Balanced_Accuracy", res.get("Accuracy", 0.0))
+            m4.metric(T[lang]["ml_m_acc"], f"{acc_val:.1f}%")
 
             # Вкладки детального дашборда
-            tab_ml1, tab_ml2, tab_ml3, tab_ml4, tab_ml5 = st.tabs([
+            tab_names = [
                 T[lang]["ml_tab_scores"],
                 T[lang]["ml_tab_vips"],
+            ]
+            if is_model_opls:
+                tab_names.append(T[lang]["ml_tab_splot"])
+            tab_names.extend([
                 T[lang]["ml_tab_val"],
                 T[lang]["ml_tab_blocks"],
-                "💾 Экспорт отчетов" if lang == "ru" else "💾 Export Reports"
+                "💾 Экспорт отчетов" if lang == "ru" else "💾 Export Reports",
             ])
 
-            # Таб 1: Scores Plot
-            with tab_ml1:
-                fig_sc = go.Figure()
-                if ell_x is not None and len(ell_x) > 0:
-                    fig_sc.add_trace(go.Scatter(
-                        x=ell_x, y=ell_y, mode="lines",
-                        line=dict(dash="dot", color="#7f7f7f", width=1.5),
-                        name=T[lang]["ml_hotelling_name"], hoverinfo="skip"
-                    ))
+            tabs = st.tabs(tab_names)
+            tab_idx = 0
+            tab_ml1 = tabs[tab_idx]; tab_idx += 1
+            tab_ml2 = tabs[tab_idx]; tab_idx += 1
+            tab_splot = tabs[tab_idx] if is_model_opls else None
+            if is_model_opls: tab_idx += 1
+            tab_ml3 = tabs[tab_idx]; tab_idx += 1
+            tab_ml4 = tabs[tab_idx]; tab_idx += 1
+            tab_ml5 = tabs[tab_idx]
 
-                colors = ["#D62728" if int(y) == 1 else "#0020C2" for y in y_curr]
-                labels = [T[lang]["ml_class1_label"] if int(y) == 1 else T[lang]["ml_class0_label"] for y in y_curr]
-                fig_sc.add_trace(go.Scatter(
-                    x=t1_vals, y=t2_vals, mode="markers+text",
-                    text=sample_ids_curr, textposition="top center",
-                    marker=dict(size=11, color=colors, line=dict(width=1, color="black"), opacity=0.85),
-                    hovertext=[f"<b>{s}</b><br>{lbl}<br>LV1: {t1:.2f}, LV2: {t2:.2f}" for s, lbl, t1, t2 in zip(sample_ids_curr, labels, t1_vals, t2_vals)],
-                    hoverinfo="text", name="Samples",
-                ))
-                fig_sc.update_layout(xaxis_title="LV1", yaxis_title="LV2", plot_bgcolor="white", height=520)
-                st_plotly(fig_sc)
+            # Таб 1: Scores Plot (2D и 3D для PLS-DA; tp vs to для OPLS-DA)
+            with tab_ml1:
+                has_3d = (t3_vals is not None and not is_model_opls)
+                if has_3d:
+                    scores_mode = st.radio(
+                        T[lang]["ml_scores_mode_label"],
+                        [T[lang]["ml_scores_2d"], T[lang]["ml_scores_3d"]],
+                        horizontal=True,
+                        key="radio_scores_2d_3d",
+                    )
+                else:
+                    scores_mode = T[lang]["ml_scores_2d"]
+
+                if scores_mode == T[lang]["ml_scores_3d"] and has_3d:
+                    fig_3d = go.Figure()
+
+                    # 3D Эллипсоид Хотеллинга
+                    ell_3d_x = res.get("ell_3d_x", res.get("ell_x_3d"))
+                    ell_3d_y = res.get("ell_3d_y", res.get("ell_y_3d"))
+                    ell_3d_z = res.get("ell_3d_z", res.get("ell_z_3d"))
+                    if ell_3d_x is not None and len(ell_3d_x) > 0:
+                        fig_3d.add_trace(go.Surface(
+                            x=ell_3d_x, y=ell_3d_y, z=ell_3d_z,
+                            opacity=0.18,
+                            colorscale=[[0, "#8da9c4"], [1, "#8da9c4"]],
+                            showscale=False,
+                            name=f"{T[lang]['ml_hotelling_name']} (3D)",
+                            hoverinfo="skip",
+                        ))
+
+                    # 3D маркеры проб
+                    fig_3d.add_trace(go.Scatter3d(
+                        x=t1_vals, y=t2_vals, z=t3_vals,
+                        mode="markers+text",
+                        text=sample_ids_curr,
+                        textposition="top center",
+                        marker=dict(size=7, color=point_colors, line=dict(width=1, color="black"), opacity=0.9),
+                        hovertext=[
+                            f"<b>{s}</b><br>Class: {c}<br>LV1: {v1:.2f}, LV2: {v2:.2f}, LV3: {v3:.2f}"
+                            for s, c, v1, v2, v3 in zip(sample_ids_curr, y_curr, t1_vals, t2_vals, t3_vals)
+                        ],
+                        hoverinfo="text",
+                        name="Samples",
+                    ))
+                    fig_3d.update_layout(
+                        scene=dict(
+                            xaxis_title="LV1 (Scores t1)",
+                            yaxis_title="LV2 (Scores t2)",
+                            zaxis_title="LV3 (Scores t3)",
+                        ),
+                        height=580,
+                        margin=dict(l=10, r=10, t=30, b=10),
+                    )
+                    st_plotly(fig_3d)
+
+                else:
+                    # 2D Scores Plot
+                    fig_sc = go.Figure()
+                    if ell_x is not None and len(ell_x) > 0:
+                        fig_sc.add_trace(go.Scatter(
+                            x=ell_x, y=ell_y, mode="lines",
+                            line=dict(dash="dot", color="#7f7f7f", width=1.5),
+                            name=T[lang]["ml_hotelling_name"], hoverinfo="skip",
+                        ))
+
+                    axis_x_lbl = "t_pred (Predictive LV1)" if is_model_opls else "LV1"
+                    axis_y_lbl = "t_ortho (Orthogonal LV1)" if is_model_opls else "LV2"
+
+                    for c_name in unique_cls:
+                        mask = [str(y) == str(c_name) for y in y_curr]
+                        s_sub = [s for s, m in zip(sample_ids_curr, mask) if m]
+                        t1_sub = [t for t, m in zip(t1_vals, mask) if m]
+                        t2_sub = [t for t, m in zip(t2_vals, mask) if m]
+                        col = cls_color_map.get(str(c_name), "#7F7F7F")
+
+                        fig_sc.add_trace(go.Scatter(
+                            x=t1_sub, y=t2_sub, mode="markers+text",
+                            text=s_sub, textposition="top center",
+                            marker=dict(size=11, color=col, line=dict(width=1, color="black"), opacity=0.85),
+                            hovertext=[f"<b>{s}</b><br>Class: {c_name}<br>{axis_x_lbl}: {v1:.2f}, {axis_y_lbl}: {v2:.2f}" for s, v1, v2 in zip(s_sub, t1_sub, t2_sub)],
+                            hoverinfo="text", name=f"Class {c_name}",
+                        ))
+
+                    fig_sc.update_layout(xaxis_title=axis_x_lbl, yaxis_title=axis_y_lbl, plot_bgcolor="white", height=520)
+                    st_plotly(fig_sc)
 
             # Таб 2: VIP Scores с цветовой кодировкой аналитических блоков
             with tab_ml2:
@@ -1797,7 +1942,7 @@ elif active_module == T[lang]["mod3_name"]:
                         top_vip, x="VIP", y="Descriptor", orientation="h",
                         color="Block",
                         color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
-                        text=top_vip["VIP"].apply(lambda v: f"{v:.2f}")
+                        text=top_vip["VIP"].apply(lambda v: f"{v:.2f}"),
                     )
                     fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text=T[lang]["ml_vip_cutoff"])
                     fig_vip.update_layout(yaxis=dict(autorange="reversed", title="Descriptor"), xaxis=dict(title="VIP Score"), plot_bgcolor="white", height=520)
@@ -1805,30 +1950,63 @@ elif active_module == T[lang]["mod3_name"]:
 
                     st.dataframe(vip_df, use_container_width=True)
 
+            # Таб S-Plot (для OPLS-DA)
+            if is_model_opls and tab_splot is not None:
+                with tab_splot:
+                    s_df = res.get("S_Plot_df", pd.DataFrame())
+                    if not s_df.empty:
+                        st.write(f"### {T[lang]['ml_splot_title']}")
+                        fig_s = px.scatter(
+                            s_df,
+                            x="p1_cov",
+                            y="p_corr",
+                            color="Block",
+                            size="VIP",
+                            hover_name="Descriptor",
+                            color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
+                            labels={"p1_cov": "Covariance p[1] (Magnitude)", "p_corr": "Correlation p(corr)[1] (Reliability)"},
+                        )
+                        fig_s.add_hline(y=0.0, line_dash="dash", line_color="#bfbfbf")
+                        fig_s.add_vline(x=0.0, line_dash="dash", line_color="#bfbfbf")
+                        fig_s.update_layout(plot_bgcolor="white", height=520)
+                        st_plotly(fig_s)
+
+                        st.dataframe(s_df, use_container_width=True)
+
             # Таб 3: Валидация (Confusion Matrix + Permutation Test)
             with tab_ml3:
                 c_v1, c_v2 = st.columns(2)
                 with c_v1:
                     st.write(f"**{T[lang]['ml_cm_title']}**")
                     cm_mat = res.get("Confusion_Matrix", np.zeros((2, 2)))
+                    cls_labels = [str(c) for c in res.get("classes", unique_cls)]
                     fig_cm = px.imshow(
                         cm_mat,
                         text_auto=True,
                         labels=dict(x="Predicted", y="Actual", color="Count"),
-                        x=[T[lang]["ml_class0_label"], T[lang]["ml_class1_label"]],
-                        y=[T[lang]["ml_class0_label"], T[lang]["ml_class1_label"]],
-                        color_continuous_scale="Blues"
+                        x=cls_labels,
+                        y=cls_labels,
+                        color_continuous_scale="Blues",
                     )
                     fig_cm.update_layout(height=360, margin=dict(l=20, r=20, t=30, b=20))
                     st_plotly(fig_cm)
 
-                    st.markdown(
-                        f"""
-                        * **Чувствительность (Sensitivity):** `{res.get('Sensitivity', 0.0):.1f}%`
-                        * **Специфичность (Specificity):** `{res.get('Specificity', 0.0):.1f}%`
-                        * **Сбалансированная точность:** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
-                        """
-                    )
+                    if not res.get("is_multiclass", False):
+                        st.markdown(
+                            f"""
+                            * **Чувствительность (Sensitivity):** `{res.get('Sensitivity', 0.0):.1f}%`
+                            * **Специфичность (Specificity):** `{res.get('Specificity', 0.0):.1f}%`
+                            * **Сбалансированная точность:** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            """
+                        )
+                    else:
+                        st.markdown(
+                            f"""
+                            * **Режим:** Мультиклассовая классификация ({len(cls_labels)} класса)
+                            * **Сбалансированная точность (Balanced Accuracy):** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            * **Общая точность (Accuracy):** `{res.get('Accuracy', 0.0):.1f}%`
+                            """
+                        )
 
                 with c_v2:
                     if perm_res is not None:
@@ -1842,7 +2020,7 @@ elif active_module == T[lang]["mod3_name"]:
                             x=perm_q2_vals,
                             name="Permuted Q²",
                             marker_color="#8da9c4",
-                            opacity=0.75
+                            opacity=0.75,
                         ))
                         fig_perm.add_vline(x=q2_o, line_width=2.5, line_dash="dash", line_color="#d62728", annotation_text=f"Q²={q2_o:.1f}%")
                         fig_perm.update_layout(xaxis_title="Q² (%)", yaxis_title="Frequencies", height=360, plot_bgcolor="white", margin=dict(l=20, r=20, t=30, b=20))
@@ -1852,6 +2030,8 @@ elif active_module == T[lang]["mod3_name"]:
                             st.success(f"✅ Модель статистически значима: эмпирический p-value = **{p_val:.4f}** (< 0.05)." if lang == "ru" else f"✅ Model is statistically significant: empirical p-value = **{p_val:.4f}** (< 0.05).")
                         else:
                             st.warning(f"⚠️ Риск оверфиттинга: эмпирический p-value = **{p_val:.4f}** (≥ 0.05)." if lang == "ru" else f"⚠️ Overfitting risk: empirical p-value = **{p_val:.4f}** (≥ 0.05).")
+                    else:
+                        st.info("Для OPLS-DA валидация выполнена по LOO / K-Fold CV. Пермутационный тест доступен в режиме PLS-DA." if lang == "ru" else "Validation performed via LOO / K-Fold CV. Permutation testing is available in PLS-DA mode.")
 
             # Таб 4: Вклад аналитических блоков
             with tab_ml4:
@@ -1864,7 +2044,7 @@ elif active_module == T[lang]["mod3_name"]:
                         labels=list(block_contribs.keys()),
                         values=list(block_contribs.values()),
                         hole=0.45,
-                        marker=dict(colors=donut_colors)
+                        marker=dict(colors=donut_colors),
                     )])
                     fig_donut.update_layout(height=420)
                     st_plotly(fig_donut)
@@ -1885,7 +2065,7 @@ elif active_module == T[lang]["mod3_name"]:
                     st.download_button(
                         label=T[lang]["ml_dl_vip_btn"],
                         data=vip_df.to_csv(index=False).encode("utf-8"),
-                        file_name="ChemoSuite_PLSDA_VIP_Biomarkers.csv",
+                        file_name=f"ChemoSuite_{curr_model_type}_Biomarkers.csv",
                         mime="text/csv",
                         key="dl_pls_vip_csv_main_btn",
                     )

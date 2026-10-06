@@ -85,15 +85,18 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 ---
 
-### Module 3: Multiblock Integration and Machine Learning (Data Fusion & PLS-DA)
+### Module 3: Multiblock Integration and Machine Learning (Data Fusion, PLS-DA & OPLS-DA)
 
-#### Discriminant Analysis and Marker Selection (PLS-DA & VIP Scores)
+#### Discriminant Analysis and Marker Selection (PLS-DA, OPLS-DA & VIP Scores)
 <img src="assets/ml_plsda_validation.png" width="100%" alt="PLS-DA Results" />
 
 * Multimodal classification model built on the merged descriptor pool of all three methods (**FT-ICR MS + EEM-PARAFAC + UV-Vis**).
-* **Scores Plot ($t_1$ vs $t_2$):** sample cluster separation inside the 95% Hotelling's $T^2$ confidence ellipse.
-* **VIP Scores & Block Contributions:** ranking of biomarkers ($VIP > 1.0$) with color-coded analytical blocks and percentage contribution calculation ($\text{VIP}^2$ share).
-* **Validation & Diagnostics:** confusion matrix, balanced accuracy, sensitivity, specificity, and permutation testing with empirical $p$-value.
+* **PLS-DA & OPLS-DA Architectures:** standard PLS-DA and orthogonal OPLS-DA (Orthogonal PLS-DA) separating predictive variation ($t_{\text{pred}}$) from orthogonal noise ($t_{\text{ortho}}$).
+* **2D & 3D Scores Plot:** interactive projection toggle ($t_1 \times t_2$ and $t_1 \times t_2 \times t_3$) with parametric 95% Hotelling's $T^2$ confidence ellipsoid surface in 3D.
+* **Multiclass Classification ($K \ge 2$):** $K \times K$ confusion matrix, balanced accuracy, sensitivity, and specificity.
+* **S-Plot Diagram (OPLS-DA):** covariance $p[1]$ (magnitude) vs correlation $p(\text{corr})[1]$ (reliability) visualization for biomarker discovery with block color tags.
+* **VIP Scores & Block Contributions:** ranking of biomarkers ($VIP > 1.0$) and relative percentage contribution of analytical blocks ($\text{VIP}^2$ share).
+* **Validation & Diagnostics:** Leave-One-Out / K-Fold cross-validation ($Q^2$) and permutation testing (50 iterations) with empirical $p$-value.
 
 ---
 
@@ -105,7 +108,7 @@ ChemoSuite/
 ├── app.py                            # Main super-app: UI routing, trimodal dashboards, and session assembler
 ├── fticr_core.py                     # Mass spec core: formulas, 13C isotopes, KMD, Perminova grid, TMDS
 ├── eem_core.py                       # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
-├── chemo_ml.py                       # Chemometric core: Low/Mid Data Fusion, PLS-DA, VIP, permutation test, block weights
+├── chemo_ml.py                       # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, 3D Hotelling, S-Plot, permutation
 │
 ├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, ML)
 │   ├── eem/                          # 12 excitation-emission fluorescence matrices
@@ -114,10 +117,10 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
 │   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Automated test suite (18 unit tests)
+├── tests/                            # Automated test suite (21 unit tests)
 │   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS)
 │   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
-│   └── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, VIP, permutation)
+│   └── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
 │
 ├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.12)
 ├── pytest.ini                        # Pytest configuration file

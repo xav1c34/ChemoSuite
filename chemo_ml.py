@@ -237,56 +237,130 @@ def prepare_fused_features(
         return X_scaled, feature_names, block_map
 
 
+def compute_hotelling_ellipsoid_3d(
+    scores_x: np.ndarray, scores_y: np.ndarray, scores_z: np.ndarray,
+    n_theta: int = 30, n_phi: int = 30, confidence: float = 0.95
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Расчет сетки координат 95% эллипсоида Хотеллинга T^2 в 3D пространстве."""
+    n = len(scores_x)
+    if n < 5:
+        return np.array([[]]), np.array([[]]), np.array([[]])
+
+    s1 = np.std(scores_x, ddof=1)
+    s2 = np.std(scores_y, ddof=1)
+    s3 = np.std(scores_z, ddof=1)
+
+    f_crit = f.ppf(confidence, 3, n - 3)
+    radius_scale = np.sqrt((3 * (n - 1) / (n - 3)) * f_crit)
+
+    r1, r2, r3 = s1 * radius_scale, s2 * radius_scale, s3 * radius_scale
+
+    u = np.linspace(0, 2 * np.pi, n_theta)
+    v = np.linspace(0, np.pi, n_phi)
+    U, V = np.meshgrid(u, v)
+
+    x_ell = np.mean(scores_x) + r1 * np.cos(U) * np.sin(V)
+    y_ell = np.mean(scores_y) + r2 * np.sin(U) * np.sin(V)
+    z_ell = np.mean(scores_z) + r3 * np.cos(V)
+
+    return x_ell, y_ell, z_ell
+
+
 def train_plsda_model(
     X_df: pd.DataFrame,
-    y_labels: np.ndarray,
+    y_labels: Union[np.ndarray, pd.Series, List],
     n_components: int = 2,
     fusion_strategy: str = "low_level",
     block_scaling: bool = True,
     n_mid_components: int = 3,
 ) -> Dict:
     """
-    Обучение, валидация PLS-DA модели и расчет хемометрических метрик.
+    Обучение и валидация PLS-DA модели (бинарная и мультиклассовая классификация).
+    Возвращает 2D и 3D проекции Scores, VIP-маркеры, долю блоков и диагностику.
     """
     X_scaled, feature_names, block_map = prepare_fused_features(
         X_df, strategy=fusion_strategy, block_scaling=block_scaling, n_mid_components=n_mid_components
     )
-    y = np.asarray(y_labels, dtype=float)
+    y_arr = np.asarray(y_labels)
+    unique_classes = np.unique(y_arr)
+    k_classes = len(unique_classes)
+    if k_classes < 2:
+        raise ValueError("Для классификации требуется как минимум 2 различных класса!")
+
     n_samples, n_features = X_scaled.shape
+    is_multiclass = (k_classes > 2)
+
+    if is_multiclass:
+        # Мультиклассовый One-Hot Encoding
+        Y_mat = np.zeros((n_samples, k_classes), dtype=float)
+        for idx, c in enumerate(unique_classes):
+            Y_mat[y_arr == c, idx] = 1.0
+        y_eval_true = y_arr
+    else:
+        # Бинарный режим (0 и 1)
+        if set(unique_classes).issubset({0, 1, 0.0, 1.0, True, False, "0", "1"}):
+            y_numeric = np.array([1.0 if str(v).strip() in ["1", "1.0", "True"] else 0.0 for v in y_arr])
+        else:
+            y_numeric = np.array([1.0 if v == unique_classes[1] else 0.0 for v in y_arr])
+        Y_mat = y_numeric
+        y_eval_true = (Y_mat >= 0.5).astype(int)
 
     max_comp = max(1, min(n_components, n_samples - 1, n_features))
     pls = PLSRegression(n_components=max_comp, scale=False)
-    pls.fit(X_scaled, y)
+    pls.fit(X_scaled, Y_mat)
 
     scores = pls.x_scores_
-    y_pred = pls.predict(X_scaled).flatten()
-    y_class_pred = (y_pred >= 0.5).astype(int)
+    t1 = scores[:, 0]
+    t2 = scores[:, 1] if max_comp > 1 else np.zeros(n_samples)
+    t3 = scores[:, 2] if max_comp > 2 else np.zeros(n_samples)
+
+    # Прогнозы
+    y_pred_raw = pls.predict(X_scaled)
+    if is_multiclass:
+        pred_indices = np.argmax(y_pred_raw, axis=1)
+        y_class_pred = unique_classes[pred_indices]
+    else:
+        y_class_pred = (y_pred_raw.flatten() >= 0.5).astype(int)
 
     # Матрица ошибок и диагностика
-    cm = confusion_matrix((y >= 0.5).astype(int), y_class_pred, labels=[0, 1])
-    tn, fp, fn, tp = cm.ravel()
-    sens = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
-    spec = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
-    bal_acc = float((sens + spec) / 2.0 * 100.0)
-    acc = float((tp + tn) / n_samples * 100.0)
+    cm = confusion_matrix(y_eval_true, y_class_pred, labels=unique_classes if is_multiclass else [0, 1])
+    acc = float(np.mean(y_eval_true == y_class_pred) * 100.0)
+
+    if is_multiclass:
+        recalls = []
+        for c_i in range(k_classes):
+            c_sum = np.sum(cm[c_i, :])
+            recalls.append(float(cm[c_i, c_i] / c_sum) if c_sum > 0 else 0.0)
+        bal_acc = float(np.mean(recalls) * 100.0)
+        sens = bal_acc
+        spec = bal_acc
+    else:
+        tn, fp, fn, tp = cm.ravel()
+        sens = float(tp / (tp + fn) * 100.0) if (tp + fn) > 0 else 0.0
+        spec = float(tn / (tn + fp) * 100.0) if (tn + fp) > 0 else 0.0
+        bal_acc = float((sens + spec) / 2.0)
 
     # R2X и R2Y
     r2x = float(np.sum(np.var(scores, axis=0)) / np.sum(np.var(X_scaled, axis=0)) * 100.0)
-    ss_total_y = np.sum((y - np.mean(y)) ** 2)
-    ss_res_y = np.sum((y - y_pred) ** 2)
-    r2y = float((1.0 - (ss_res_y / ss_total_y)) * 100.0 if ss_total_y > 0 else 0.0)
+    if is_multiclass:
+        ss_tot_y = float(np.sum((Y_mat - np.mean(Y_mat, axis=0)) ** 2))
+        ss_res_y = float(np.sum((Y_mat - y_pred_raw) ** 2))
+    else:
+        ss_tot_y = float(np.sum((Y_mat - np.mean(Y_mat)) ** 2))
+        ss_res_y = float(np.sum((Y_mat - y_pred_raw.flatten()) ** 2))
+    r2y = float((1.0 - (ss_res_y / ss_tot_y)) * 100.0 if ss_tot_y > 0 else 0.0)
 
-    # Leave-One-Out / K-Fold кросс-валидация для Q2
+    # Кросс-валидация для Q2 (LOO / 5-Fold)
     cv = LeaveOneOut() if n_samples <= 30 else KFold(n_splits=5, shuffle=True, random_state=42)
-    y_cv_pred = np.zeros(n_samples)
+    y_cv_pred = np.zeros_like(Y_mat)
 
     for train_idx, test_idx in cv.split(X_scaled):
         pls_cv = PLSRegression(n_components=max_comp, scale=False)
-        pls_cv.fit(X_scaled[train_idx], y[train_idx])
-        y_cv_pred[test_idx] = pls_cv.predict(X_scaled[test_idx]).flatten()
+        pls_cv.fit(X_scaled[train_idx], Y_mat[train_idx])
+        y_cv_pred[test_idx] = pls_cv.predict(X_scaled[test_idx])
 
-    press = np.sum((y - y_cv_pred) ** 2)
-    q2 = float((1.0 - (press / ss_total_y)) * 100.0 if ss_total_y > 0 else 0.0)
+    press = float(np.sum((Y_mat - y_cv_pred) ** 2))
+    q2 = float((1.0 - (press / ss_tot_y)) * 100.0 if ss_tot_y > 0 else 0.0)
 
     # Расчет VIP и привязка к блокам
     vip_values = calculate_vip(pls, X_scaled)
@@ -307,32 +381,214 @@ def train_plsda_model(
         for b, s in block_sums.items():
             block_contribs[b] = round(float(s / tot_sq * 100.0), 1)
 
-    t1 = scores[:, 0]
-    t2 = scores[:, 1] if max_comp > 1 else np.zeros(n_samples)
+    # 2D и 3D эллипсы Хотеллинга
     ell_x, ell_y = compute_hotelling_ellipse(t1, t2)
+    ell_3d_x, ell_3d_y, ell_3d_z = compute_hotelling_ellipsoid_3d(t1, t2, t3) if max_comp >= 3 else (None, None, None)
 
     return {
+        "model_type": "PLS-DA",
         "scores_t1": t1,
         "t1": t1,
         "scores_t2": t2,
         "t2": t2,
+        "scores_t3": t3,
+        "t3": t3,
         "ellipse_x": ell_x,
         "ell_x": ell_x,
         "ellipse_y": ell_y,
-        "ell_y": ell_y,
+        "ell_3d_x": ell_3d_x,
+        "ell_3d_y": ell_3d_y,
+        "ell_3d_z": ell_3d_z,
+        "ell_x_3d": ell_3d_x,
+        "ell_y_3d": ell_3d_y,
+        "ell_z_3d": ell_3d_z,
         "R2X": max(0.0, r2x),
         "R2Y": max(0.0, r2y),
         "Q2": q2,
         "Accuracy": acc,
         "Balanced_Accuracy": bal_acc,
-        "Sensitivity": sens * 100.0,
-        "Specificity": spec * 100.0,
+        "Sensitivity": sens,
+        "Specificity": spec,
         "Confusion_Matrix": cm,
         "VIP_df": vip_df,
         "vip_df": vip_df,
         "Block_Contributions": block_contribs,
-        "y_pred": y_pred,
+        "y_pred": y_pred_raw,
         "y_cv_pred": y_cv_pred,
+        "classes": unique_classes,
+        "is_multiclass": is_multiclass,
+        "feature_names": feature_names,
+    }
+
+
+def train_oplsda_model(
+    X_df: pd.DataFrame,
+    y_labels: Union[np.ndarray, pd.Series, List],
+    n_ortho: int = 1,
+    fusion_strategy: str = "low_level",
+    block_scaling: bool = True,
+    n_mid_components: int = 3,
+) -> Dict:
+    """
+    Обучение OPLS-DA модели (Ортогональный PLS-DA) и расчет S-plot (ковариация vs корреляция).
+    Разделяет дисперсию на предиктивную (t_pred, строго связанную с Y)
+    и ортогональную (t_ortho, систематический шум/дрейф, не связанный с Y).
+    """
+    X_scaled, feature_names, block_map = prepare_fused_features(
+        X_df, strategy=fusion_strategy, block_scaling=block_scaling, n_mid_components=n_mid_components
+    )
+    y_raw = np.asarray(y_labels)
+    unique_classes = np.unique(y_raw)
+    if len(unique_classes) < 2:
+        raise ValueError("Для OPLS-DA требуется как минимум 2 класса!")
+
+    if set(unique_classes).issubset({0, 1, 0.0, 1.0, True, False, "0", "1"}):
+        y = np.array([1.0 if str(v).strip() in ["1", "1.0", "True"] else 0.0 for v in y_raw])
+    else:
+        y = np.array([1.0 if v == unique_classes[1] else 0.0 for v in y_raw])
+
+    n_samples, n_features = X_scaled.shape
+    y_cent = y - np.mean(y)
+
+    X_work = X_scaled.copy()
+    T_ortho = []
+    P_ortho = []
+    W_ortho = []
+
+    for _ in range(max(1, min(n_ortho, n_samples - 2))):
+        w = np.dot(X_work.T, y_cent)
+        w_norm = np.linalg.norm(w)
+        if w_norm > 1e-12:
+            w = w / w_norm
+        else:
+            w = np.ones(n_features) / np.sqrt(n_features)
+
+        t = np.dot(X_work, w) / float(np.dot(w, w))
+        p_load = np.dot(X_work.T, t) / float(np.dot(t, t))
+        w_o = p_load - (float(np.dot(w, p_load)) / float(np.dot(w, w))) * w
+        w_o_norm = np.linalg.norm(w_o)
+        if w_o_norm > 1e-12:
+            w_o = w_o / w_o_norm
+        else:
+            break
+
+        t_o = np.dot(X_work, w_o) / float(np.dot(w_o, w_o))
+        p_o = np.dot(X_work.T, t_o) / float(np.dot(t_o, t_o))
+
+        X_work = X_work - np.outer(t_o, p_o)
+        T_ortho.append(t_o)
+        P_ortho.append(p_o)
+        W_ortho.append(w_o)
+
+    # Предиктивная компонента
+    w_p = np.dot(X_work.T, y_cent)
+    w_p_norm = np.linalg.norm(w_p)
+    if w_p_norm > 1e-12:
+        w_p = w_p / w_p_norm
+    else:
+        w_p = np.ones(n_features) / np.sqrt(n_features)
+
+    t_p = np.dot(X_work, w_p) / float(np.dot(w_p, w_p))
+    p_p = np.dot(X_work.T, t_p) / float(np.dot(t_p, t_p))
+    t_o_main = T_ortho[0] if T_ortho else np.zeros(n_samples)
+
+    # Прогноз Y и метрики
+    b_p = float(np.dot(t_p, y_cent)) / float(np.dot(t_p, t_p))
+    y_pred = (t_p * b_p) + np.mean(y)
+    y_class_pred = (y_pred >= 0.5).astype(int)
+
+    cm = confusion_matrix((y >= 0.5).astype(int), y_class_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    sens = float(tp / (tp + fn) * 100.0) if (tp + fn) > 0 else 0.0
+    spec = float(tn / (tn + fp) * 100.0) if (tn + fp) > 0 else 0.0
+    bal_acc = float((sens + spec) / 2.0)
+    acc = float((tp + tn) / n_samples * 100.0)
+
+    # Дисперсии
+    ss_tot_x = np.sum(np.var(X_scaled, axis=0))
+    r2x_pred = float(np.var(t_p) / ss_tot_x * 100.0) if ss_tot_x > 0 else 0.0
+    r2x_ortho = float(np.var(t_o_main) / ss_tot_x * 100.0) if ss_tot_x > 0 else 0.0
+    ss_tot_y = np.sum((y - np.mean(y)) ** 2)
+    ss_res_y = np.sum((y - y_pred) ** 2)
+    r2y = float(max(0.0, (1.0 - ss_res_y / ss_tot_y) * 100.0))
+
+    # Cross-validation для Q2
+    cv = LeaveOneOut() if n_samples <= 30 else KFold(n_splits=5, shuffle=True, random_state=42)
+    y_cv = np.zeros(n_samples)
+    for tr, te in cv.split(X_scaled):
+        X_tr, y_tr = X_scaled[tr], y[tr]
+        y_tr_c = y_tr - np.mean(y_tr)
+        w_tr = np.dot(X_tr.T, y_tr_c)
+        w_tr_norm = np.linalg.norm(w_tr)
+        w_tr = w_tr / w_tr_norm if w_tr_norm > 1e-12 else np.ones(n_features) / np.sqrt(n_features)
+        t_tr = np.dot(X_tr, w_tr) / float(np.dot(w_tr, w_tr))
+        b_tr = float(np.dot(t_tr, y_tr_c)) / float(np.dot(t_tr, t_tr))
+        t_te = np.dot(X_scaled[te], w_tr) / float(np.dot(w_tr, w_tr))
+        y_cv[te] = (t_te * b_tr) + np.mean(y_tr)
+
+    press = np.sum((y - y_cv) ** 2)
+    q2 = float((1.0 - press / ss_tot_y) * 100.0 if ss_tot_y > 0 else 0.0)
+
+    # Расчет S-plot: ковариация p[1] vs корреляция p(corr)[1]
+    cov_p = np.array([np.cov(X_scaled[:, j], t_p)[0, 1] for j in range(n_features)])
+    s_x = np.std(X_scaled, axis=0, ddof=1)
+    s_tp = np.std(t_p, ddof=1)
+    denom = s_x * s_tp
+    corr_p = np.where(denom > 1e-12, cov_p / denom, 0.0)
+
+    blocks_col = [block_map.get(col, "Other") for col in feature_names]
+    vip_vals = np.sqrt(n_features * (corr_p ** 2))
+
+    s_plot_df = pd.DataFrame({
+        "Descriptor": feature_names,
+        "p1_cov": np.round(cov_p, 4),
+        "p_corr": np.round(corr_p, 4),
+        "VIP": np.round(vip_vals, 3),
+        "Block": blocks_col,
+    }).sort_values("VIP", ascending=False).reset_index(drop=True)
+
+    # Вклад блоков
+    vip_sq = s_plot_df.copy()
+    vip_sq["VIP_sq"] = vip_sq["VIP"] ** 2
+    b_sums = vip_sq.groupby("Block")["VIP_sq"].sum()
+    tot_sq = b_sums.sum()
+    b_contribs = {}
+    if tot_sq > 0:
+        for b, s in b_sums.items():
+            b_contribs[b] = round(float(s / tot_sq * 100.0), 1)
+
+    ell_x, ell_y = compute_hotelling_ellipse(t_p, t_o_main)
+
+    return {
+        "model_type": "OPLS-DA",
+        "t_pred": t_p,
+        "t_ortho": t_o_main,
+        "scores_t1": t_p,
+        "scores_t2": t_o_main,
+        "t1": t_p,
+        "t2": t_o_main,
+        "ell_x": ell_x,
+        "ell_y": ell_y,
+        "ellipse_x": ell_x,
+        "ellipse_y": ell_y,
+        "R2X": r2x_pred + r2x_ortho,
+        "R2X_pred": r2x_pred,
+        "R2X_ortho": r2x_ortho,
+        "R2Y": r2y,
+        "Q2": q2,
+        "Accuracy": acc,
+        "Balanced_Accuracy": bal_acc,
+        "Sensitivity": sens,
+        "Specificity": spec,
+        "Confusion_Matrix": cm,
+        "S_Plot_df": s_plot_df,
+        "VIP_df": s_plot_df[["Descriptor", "VIP", "Block"]],
+        "vip_df": s_plot_df[["Descriptor", "VIP", "Block"]],
+        "Block_Contributions": b_contribs,
+        "y_pred": y_pred,
+        "y_cv_pred": y_cv,
+        "classes": unique_classes,
+        "is_multiclass": False,
         "feature_names": feature_names,
     }
 
@@ -352,33 +608,61 @@ def run_permutation_test(
     X_scaled, _, _ = prepare_fused_features(
         X_df, strategy=fusion_strategy, block_scaling=block_scaling, n_mid_components=n_mid_components
     )
-    y = np.asarray(y_labels, dtype=float)
+    y_arr = np.asarray(y_labels)
+    unique_classes = np.unique(y_arr)
+    k_classes = len(unique_classes)
+    if k_classes < 2:
+        raise ValueError("Для пермутационного теста требуется как минимум 2 класса!")
+
     n_samples, n_features = X_scaled.shape
     max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    is_multiclass = (k_classes > 2)
 
-    ss_tot = np.sum((y - np.mean(y)) ** 2)
+    if is_multiclass:
+        Y_mat = np.zeros((n_samples, k_classes), dtype=float)
+        for idx, c in enumerate(unique_classes):
+            Y_mat[y_arr == c, idx] = 1.0
+        ss_tot = np.sum((Y_mat - np.mean(Y_mat, axis=0)) ** 2)
+    else:
+        if set(unique_classes).issubset({0, 1, 0.0, 1.0, True, False, "0", "1"}):
+            Y_mat = np.array([1.0 if str(v).strip() in ["1", "1.0", "True"] else 0.0 for v in y_arr])
+        else:
+            Y_mat = np.array([1.0 if v == unique_classes[1] else 0.0 for v in y_arr])
+        ss_tot = np.sum((Y_mat - np.mean(Y_mat)) ** 2)
 
     cv = LeaveOneOut() if n_samples <= 30 else KFold(n_splits=5, shuffle=True, random_state=42)
     splits = list(cv.split(X_scaled))
 
-    y_cv_orig = np.zeros(n_samples)
+    y_cv_orig = np.zeros_like(Y_mat)
     for tr, te in splits:
         pls = PLSRegression(n_components=max_comp, scale=False)
-        pls.fit(X_scaled[tr], y[tr])
-        y_cv_orig[te] = pls.predict(X_scaled[te]).flatten()
-    q2_orig = float((1.0 - np.sum((y - y_cv_orig) ** 2) / ss_tot) * 100.0)
+        pls.fit(X_scaled[tr], Y_mat[tr])
+        preds = pls.predict(X_scaled[te])
+        if not is_multiclass:
+            y_cv_orig[te] = preds.flatten()
+        else:
+            y_cv_orig[te] = preds
+    q2_orig = float((1.0 - np.sum((Y_mat - y_cv_orig) ** 2) / ss_tot) * 100.0) if ss_tot > 0 else 0.0
 
     perm_q2 = []
     for _ in range(n_permutations):
-        y_perm = rng.permutation(y)
-        ss_perm = np.sum((y_perm - np.mean(y_perm)) ** 2)
+        perm_idx = rng.permutation(n_samples)
+        Y_perm = Y_mat[perm_idx]
+        if is_multiclass:
+            ss_perm = np.sum((Y_perm - np.mean(Y_perm, axis=0)) ** 2)
+        else:
+            ss_perm = np.sum((Y_perm - np.mean(Y_perm)) ** 2)
 
-        y_cv_p = np.zeros(n_samples)
+        y_cv_p = np.zeros_like(Y_perm)
         for tr, te in splits:
             pls_p_cv = PLSRegression(n_components=max_comp, scale=False)
-            pls_p_cv.fit(X_scaled[tr], y_perm[tr])
-            y_cv_p[te] = pls_p_cv.predict(X_scaled[te]).flatten()
-        q2_p = (1.0 - np.sum((y_perm - y_cv_p) ** 2) / ss_perm) * 100.0
+            pls_p_cv.fit(X_scaled[tr], Y_perm[tr])
+            preds_p = pls_p_cv.predict(X_scaled[te])
+            if not is_multiclass:
+                y_cv_p[te] = preds_p.flatten()
+            else:
+                y_cv_p[te] = preds_p
+        q2_p = (1.0 - np.sum((Y_perm - y_cv_p) ** 2) / ss_perm) * 100.0 if ss_perm > 0 else 0.0
         perm_q2.append(float(q2_p))
 
     perm_q2_arr = np.array(perm_q2)
