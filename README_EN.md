@@ -20,7 +20,7 @@
 
 ## 📖 About the Platform
 
-Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), and multiblock data integration algorithms (**Data Fusion + PLS-DA**) in a single interactive web interface.
+Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), and multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA**) in a single interactive web interface.
 
 The platform addresses a key task in environmental monitoring: reliably distinguishing the background autochthonous organic matter of natural waters from technogenic wood-processing waste (using BPPM sludge lignin in the Lake Baikal ecosystem as a case study).
 
@@ -30,9 +30,9 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 | Module | Input Data | Key Methods and Algorithms | Output Analytical Descriptors |
 | :--- | :--- | :--- | :--- |
-| **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) | Polynomial mass-scale recalibration, vectorized molecular formula assignment with the nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, Perminova 20-cell grid, KMD series |
-| **💡 2. EEM-PARAFAC** | 2D fluorescence optical matrices (`.csv`, `.dat`, `.txt`) | Local 2D Delaunay interpolation for removing 1st- and 2nd-order Rayleigh scattering, Raman normalization (R.U.), non-negative PARAFAC | $FI$, $HIX$, $SUVA_{254}$ indices; pure optical profiles and partial contributions of fluorophores $C_1, C_2, C_3$ |
-| **🧬 3. ChemoSuite ML** | Combined descriptor matrix | Low-level data fusion with block scaling ($1/\sqrt{P_k}$), orthogonal PLS-DA, 95% Hotelling's $T^2$ ellipse, leave-one-out cross-validation | Sample classification, latent variable projections $LV_1/LV_2$, $R^2X$, $R^2Y$, $Q^2$ metrics, ranked VIP scores of markers |
+| **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) | Polynomial mass-scale recalibration, vectorized molecular formula assignment with nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, Perminova 20-cell grid, KMD series |
+| **💡 2. Optical Spectroscopy (EEM & UV-Vis)** | 2D EEM matrices (`.csv`, `.dat`, `.txt`) and 1D UV-Vis spectra (`.csv`, `.txt`) | Delaunay interpolation for Rayleigh scattering removal, Raman normalization (R.U.), non-negative PARAFAC, inner filter effect (IFE) correction, Savitzky-Golay filter ($d^1A, d^2A$) | Indices $FI$, $HIX$, fluorophore profiles and contributions $C_1–C_3$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
+| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across three modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), orthogonal PLS-DA, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$) | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, and block contribution shares ($\text{VIP}^2$) |
 
 ---
 
@@ -57,7 +57,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 ---
 
-### Module 2: 3D Fluorescence (EEM-PARAFAC)
+### Module 2: Optical Spectroscopy (EEM-PARAFAC & UV-Vis)
 
 #### Optical Fluorescence Contour Map (EEM Contour Map)
 <img src="assets/eem_contour_map.png" width="100%" alt="EEM Contour Map" />
@@ -74,6 +74,13 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 * Comparative monitoring of the relative concentration contributions of fluorophores across the studied sample series, clearly demonstrating the predominance of components $C_1$ and $C_2$ in zones affected by sludge lignin pollution.
 
+#### UV-Vis Spectrophotometry & Inner Filter Effect Correction (Screen 4)
+* Interactive absorption spectra inspection $A(\lambda)$ with key reference markers ($A_{254}, A_{280}, A_{365}$).
+* Empirical molecular weight estimation via Perminova's equation: $M_w = 3450 - 390 \cdot (E_2/E_3)$.
+* Detection of the lignin minimum in the second derivative $d^2A$ at $\sim 280$ nm using Savitzky-Golay filtering.
+* Inner Filter Effect (IFE) correction for fluorescence matrices: $F_{\text{corr}} = F_{\text{obs}} \cdot 10^{0.5(A_{\text{ex}} + A_{\text{em}})d}$.
+* Computation of spectral slopes $S_{275-295}, S_{350-400}, S_R$ and specific absorbance $\text{SUVA}_{254}$.
+
 ---
 
 ### Module 3: Multiblock Integration and Machine Learning (Data Fusion & PLS-DA)
@@ -81,7 +88,10 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 #### Discriminant Analysis and Marker Selection (PLS-DA & VIP Scores)
 <img src="assets/ml_plsda_validation.png" width="100%" alt="PLS-DA Results" />
 
-* A multimodal classification model built on the combined pool of FT-ICR MS and EEM descriptors. In the Scores plot ($t_1$ vs $t_2$), lignin and background-water clusters are separated within the 95% Hotelling's $T^2$ ellipse, while the VIP Scores chart ranks the key chemical markers of the separation ($VIP > 1.0$).
+* Multimodal classification model built on the merged descriptor pool of all three methods (**FT-ICR MS + EEM-PARAFAC + UV-Vis**).
+* **Scores Plot ($t_1$ vs $t_2$):** sample cluster separation inside the 95% Hotelling's $T^2$ confidence ellipse.
+* **VIP Scores & Block Contributions:** ranking of biomarkers ($VIP > 1.0$) with color-coded analytical blocks and percentage contribution calculation ($\text{VIP}^2$ share).
+* **Validation & Diagnostics:** confusion matrix, balanced accuracy, sensitivity, specificity, and permutation testing with empirical $p$-value.
 
 ---
 
@@ -90,9 +100,9 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ```text
 ChemoSuite/
 │
-├── app.py                            # Main super-app: UI routing, dashboards, and reactive layer
-├── eem_core.py                       # Computational core: scatter filtering, indices, PARAFAC tensors, CORCONDIA
-├── chemo_ml.py                       # Chemometric core: low-level fusion, PLS-DA, Hotelling's ellipse, VIP calculation
+├── app.py                            # Main super-app: UI routing, trimodal dashboards, and session assembler
+├── eem_core.py                       # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
+├── chemo_ml.py                       # Chemometric core: Low/Mid Data Fusion, PLS-DA, VIP, permutation test, block weights
 │
 ├── assets/                           # Screenshots and graphics for the README
 │   ├── fticr_van_krevelen.png
@@ -104,9 +114,10 @@ ChemoSuite/
 │   └── ml_plsda_validation.png
 │
 ├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
-├── requirements.txt                  # Pinned project dependencies
-├── .gitignore                        # Exclusions for system and temporary files
-└── README.md                         # Platform documentation
+├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, scipy, etc.)
+├── .gitignore                        # System and temporary file exclusions
+├── README.md                         # Platform documentation (Russian)
+└── README_EN.md                      # Platform documentation (English)
 ```
 
 ---
@@ -150,15 +161,22 @@ Once launched, the interface will open automatically in your browser at `http://
 
 ## 📦 Input Data Formats
 
-* **Mass spectrometry (FT-ICR MS):** text files containing peak lists (`.csv`, `.tsv`, `.txt`, `.xy`). At least two numeric columns are required: the experimental mass ($m/z$) and the peak intensity/height.
-* **Fluorometry (EEM):** 2D fluorescence matrix tables (`.csv`, `.dat`, `.txt`) in which rows correspond to emission wavelengths ($Em$) and columns to excitation wavelengths ($Ex$), or vice versa; the parser detects the orientation automatically.
+* **Mass spectrometry (FT-ICR MS):** text files containing peak lists (`.csv`, `.tsv`, `.txt`, `.xy`). At least two numeric columns are required: experimental mass ($m/z$) and peak intensity/height.
+* **Fluorometry (EEM):** 2D fluorescence matrix tables (`.csv`, `.dat`, `.txt`) in which rows correspond to emission wavelengths ($Em$) and columns to excitation wavelengths ($Ex$), or vice versa; the parser detects orientation automatically.
+* **Spectrophotometry (UV-Vis):** 1D absorption spectrum tables (`.csv`, `.txt`, `.tsv`) with wavelength ($\lambda$, 200–800 nm) and absorbance ($A$) columns.
 
 ---
 
 ## 🏷️ Version History
 
 * **`v1.0.0-fticr`**: Standalone version of the NOM-SPECTRa ultra-high-resolution mass spectrometry studio.
-* **`v2.0.0` (ChemoSuite)**: Integration of 3D EEM-PARAFAC spectrofluorometry, a multiblock descriptor fusion module (Data Fusion), and PLS-DA discriminant analysis.
+* **`v2.0.0`**: Integration of 3D EEM-PARAFAC spectrofluorometry, a multiblock descriptor fusion module (Data Fusion), and PLS-DA discriminant analysis.
+* **`v2.1.0` (ChemoSuite Trimodal)**:
+  * Full trimodal integration: **FT-ICR MS + EEM-PARAFAC + UV-Vis**.
+  * UV-Vis spectrophotometry module: calculation of $A_{254}, A_{280}, E_2/E_3, S_R$, Perminova $M_w$ estimation, derivative spectroscopy ($d^2A_{280}$), and inner filter effect (IFE) correction.
+  * Advanced data fusion strategies: Low-Level (block scaling $1/\sqrt{P}$) and Mid-Level Fusion (PCA compression of FT-ICR MS).
+  * PLS-DA diagnostics & validation: permutation test with empirical $p$-value, confusion matrix, sensitivity/specificity, and analytical block contribution weights ($\text{VIP}^2$).
+  * Active session assembler: automatic merging of descriptors from Modules 1 and 2 into Module 3.
 
 ---
 
@@ -168,5 +186,5 @@ The algorithms and computational modules of the platform were developed as part 
 
 * **Lomonosov Moscow State University, Faculty of Chemistry**
 * Department of Analytical Chemistry | Laboratory of Natural Humic Systems
-* NOM chemotyping methodology based on the 20-cell grid: Prof. I. V. Perminova, Dr. Sci. (Chem.)
-* EEM-PARAFAC and multiblock modeling module: K. V. Petrov (2026)
+* NOM chemotyping methodology based on the 20-cell grid and $M_w$ estimation: Prof. I. V. Perminova, Dr. Sci. (Chem.)
+* EEM-PARAFAC, UV-Vis, and multiblock modeling module: K. V. Petrov (2026)
