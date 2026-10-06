@@ -6,3 +6,4 @@ matplotlib
 plotly
 tensorly
 scikit-learn
+pytest

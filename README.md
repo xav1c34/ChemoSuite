@@ -7,6 +7,8 @@
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
+![Tests](https://img.shields.io/badge/Tests-18%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -101,20 +103,27 @@
 ChemoSuite/
 │
 ├── app.py                            # Главный супер-апп: UI-маршрутизация, дашборды трех модальностей и сессионный сборщик
+├── fticr_core.py                     # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, сетка 20 ячеек, TMDS
 ├── eem_core.py                       # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
 ├── chemo_ml.py                       # Хемометрическое ядро: Low/Mid Data Fusion, PLS-DA, VIP, пермутация, веса блоков
 │
-├── assets/                           # Скриншоты и графические материалы для README
-│   ├── fticr_van_krevelen.png
-│   ├── fticr_kmd_plot.png
-│   ├── fticr_vk20_grid.png
-│   ├── eem_contour_map.png
-│   ├── eem_parafac_profiles.png
-│   ├── eem_parafac_scores.png
-│   └── ml_plsda_validation.png
+├── demo_data/                        # Согласованные мультимодальные демо-данные (EEM, UV-Vis, FT-ICR MS, ML)
+│   ├── eem/                          # 12 матриц возбуждения-испускания флуоресценции
+│   ├── uv_vis/                       # 12 спектров поглощения УФ-Вид (200–700 нм)
+│   ├── fticr_ms/                     # 4 пик-листа масс-спектров высокого разрешения + sample_A_full.csv
+│   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
+│   └── README.md                     # Инструкция по использованию демо-файлов
 │
+├── tests/                            # Набор модульных тестов pytest (18 unit-тестов)
+│   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS)
+│   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
+│   └── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, VIP, пермутация)
+│
+├── .github/workflows/ci.yml          # GitHub Actions CI пайплайн (Ubuntu/Windows, Python 3.10-3.12)
+├── pytest.ini                        # Конфигурация запуска тестов pytest
+├── assets/                           # Скриншоты и графические материалы для README
 ├── user_spectra/                     # Локальное хранилище загруженных масс-спектров (в .gitignore)
-├── requirements.txt                  # Зависимости проекта (streamlit, tensorly, scikit-learn, scipy и др.)
+├── requirements.txt                  # Зависимости проекта (streamlit, tensorly, scikit-learn, scipy, pytest)
 ├── .gitignore                        # Исключения системных и временных файлов
 ├── README.md                         # Документация платформы (русский)
 └── README_EN.md                      # Документация платформы (английский)
@@ -149,7 +158,12 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Запуск веб-приложения
+### 4. Запуск автоматических тестов
+```bash
+pytest -v tests
+```
+
+### 5. Запуск веб-приложения
 ```bash
 streamlit run app.py
 ```
@@ -176,6 +190,8 @@ streamlit run app.py
   * Продвинутые стратегии слияния: Low-Level (блочный скейлинг $1/\sqrt{P}$) и Mid-Level Fusion (PCA сжатие FT-ICR MS).
   * Диагностика и валидация PLS-DA: пермутационный тест с $p$-value, матрица ошибок, чувствительность/специфичность, расчет процентного веса аналитических блоков ($\text{VIP}^2$).
   * Сборщик сессии: автоматическое сведение дескрипторов из Модулей 1 и 2 в Модуль 3.
+  * Модульная архитектура: разделение вычислительных ядер (`fticr_core.py`, `eem_core.py`, `chemo_ml.py`) и UI (`app.py`).
+  * Полный набор из 18 unit-тестов (`pytest`) и автоматический CI/CD пайплайн GitHub Actions.
 
 ---
 

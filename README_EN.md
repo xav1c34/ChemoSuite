@@ -7,6 +7,8 @@
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
+![Tests](https://img.shields.io/badge/Tests-18%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -101,20 +103,27 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ChemoSuite/
 │
 ├── app.py                            # Main super-app: UI routing, trimodal dashboards, and session assembler
+├── fticr_core.py                     # Mass spec core: formulas, 13C isotopes, KMD, Perminova grid, TMDS
 ├── eem_core.py                       # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
 ├── chemo_ml.py                       # Chemometric core: Low/Mid Data Fusion, PLS-DA, VIP, permutation test, block weights
 │
-├── assets/                           # Screenshots and graphics for the README
-│   ├── fticr_van_krevelen.png
-│   ├── fticr_kmd_plot.png
-│   ├── fticr_vk20_grid.png
-│   ├── eem_contour_map.png
-│   ├── eem_parafac_profiles.png
-│   ├── eem_parafac_scores.png
-│   └── ml_plsda_validation.png
+├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, ML)
+│   ├── eem/                          # 12 excitation-emission fluorescence matrices
+│   ├── uv_vis/                       # 12 UV-Vis absorption spectra (200–700 nm)
+│   ├── fticr_ms/                     # 4 high-resolution mass spec peak lists + sample_A_full.csv
+│   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
+│   └── README.md                     # Guide on using demo files
 │
+├── tests/                            # Automated test suite (18 unit tests)
+│   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS)
+│   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
+│   └── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, VIP, permutation)
+│
+├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.12)
+├── pytest.ini                        # Pytest configuration file
+├── assets/                           # Screenshots and graphics for the README
 ├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
-├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, scipy, etc.)
+├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, scipy, pytest)
 ├── .gitignore                        # System and temporary file exclusions
 ├── README.md                         # Platform documentation (Russian)
 └── README_EN.md                      # Platform documentation (English)
@@ -150,7 +159,12 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Launch the web application
+### 4. Run automated test suite
+```bash
+pytest -v tests
+```
+
+### 5. Launch the web application
 ```bash
 streamlit run app.py
 ```
@@ -177,6 +191,8 @@ Once launched, the interface will open automatically in your browser at `http://
   * Advanced data fusion strategies: Low-Level (block scaling $1/\sqrt{P}$) and Mid-Level Fusion (PCA compression of FT-ICR MS).
   * PLS-DA diagnostics & validation: permutation test with empirical $p$-value, confusion matrix, sensitivity/specificity, and analytical block contribution weights ($\text{VIP}^2$).
   * Active session assembler: automatic merging of descriptors from Modules 1 and 2 into Module 3.
+  * Modular core architecture: separated computational engines (`fticr_core.py`, `eem_core.py`, `chemo_ml.py`) and UI (`app.py`).
+  * Comprehensive 18-unit test suite (`pytest`) and GitHub Actions automated CI/CD pipeline.
 
 ---
 

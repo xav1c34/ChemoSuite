@@ -1,0 +1,500 @@
+"""
+fticr_core.py — Вычислительное ядро масс-спектрометрии сверхвысокого разрешения (FT-ICR MS).
+Методология кафедры аналитической химии и лаборатории природных гуминовых систем химфака МГУ.
+"""
+import inspect
+import io
+import os
+import tempfile
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
+
+try:
+    import nomspectra as ns
+    from nomspectra import Spectrum
+    NOMSPECTRA_INSTALLED = True
+except ImportError:
+    NOMSPECTRA_INSTALLED = False
+
+# ==============================================================================
+# ТОЧНЫЕ ИЗОТОПНЫЕ МАССЫ И БАЗОВЫЕ КОНСТАНТЫ
+# ==============================================================================
+EXACT_MASSES = {
+    "C": 12.000000,
+    "H": 1.007825,
+    "O": 15.994915,
+    "N": 14.003074,
+    "S": 31.972071,
+}
+C13_DIFF = 1.003355
+H_ION_MASS = 1.007276
+
+KMD_BASES = {
+    "CH2": {"nom": 14.00000, "exact": 14.015650, "label": "CH2"},
+    "COO": {"nom": 44.00000, "exact": 43.989829, "label": "COO"},
+    "O": {"nom": 16.00000, "exact": 15.994915, "label": "O"},
+    "H2": {"nom": 2.00000, "exact": 2.015650, "label": "H2"},
+}
+
+TMDS_LIBRARY = [
+    {"name": "CH2 (Alkylation / Homology)", "delta": 14.015650},
+    {"name": "O (Oxidation / Hydroxylation)", "delta": 15.994915},
+    {"name": "H2O (Hydration / Dehydration)", "delta": 18.010565},
+    {"name": "H2 (Hydrogenation / Dehydrogenation)", "delta": 2.015650},
+    {"name": "CO2 (Carboxylation / Decarboxylation)", "delta": 43.989829},
+    {"name": "CO (Carbonylation)", "delta": 27.994915},
+    {"name": "NH3 (Amination / Deamination)", "delta": 17.026549},
+    {"name": "SO3 (Sulfonation)", "delta": 79.956815},
+]
+
+
+def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
+    """Расчет молекулярных дескрипторов (H/C, O/C, DBE, AI, NOSC, классы соединений)."""
+    res = df.copy()
+    c = res["C"].astype(float)
+    h = res["H"].astype(float)
+    o = res["O"].astype(float)
+    n = res["N"].astype(float) if "N" in res.columns else 0.0
+    s = res["S"].astype(float) if "S" in res.columns else 0.0
+
+    res["H/C"] = np.where(c > 0, h / c, np.nan)
+    res["O/C"] = np.where(c > 0, o / c, np.nan)
+    res["DBE"] = 1.0 + c - 0.5 * h + 0.5 * n
+    res["DBE-O"] = res["DBE"] - o
+
+    num_ai = 1.0 + c - o - s - 0.5 * h
+    den_ai = c - o - s - n
+    ai = np.where((den_ai > 0) & (num_ai > 0), num_ai / den_ai, 0.0)
+    res["AI"] = np.clip(ai, 0.0, 1.0)
+    res["NOSC"] = np.where(c > 0, 4.0 - (4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s) / c, np.nan)
+
+    def get_hetero_class(row):
+        has_n = row["N"] > 0
+        has_s = row["S"] > 0
+        if has_n and has_s:
+            return "CHONS"
+        if has_n:
+            return "CHON"
+        if has_s:
+            return "CHOS"
+        return "CHO"
+
+    res["Hetero_Class"] = res.apply(get_hetero_class, axis=1)
+
+    def get_compound_class(row):
+        hc = row["H/C"]
+        oc = row["O/C"]
+        ai_val = row["AI"]
+        n_val = row["N"]
+        if pd.isna(hc) or pd.isna(oc):
+            return "Undefined" if lang == "en" else "Не определено"
+        if n_val > 0 and (0.3 < hc < 0.8) and (oc < 0.4):
+            return "CHON pool (0.3 < H/C < 0.8, O/C < 0.4)" if lang == "en" else "Пул CHON (0.3 < H/C < 0.8, O/C < 0.4)"
+        if ai_val >= 0.5 or (hc < 0.7 and oc <= 0.67):
+            return "Condensed tannins / Aromatics" if lang == "en" else "Конденсированные таннины / Ароматика"
+        if 0.7 <= hc < 1.5 and 0.1 <= oc <= 0.67:
+            return "Lignin-like / CRAM" if lang == "en" else "Лигнины / CRAM"
+        if 0.5 <= hc < 1.5 and 0.67 < oc <= 1.0:
+            return "Hydrolyzable tannins" if lang == "en" else "Гидролизуемые таннины"
+        if 1.5 <= hc <= 2.0 and oc <= 0.3:
+            return "Lipids" if lang == "en" else "Липиды"
+        if 1.5 <= hc <= 2.0 and 0.3 < oc <= 0.67:
+            return "Peptides / Proteins / Aliphatics" if lang == "en" else "Пептиды / Белки / Алифатика"
+        if 1.5 <= hc <= 2.0 and 0.67 < oc <= 1.0:
+            return "Carbohydrates" if lang == "en" else "Углеводы"
+        return "Other / Unclassified" if lang == "en" else "Прочие компоненты"
+
+    res["Compound_Class"] = res.apply(get_compound_class, axis=1)
+    return res
+
+
+def parse_uploaded_file(file_bytes: bytes, delimiter: str, decimal_sep: str, has_header: bool) -> pd.DataFrame:
+    """Парсер пик-листов масс-спектров из текстовых файлов."""
+    sep_map = {
+        "Auto": None, "Авто (автоопределение)": None,
+        "Comma (,)": ",", "Запятая (,)": ",",
+        "Semicolon (;)": ";", "Точка с запятой (;)": ";",
+        "Tab (\\t)": "\t", "Табуляция (\\t)": "\t",
+        "Space": r"\s+", "Пробел": r"\s+",
+    }
+    actual_sep = sep_map.get(delimiter, ",")
+    engine = "python" if (actual_sep is None or actual_sep == r"\s+") else "c"
+
+    bio = io.BytesIO(file_bytes)
+    try:
+        df = pd.read_csv(
+            bio, sep=actual_sep, decimal=decimal_sep,
+            header=0 if has_header else None, engine=engine
+        )
+    except Exception:
+        bio.seek(0)
+        df = pd.read_csv(
+            bio, sep=r"\s+", decimal=decimal_sep,
+            header=0 if has_header else None, engine="python"
+        )
+
+    cols_lower = [str(c).lower().strip() for c in df.columns]
+    mass_col, int_col = None, None
+
+    for idx, c in enumerate(cols_lower):
+        if any(k in c for k in ["m/z", "mass", "mz", "exp", "эксперим", "масса"]):
+            mass_col = df.columns[idx]
+            break
+    for idx, c in enumerate(cols_lower):
+        if any(k in c for k in ["int", "i", "abund", "height", "area", "интенсив", "высота"]):
+            int_col = df.columns[idx]
+            break
+
+    if not has_header or mass_col is None:
+        mass_col = df.columns[0]
+        int_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+
+    res_df = pd.DataFrame()
+    res_df["mass"] = pd.to_numeric(df[mass_col], errors="coerce")
+    res_df["intensity"] = pd.to_numeric(df[int_col], errors="coerce") if int_col is not None else 100.0
+    res_df = res_df.dropna().sort_values("mass").reset_index(drop=True)
+    return res_df
+
+
+def fast_formula_assigner(
+    peaks_df: pd.DataFrame, bounds: Dict[str, Tuple[int, int]],
+    max_hc: float, max_oc: float, ppm_tolerance: float,
+    ion_mode: str, max_charge: int = 1,
+    iso_check: bool = False, iso_strict: bool = False,
+) -> pd.DataFrame:
+    """Векторный перебор и приписка брутто-формул с азотным правилом и проверкой 13C."""
+    c_min, c_max = bounds.get("C", (4, 120))
+    h_min, h_max = bounds.get("H", (4, 200))
+    o_min, o_max = bounds.get("O", (1, 60))
+    n_min, n_max = bounds.get("N", (0, 2))
+    s_min, s_max = bounds.get("S", (0, 1))
+
+    peaks_m = peaks_df["mass"].values
+    peaks_int = peaks_df["intensity"].values
+    peaks_norm = peaks_df["norm_intensity"].values if "norm_intensity" in peaks_df.columns else peaks_int
+
+    min_mz, max_mz = float(peaks_m.min()), float(peaks_m.max())
+    charges = [1, 2] if max_charge >= 2 else [1]
+    all_assigned_rows = []
+
+    for z in charges:
+        ion_shift = -z * H_ION_MASS if "ESI(-)" in ion_mode else (z * H_ION_MASS if "ESI(+)" in ion_mode else 0.0)
+        c_list, h_list, o_list, n_list, s_list = [], [], [], [], []
+
+        for n in range(n_min, n_max + 1):
+            for s in range(s_min, s_max + 1):
+                for c in range(c_min, c_max + 1):
+                    cur_o_max = min(o_max, int(max_oc * c))
+                    for o in range(o_min, cur_o_max + 1):
+                        base_neut = c * EXACT_MASSES["C"] + o * EXACT_MASSES["O"] + n * EXACT_MASSES["N"] + s * EXACT_MASSES["S"]
+                        base_mz = (base_neut + ion_shift) / z
+                        if base_mz > max_mz + 2.0:
+                            continue
+
+                        h_low = max(h_min, int(np.ceil(0.2 * c)), int(np.ceil(2 * (c - o - 9) + n)),
+                                    int(np.ceil(((min_mz - 2.0) * z - base_neut - ion_shift) / EXACT_MASSES["H"])))
+                        h_high = min(h_max, int(max_hc * c), int(2 * c + n + 2), int(2 * (11 + c - o) + n),
+                                     int(np.floor(((max_mz + 2.0) * z - base_neut - ion_shift) / EXACT_MASSES["H"])))
+
+                        if h_low > h_high:
+                            continue
+
+                        for h in range(h_low, h_high + 1):
+                            if (h + n) % 2 != 0:
+                                continue
+                            dbe = 1.0 + c - 0.5 * h + 0.5 * n
+                            dbe_o = dbe - o
+                            if dbe < 0 or dbe_o < -10 or dbe_o > 10:
+                                continue
+
+                            c_list.append(c)
+                            h_list.append(h)
+                            o_list.append(o)
+                            n_list.append(n)
+                            s_list.append(s)
+
+        if not c_list:
+            continue
+
+        c_arr = np.array(c_list, dtype=np.int16)
+        h_arr = np.array(h_list, dtype=np.int16)
+        o_arr = np.array(o_list, dtype=np.int16)
+        n_arr = np.array(n_list, dtype=np.int16)
+        s_arr = np.array(s_list, dtype=np.int16)
+
+        cand_masses = (c_arr * EXACT_MASSES["C"] + h_arr * EXACT_MASSES["H"] + o_arr * EXACT_MASSES["O"]
+                       + n_arr * EXACT_MASSES["N"] + s_arr * EXACT_MASSES["S"] + ion_shift) / z
+
+        sort_idx = np.argsort(cand_masses)
+        cand_masses = cand_masses[sort_idx]
+        c_arr = c_arr[sort_idx]
+        h_arr = h_arr[sort_idx]
+        o_arr = o_arr[sort_idx]
+        n_arr = n_arr[sort_idx]
+        s_arr = s_arr[sort_idx]
+
+        idx_left = np.searchsorted(cand_masses, peaks_m - (peaks_m * ppm_tolerance * 1e-6), side="left")
+        idx_right = np.searchsorted(cand_masses, peaks_m + (peaks_m * ppm_tolerance * 1e-6), side="right")
+
+        for p_idx in range(len(peaks_m)):
+            l, r = idx_left[p_idx], idx_right[p_idx]
+            if l >= r:
+                continue
+
+            exp_m = peaks_m[p_idx]
+            intens = peaks_int[p_idx]
+            norm_i = peaks_norm[p_idx]
+
+            sub_theor = cand_masses[l:r]
+            errors = (exp_m - sub_theor) / exp_m * 1e6
+            best_local = np.argmin(np.abs(errors))
+            best_idx = l + best_local
+
+            best_err = float(errors[best_local])
+            c_val, h_val, o_val = int(c_arr[best_idx]), int(h_arr[best_idx]), int(o_arr[best_idx])
+            n_val, s_val = int(n_arr[best_idx]), int(s_arr[best_idx])
+
+            formula_str = f"C{c_val}H{h_val}" + (f"O{o_val}" if o_val > 0 else "") + \
+                          (f"N{n_val}" if n_val > 0 else "") + (f"S{s_val}" if s_val > 0 else "")
+
+            has_c13 = False
+            if iso_check:
+                exp_c13_m = exp_m + (C13_DIFF / z)
+                c13_l = np.searchsorted(peaks_m, exp_c13_m - (exp_c13_m * ppm_tolerance * 1e-6), side="left")
+                c13_r = np.searchsorted(peaks_m, exp_c13_m + (exp_c13_m * ppm_tolerance * 1e-6), side="right")
+
+                if c13_l < c13_r:
+                    c13_intens = peaks_int[c13_l]
+                    theor_ratio = c_val * 0.0108
+                    obs_ratio = c13_intens / intens if intens > 0 else 0
+                    if iso_strict:
+                        if 0.4 * theor_ratio <= obs_ratio <= 2.2 * theor_ratio:
+                            has_c13 = True
+                    else:
+                        has_c13 = True
+
+                if iso_strict and not has_c13 and c_val >= 10:
+                    continue
+
+            all_assigned_rows.append({
+                "mass": exp_m, "intensity": intens, "norm_intensity": norm_i,
+                "theor_mass": cand_masses[best_idx], "error_ppm": best_err,
+                "C": c_val, "H": h_val, "O": o_val, "N": n_val, "S": s_val,
+                "Formula": formula_str, "z": z, "13C_confirmed": has_c13
+            })
+
+    if not all_assigned_rows:
+        return pd.DataFrame()
+
+    res_df = pd.DataFrame(all_assigned_rows)
+    res_df["abs_error"] = res_df["error_ppm"].abs()
+    res_df = res_df.sort_values("abs_error").drop_duplicates(subset=["mass"]).sort_values("mass").reset_index(drop=True)
+    res_df = res_df.drop(columns=["abs_error"])
+    return res_df
+
+
+def run_formula_assignment(
+    peaks_df: pd.DataFrame, bounds: Dict[str, Tuple[int, int]],
+    max_hc: float, max_oc: float, ppm_tolerance: float,
+    ion_mode: str, max_charge: int = 1,
+    iso_check: bool = False, iso_strict: bool = False, lang: str = "ru",
+) -> pd.DataFrame:
+    """Обертка формульной идентификации с поддержкой NOM-SPECTRa и встроенного алгоритма."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as tmp:
+        tmp_path = tmp.name
+        peaks_df.to_csv(tmp_path, sep="\t", index=False)
+
+    assigned_df = pd.DataFrame()
+    try:
+        if NOMSPECTRA_INSTALLED and max_charge == 1 and not iso_check:
+            try:
+                spec = Spectrum(tmp_path)
+                target_method = getattr(spec, "assign_formulas", None) or getattr(spec, "assign", None)
+                if target_method is not None:
+                    sig = inspect.signature(target_method).parameters
+                    kwargs = {}
+                    if "error" in sig: kwargs["error"] = ppm_tolerance
+                    elif "ppm" in sig: kwargs["ppm"] = ppm_tolerance
+                    elif "tolerance" in sig: kwargs["tolerance"] = ppm_tolerance
+
+                    for elem, (low, high) in bounds.items():
+                        if elem in sig: kwargs[elem] = (low, high)
+                    if "elements" in sig: kwargs["elements"] = bounds
+                    if "hc_limits" in sig: kwargs["hc_limits"] = (0.2, max_hc)
+                    if "oc_limits" in sig: kwargs["oc_limits"] = (0.0, max_oc)
+                    if "mode" in sig: kwargs["mode"] = ("neg" if "ESI(-)" in ion_mode else ("pos" if "ESI(+)" in ion_mode else "neutral"))
+
+                    target_method(**kwargs)
+                    for attr in ["data", "df", "assigned", "assigned_data", "peaks"]:
+                        if hasattr(spec, attr):
+                            val = getattr(spec, attr)
+                            if isinstance(val, pd.DataFrame) and not val.empty:
+                                assigned_df = val.copy()
+                                break
+            except Exception:
+                assigned_df = pd.DataFrame()
+
+        if assigned_df.empty or "C" not in assigned_df.columns:
+            assigned_df = fast_formula_assigner(
+                peaks_df=peaks_df, bounds=bounds, max_hc=max_hc, max_oc=max_oc,
+                ppm_tolerance=ppm_tolerance, ion_mode=ion_mode, max_charge=max_charge,
+                iso_check=iso_check, iso_strict=iso_strict,
+            )
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    if not assigned_df.empty and "C" in assigned_df.columns:
+        assigned_df = calculate_descriptors(assigned_df, lang=lang)
+
+    return assigned_df
+
+
+def compute_kmd(masses: np.ndarray, base_key: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Расчет дефекта массы Кендрика (Kendrick Mass Defect)."""
+    nom, exact = KMD_BASES[base_key]["nom"], KMD_BASES[base_key]["exact"]
+    km = masses * (nom / exact)
+    nkm = np.round(km).astype(int)
+    kmd = nkm - km
+    return km, kmd, nkm
+
+
+def compute_vk20_grid(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    """Хемотипирование по 20 ячейкам Перминовой в координатах Ван-Кревелена."""
+    oc_bins = [0.00, 0.25, 0.50, 0.75, 1.000001]
+    hc_bins = [0.20, 0.60, 1.00, 1.40, 1.80, 2.200001]
+
+    sub = df[
+        (df["O/C"] >= 0.0) & (df["O/C"] <= 1.0) &
+        (df["H/C"] >= 0.2) & (df["H/C"] <= 2.2)
+    ].copy()
+
+    total_count = len(sub)
+    total_int = sub["intensity"].sum() if "intensity" in sub.columns else float(total_count)
+
+    grid_count = np.zeros((5, 4), dtype=float)
+    grid_weight = np.zeros((5, 4), dtype=float)
+
+    if total_count > 0:
+        c_idx = np.clip(np.digitize(sub["O/C"], oc_bins) - 1, 0, 3)
+        r_idx = np.clip(np.digitize(sub["H/C"], hc_bins) - 1, 0, 4)
+        np.add.at(grid_count, (r_idx, c_idx), 1.0)
+        if "intensity" in sub.columns:
+            np.add.at(grid_weight, (r_idx, c_idx), sub["intensity"].values)
+        else:
+            grid_weight = grid_count.copy()
+
+    pct_count = (grid_count / total_count * 100.0) if total_count > 0 else grid_count
+    pct_weight = (grid_weight / total_int * 100.0) if total_int > 0 else grid_weight
+
+    tbl_rows = []
+    for r in range(5):
+        h_str = f"{hc_bins[r]:.2f}-{hc_bins[r+1]:.2f}"
+        for c in range(4):
+            o_str = f"{oc_bins[c]:.2f}-{oc_bins[c+1]:.2f}"
+            cell_idx = 1 + r * 4 + c
+            tbl_rows.append({
+                "Cell": f"VK_{cell_idx}",
+                "H/C_range": h_str,
+                "O/C_range": o_str,
+                "Count": int(grid_count[r, c]),
+                "Pct_Count": round(float(pct_count[r, c]), 2),
+                "Pct_Weight": round(float(pct_weight[r, c]), 2),
+            })
+
+    return pct_count, pct_weight, pd.DataFrame(tbl_rows)
+
+
+def align_two_spectra_fast(df_a: pd.DataFrame, df_b: pd.DataFrame, ppm_tol: float = 1.5):
+    """Быстрое выравнивание двух масс-спектров по допуску погрешности (ppm)."""
+    m_a = df_a["mass"].values
+    m_b = df_b["mass"].values
+
+    idx_b_left = np.searchsorted(m_b, m_a - (m_a * ppm_tol * 1e-6), side="left")
+    idx_b_right = np.searchsorted(m_b, m_a + (m_a * ppm_tol * 1e-6), side="right")
+
+    matches_a, matches_b = [], []
+    used_b = set()
+
+    for i in range(len(m_a)):
+        l, r = idx_b_left[i], idx_b_right[i]
+        if l < r:
+            valid_cand = [j for j in range(l, r) if j not in used_b]
+            if valid_cand:
+                best_j = min(valid_cand, key=lambda j: abs(m_a[i] - m_b[j]))
+                matches_a.append(i)
+                matches_b.append(best_j)
+                used_b.add(best_j)
+
+    return matches_a, matches_b
+
+
+def perform_spectral_algebra(df_a: pd.DataFrame, df_b: pd.DataFrame, operation: str, ppm_tol: float = 1.5) -> pd.DataFrame:
+    """Спектральная алгебра (A-B, B-A, A+B, A ∩ B)."""
+    a = df_a.sort_values("mass").reset_index(drop=True)
+    b = df_b.sort_values("mass").reset_index(drop=True)
+
+    m_a, m_b = align_two_spectra_fast(a, b, ppm_tol=ppm_tol)
+    m_a_set, m_b_set = set(m_a), set(m_b)
+
+    if operation == "A - B":
+        return a[[i not in m_a_set for i in range(len(a))]].reset_index(drop=True)
+    elif operation == "B - A":
+        return b[[j not in m_b_set for j in range(len(b))]].reset_index(drop=True)
+    elif operation in ["A ∩ B", "A and B", "Intersection"]:
+        return a.iloc[m_a].reset_index(drop=True)
+    elif operation in ["A + B", "A or B", "Union"]:
+        return pd.concat([a,
+                          b[[j not in m_b_set for j in range(len(b))]][["mass", "intensity"]]], ignore_index=True).sort_values("mass").reset_index(drop=True)
+    return pd.DataFrame()
+
+
+def run_tmds_screening(peaks_df: pd.DataFrame, top_n: int = 1500, tol_mda: float = 2.0):
+    """Скрининг массовых разностей (Truncated Mass Difference Screening, TMDS)."""
+    sub = peaks_df.sort_values("intensity", ascending=False).head(top_n).sort_values("mass").reset_index(drop=True)
+    masses = sub["mass"].values
+    n = len(masses)
+    if n < 2: return pd.DataFrame(), pd.DataFrame()
+
+    diff_matrix = np.abs(masses[:, None] - masses[None, :])
+    i_upper, j_upper = np.triu_indices(n, k=1)
+    diffs = diff_matrix[i_upper, j_upper]
+
+    tol_da = tol_mda / 1000.0
+    total_pairs = len(diffs)
+    summary_rows, pair_rows = [], []
+
+    for item in TMDS_LIBRARY:
+        delta_theor = item["delta"]
+        mask = np.abs(diffs - delta_theor) <= tol_da
+        hit_count = int(np.sum(mask))
+        summary_rows.append({
+            "Transformation": item["name"], "Delta_m": delta_theor,
+            "Count": hit_count, "Share_pct": round((hit_count / total_pairs * 100.0) if total_pairs > 0 else 0.0, 3),
+        })
+        if hit_count > 0:
+            for idx_a, idx_b in zip(i_upper[mask][:300], j_upper[mask][:300]):
+                pair_rows.append({
+                    "Transformation": item["name"], "Mass_1": masses[idx_a], "Mass_2": masses[idx_b],
+                    "Delta_obs": abs(masses[idx_a] - masses[idx_b]),
+                    "Error_mDa": (abs(masses[idx_a] - masses[idx_b]) - delta_theor) * 1000.0,
+                })
+
+    return pd.DataFrame(summary_rows), pd.DataFrame(pair_rows)
+
+
+def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
+    """Генерация теоретической библиотеки калибрантов (FA / CHO)."""
+    calibrants = []
+    if "FA" in series_name or "Жирные" in series_name or "Fatty" in series_name:
+        for n in range(12, 34):
+            m_neut = n * EXACT_MASSES["C"] + 2 * n * EXACT_MASSES["H"] + 2 * EXACT_MASSES["O"]
+            calibrants.append({"name": f"FA {n}:0 (C{n}H{2*n}O2)", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
+    elif "CHO" in series_name:
+        for n in range(14, 32):
+            h_count = 2 * n - 8
+            m_neut = n * EXACT_MASSES["C"] + h_count * EXACT_MASSES["H"] + 7 * EXACT_MASSES["O"]
+            calibrants.append({"name": f"CHO C{n}H{h_count}O7", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
+    return pd.DataFrame(calibrants)
