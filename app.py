@@ -54,6 +54,17 @@ except ImportError:
         report_generator = None
         REPORT_GEN_AVAILABLE = False
 
+try:
+    import project_io
+    PROJECT_IO_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import project_io
+        PROJECT_IO_AVAILABLE = True
+    except ImportError:
+        project_io = None
+        PROJECT_IO_AVAILABLE = False
+
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
 # ==============================================================================
@@ -410,6 +421,18 @@ T = {
         "ml_warn_opls_binary": "ℹ️ OPLS-DA оптимизирован для двух контрастных классов. Для 3+ классов выберите PLS-DA.",
         "ml_dl_passport_btn": "📑 Скачать полный аналитический паспорт (.xlsx)",
         "ml_passport_desc": "Многостраничный Excel-паспорт: Сводка, матрица признаков, 20 ячеек FT-ICR, EEM, UV-Vis, VIP-биомаркеры, S-Plot.",
+        "proj_expander_title": "💾 Проект платформы (.chemo)",
+        "proj_save_header": "Сохранить текущую сессию",
+        "proj_save_btn": "💾 Скачать проект (.chemo)",
+        "proj_load_header": "Загрузить проект",
+        "proj_load_label": "Файл проекта (.chemo / .zip):",
+        "proj_restore_btn": "📥 Восстановить рабочую сессию",
+        "proj_restored_success": "Сессия ChemoSuite успешно восстановлена!",
+        "proj_summary_spec": "Спектров FT-ICR: {n}",
+        "proj_summary_eem": "EEM: {val}",
+        "proj_summary_uv": "UV-Vis: {val}",
+        "proj_summary_fused": "Data Fusion: {val}",
+        "proj_summary_model": "Модель: {val}",
         #UV-Spectre
         "eem_uv_uploader_label": "Загрузить УФ-Вид спектры поглощения (CSV/TXT):",
         "eem_doc_expander": "Параметры DOC для расчета SUVA254",
@@ -721,6 +744,18 @@ T = {
         "ml_warn_opls_binary": "ℹ️ OPLS-DA is optimized for binary contrast. For 3+ classes, please select PLS-DA.",
         "ml_dl_passport_btn": "📑 Download Full Analytical Passport (.xlsx)",
         "ml_passport_desc": "Multi-sheet Excel workbook: Summary, Fused Matrix, FT-ICR 20-Grid, EEM, UV-Vis, VIP Biomarkers, S-Plot.",
+        "proj_expander_title": "💾 ChemoSuite Project (.chemo)",
+        "proj_save_header": "Save Current Session",
+        "proj_save_btn": "💾 Download Project (.chemo)",
+        "proj_load_header": "Load Saved Project",
+        "proj_load_label": "Project File (.chemo / .zip):",
+        "proj_restore_btn": "📥 Restore Workspace Session",
+        "proj_restored_success": "ChemoSuite session successfully restored!",
+        "proj_summary_spec": "FT-ICR Spectra: {n}",
+        "proj_summary_eem": "EEM: {val}",
+        "proj_summary_uv": "UV-Vis: {val}",
+        "proj_summary_fused": "Data Fusion: {val}",
+        "proj_summary_model": "Model: {val}",
         #UV-spectre
         "eem_uv_uploader_label": "Upload UV-Vis Absorbance Spectra (CSV/TXT):",
         "eem_doc_expander": "DOC Settings for SUVA254 Calculation",
@@ -841,6 +876,78 @@ with st.sidebar:
         index=0,
     )
     st.markdown("---")
+
+    # Управление проектом ChemoSuite (.chemo)
+    if PROJECT_IO_AVAILABLE and project_io is not None:
+        with st.expander(T[lang]["proj_expander_title"], expanded=False):
+            st.markdown(f"**{T[lang]['proj_save_header']}**")
+            n_spec = len(st.session_state.get("spectra_db", {}))
+            has_eem = st.session_state.get("eem_ml_descriptors") is not None
+            has_uv = st.session_state.get("uv_ml_descriptors") is not None
+            has_fused = st.session_state.get("fused_data") is not None
+            m_res = st.session_state.get("pls_results")
+            m_type = m_res.get("model_type") if isinstance(m_res, dict) else ("Нет" if lang == "ru" else "None")
+
+            yes_lbl = "Да" if lang == "ru" else "Yes"
+            no_lbl = "Нет" if lang == "ru" else "No"
+            st.caption(
+                f"{T[lang]['proj_summary_spec'].format(n=n_spec)} | "
+                f"{T[lang]['proj_summary_eem'].format(val=yes_lbl if has_eem else no_lbl)} | "
+                f"{T[lang]['proj_summary_uv'].format(val=yes_lbl if has_uv else no_lbl)}\n\n"
+                f"{T[lang]['proj_summary_fused'].format(val=yes_lbl if has_fused else no_lbl)} | "
+                f"{T[lang]['proj_summary_model'].format(val=m_type)}"
+            )
+
+            try:
+                chemo_proj_bytes = project_io.save_chemo_project(
+                    dict(st.session_state),
+                    project_name=st.session_state.get("fused_source", "ChemoSuite_Project"),
+                )
+                from datetime import datetime
+                time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                st.download_button(
+                    label=T[lang]["proj_save_btn"],
+                    data=chemo_proj_bytes,
+                    file_name=f"ChemoSuite_Session_{time_str}.chemo",
+                    mime="application/octet-stream",
+                    use_container_width=True,
+                    key="dl_chemo_project_btn",
+                )
+            except Exception as e_save:
+                st.caption(f"Ошибка сериализации: {e_save}")
+
+            st.markdown("---")
+            st.markdown(f"**{T[lang]['proj_load_header']}**")
+            proj_file = st.file_uploader(
+                T[lang]["proj_load_label"],
+                type=["chemo", "zip"],
+                key="chemo_uploader_input",
+            )
+            if proj_file is not None:
+                try:
+                    p_bytes = proj_file.getvalue()
+                    p_sum = project_io.get_chemo_project_summary(p_bytes)
+                    st.success(f"✓ {p_sum.get('project_name', 'ChemoSuite Project')} ({p_sum.get('created_at', '')[:10]})")
+                    if st.button(T[lang]["proj_restore_btn"], type="primary", use_container_width=True, key="btn_restore_chemo"):
+                        restored = project_io.load_chemo_project(p_bytes)
+                        for k, v in restored.items():
+                            if k != "project_metadata":
+                                st.session_state[k] = v
+                        # Восстанавливаем файлы спектров на диск в STORAGE_DIR при необходимости
+                        for s_name, s_val in restored.get("spectra_db", {}).items():
+                            if isinstance(s_val, dict) and s_val.get("file_bytes"):
+                                local_path = os.path.join(STORAGE_DIR, s_name)
+                                try:
+                                    with open(local_path, "wb") as f_loc:
+                                        f_loc.write(s_val["file_bytes"])
+                                    s_val["raw_path"] = local_path
+                                except Exception:
+                                    pass
+                        st.toast(T[lang]["proj_restored_success"], icon="✅")
+                        st.rerun()
+                except Exception as e_load:
+                    st.error(f"Ошибка чтения проекта: {e_load}")
+            st.markdown("---")
 
 # Фирменный баннер платформы
 st.markdown(

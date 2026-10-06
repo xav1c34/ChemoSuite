@@ -582,6 +582,7 @@ def train_oplsda_model(
         "Specificity": spec,
         "Confusion_Matrix": cm,
         "S_Plot_df": s_plot_df,
+        "s_plot_df": s_plot_df,
         "VIP_df": s_plot_df[["Descriptor", "VIP", "Block"]],
         "vip_df": s_plot_df[["Descriptor", "VIP", "Block"]],
         "Block_Contributions": b_contribs,
