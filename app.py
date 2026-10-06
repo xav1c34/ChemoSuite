@@ -320,6 +320,13 @@ T = {
         "eem_scores_title": "Вклады компонент по пробам (Концентрационная матрица Scores A)",
         "eem_scores_chart_title": "Парциальные интенсивности флуорофоров",
         "eem_dl_ml_btn": "💾 Экспорт оптических дескрипторов (CSV для PLS-DA)",
+        "eem_parafac_select_tables": "Таблицы EEM для включения в модель PARAFAC:",
+        "eem_parafac_min_samples": "⚠️ Для построения 3D-тензора выберите как минимум 2 таблицы EEM (рекомендуется 3+).",
+        "eem_parafac_inspect_hdr": "🔍 Детальная диагностика аппроксимации для выбранной таблицы EEM",
+        "eem_parafac_inspect_sample": "Выберите таблицу EEM для проверки аппроксимации:",
+        "eem_parafac_orig": "Исходная EEM",
+        "eem_parafac_model": "Модель PARAFAC",
+        "eem_parafac_res": "Карта остатков (Невязки)",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -353,6 +360,42 @@ T = {
         "ml_dl_vip_btn": "📥 Скачать VIP дескрипторы (CSV)",
         "ml_warn_input": "Ошибка входных данных: {err}",
         "ml_info_no_data": "💡 Нажмите кнопку выше, чтобы загрузить согласованный датасет дескрипторов.",
+        "ml_src_session": "🔄 Собрать из сессии (Модули 1 и 2)",
+        "ml_src_files": "📂 Загрузка внешних CSV файлов",
+        "ml_src_benchmark": "🧪 Синтетический бенчмарк",
+        "ml_btn_assemble_session": "📥 Собрать объединенную матрицу из открытых спектров",
+        "ml_session_status": "Спектров FT-ICR с формулами: **{n_ms}** | Оптических проб EEM: **{n_eem}** | Спектров УФ-Вид: **{n_uv}**",
+        "ml_session_need_more": "⚠️ Для интеграции из сессии необходимо приписать формулы в Модуле 1 либо рассчитать оптические дескрипторы (EEM / UV-Vis) в Модуле 2.",
+        "ml_uploader_mode": "Режим загрузки файлов:",
+        "ml_upload_two": "Отдельные файлы по блокам (FT-ICR / EEM / UV-Vis)",
+        "ml_upload_single": "Один общий файл с дескрипторами",
+        "ml_up_ms": "Таблица дескрипторов FT-ICR MS (CSV):",
+        "ml_up_eem": "Таблица дескрипторов EEM-PARAFAC (CSV):",
+        "ml_up_uv": "Таблица дескрипторов UV-Vis (CSV):",
+        "ml_up_single": "Общая таблица дескрипторов (CSV):",
+        "ml_strategy_label": "Стратегия слияния блоков (Data Fusion):",
+        "ml_strat_low": "Low-Level Fusion (Масштабирование 1/√P)",
+        "ml_strat_mid": "Mid-Level Fusion (PCA сжатие FT-ICR + EEM)",
+        "ml_perm_chk": "Запустить пермутационный тест валидации (50 итераций)",
+        "ml_tab_scores": "🎯 Проекция Scores (t₁ vs t₂)",
+        "ml_tab_vips": "📊 Маркеры (VIP Scores)",
+        "ml_tab_val": "📈 Валидация и диагностика",
+        "ml_tab_blocks": "🧬 Вклад аналитических блоков",
+        "ml_cm_title": "Матрица ошибок (Confusion Matrix)",
+        "ml_perm_title": "Распределение пермутационного теста (H0: модель случайна)",
+        "ml_donut_title": "Относительный вес аналитических блоков в модели (VIP²)",
+        "ml_warn_two_classes": "⚠️ Для классификации PLS-DA в колонке Class_Target должны присутствовать оба класса (0 и 1)!",
+        #UV-Spectre
+        "eem_uv_uploader_label": "Загрузить УФ-Вид спектры поглощения (CSV/TXT):",
+        "eem_doc_expander": "Параметры DOC для расчета SUVA254",
+        "eem_default_doc": "Концентрация DOC по умолчанию (мг C / л):",
+        "eem_tab4": "📉 Экран 4: УФ-Вид спектрофотометрия (UV-Vis)",
+        "eem_uv_title": "Спектрофотометрия поглощения УФ-Вид",
+        "eem_uv_select_sample": "Выберите УФ-Вид спектр:",
+        "eem_uv_plot_title": "УФ-Вид спектр поглощения A(λ): {name}",
+        "eem_uv_tbl_title": "Оптические дескрипторы УФ-Вид (A254, E2/E3, S_R, SUVA)",
+        "eem_dl_uv_indices": "📥 Скачать дескрипторы УФ-Вид (CSV)",
+        "eem_uv_no_data": "Загрузите файлы спектров поглощения УФ-Вид в боковой панели.",
     },
     "en": {
         # Platform
@@ -574,6 +617,13 @@ T = {
         "eem_scores_title": "Sample Contributions (Scores Matrix A)",
         "eem_scores_chart_title": "Partial Fluorophore Intensities",
         "eem_dl_ml_btn": "💾 Export Optical Descriptors (CSV for PLS-DA)",
+        "eem_parafac_select_tables": "EEM tables to include in PARAFAC model:",
+        "eem_parafac_min_samples": "⚠️ Please select at least 2 EEM tables to build the 3D tensor.",
+        "eem_parafac_inspect_hdr": "🔍 Detailed Fit Diagnostics for Selected EEM Table",
+        "eem_parafac_inspect_sample": "Select EEM table to inspect fit:",
+        "eem_parafac_orig": "Original EEM",
+        "eem_parafac_model": "PARAFAC Model",
+        "eem_parafac_res": "Residual Map",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -607,6 +657,42 @@ T = {
         "ml_dl_vip_btn": "📥 Download VIP Descriptors (CSV)",
         "ml_warn_input": "Input Data Error: {err}",
         "ml_info_no_data": "💡 Click the button above to load a synchronized feature benchmark.",
+        "ml_src_session": "🔄 Assemble from Session (Modules 1 & 2)",
+        "ml_src_files": "📂 Upload External CSV Files",
+        "ml_src_benchmark": "🧪 Synthetic Benchmark",
+        "ml_btn_assemble_session": "📥 Build merged matrix from active spectra",
+        "ml_session_status": "FT-ICR spectra with formulas: **{n_ms}** | EEM optical samples: **{n_eem}** | UV-Vis spectra: **{n_uv}**",
+        "ml_session_need_more": "⚠️ Please run formula assignment in Module 1 or calculate optical descriptors (EEM / UV-Vis) in Module 2 first.",
+        "ml_uploader_mode": "File upload format:",
+        "ml_upload_two": "Separate files by blocks (FT-ICR / EEM / UV-Vis)",
+        "ml_upload_single": "Single unified feature CSV file",
+        "ml_up_ms": "FT-ICR MS descriptor table (CSV):",
+        "ml_up_eem": "EEM-PARAFAC descriptor table (CSV):",
+        "ml_up_uv": "UV-Vis descriptor table (CSV):",
+        "ml_up_single": "Unified descriptor table (CSV):",
+        "ml_strategy_label": "Data Fusion Strategy:",
+        "ml_strat_low": "Low-Level Fusion (Block Scaling 1/√P)",
+        "ml_strat_mid": "Mid-Level Fusion (PCA compression FT-ICR + Optics)",
+        "ml_perm_chk": "Run permutation validation test (50 iterations)",
+        "ml_tab_scores": "🎯 Scores Plot (t₁ vs t₂)",
+        "ml_tab_vips": "📊 Biomarkers (VIP Scores)",
+        "ml_tab_val": "📈 Validation & Diagnostics",
+        "ml_tab_blocks": "🧬 Analytical Block Importance",
+        "ml_cm_title": "Confusion Matrix",
+        "ml_perm_title": "Permutation Test Distribution (H0: Random Model)",
+        "ml_donut_title": "Relative Analytical Block Contribution (VIP²)",
+        "ml_warn_two_classes": "⚠️ PLS-DA requires at least two distinct classes (0 and 1) in Class_Target!",
+        #UV-spectre
+        "eem_uv_uploader_label": "Upload UV-Vis Absorbance Spectra (CSV/TXT):",
+        "eem_doc_expander": "DOC Settings for SUVA254 Calculation",
+        "eem_default_doc": "Default DOC concentration (mg C / L):",
+        "eem_tab4": "📉 Tab 4: UV-Vis Absorbance",
+        "eem_uv_title": "UV-Vis Absorbance Spectrophotometry",
+        "eem_uv_select_sample": "Select UV-Vis spectrum:",
+        "eem_uv_plot_title": "UV-Vis Absorbance Spectrum A(λ): {name}",
+        "eem_uv_tbl_title": "UV-Vis Optical Descriptors (A254, E2/E3, S_R, SUVA)",
+        "eem_dl_uv_indices": "📥 Download UV-Vis Descriptors (CSV)",
+        "eem_uv_no_data": "Upload UV-Vis absorption spectrum files in the sidebar.",
     },
 }
 
@@ -1125,6 +1211,8 @@ if "spectra_db" not in st.session_state:
 
 if "eem_ml_descriptors" not in st.session_state:
     st.session_state["eem_ml_descriptors"] = None
+if "uv_ml_descriptors" not in st.session_state:
+    st.session_state["uv_ml_descriptors"] = None
 
 # ==============================================================================
 # БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
@@ -1571,7 +1659,7 @@ if active_module == T[lang]["mod1_name"]:
             c4.metric(T[lang]["desc_ai"], f"{assigned_data['AI'].mean():.3f}")
 
 # ==============================================================================
-# МОДУЛЬ 2: 3D ОПТИЧЕСКАЯ СПЕКТРОСКОПИЯ (EEM-PARAFAC)
+# МОДУЛЬ 2: 3D ОПТИЧЕСКАЯ СПЕКТРОСКОПИЯ (EEM-PARAFAC & UV-VIS)
 # ==============================================================================
 elif active_module == T[lang]["mod2_name"]:
     st.title(T[lang]["eem_title"])
@@ -1585,17 +1673,36 @@ elif active_module == T[lang]["mod2_name"]:
         st.header(T[lang]["eem_sidebar_hdr"])
         eem_data_src = st.radio(
             T[lang]["eem_src_label"],
-            [T[lang]["eem_src_synth"], T[lang]["eem_src_upload"]],
+            [T[lang]["eem_src_upload"], T[lang]["eem_src_synth"]],
+            index=0,
             key="eem_data_source_radio",
         )
 
         eem_files = []
+        uv_files = []
         if eem_data_src == T[lang]["eem_src_upload"]:
             eem_files = st.file_uploader(
                 T[lang]["eem_uploader_label"],
                 accept_multiple_files=True,
                 type=["csv", "txt", "dat"],
                 key="eem_files_uploader",
+            )
+            # Загрузчик 1D спектров поглощения УФ-Вид
+            uv_files = st.file_uploader(
+                T[lang]["eem_uv_uploader_label"],
+                accept_multiple_files=True,
+                type=["csv", "txt", "dat"],
+                key="uv_files_uploader",
+            )
+
+        with st.expander(T[lang]["eem_doc_expander"], expanded=False):
+            default_doc_val = st.number_input(
+                T[lang]["eem_default_doc"],
+                min_value=0.0,
+                max_value=200.0,
+                value=4.0,
+                step=0.5,
+                key="default_doc_input"
             )
 
         st.markdown("---")
@@ -1604,124 +1711,265 @@ elif active_module == T[lang]["mod2_name"]:
         norm_raman = st.checkbox(T[lang]["eem_norm_raman"], value=False, key="eem_norm_raman")
         palette = st.selectbox(T[lang]["eem_palette_label"], ["Viridis", "Plasma", "Inferno", "Turbo"], key="eem_palette_select")
 
+    # Чтение EEM
     samples = []
     if eem_data_src == T[lang]["eem_src_synth"]:
         samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
     elif eem_files:
         for f in eem_files:
             try:
-                df = pd.read_csv(f, index_col=0)
-                parsed = eem_core.parse_eem_dataframe(df, sample_id=f.name.split(".")[0])
+                sample_name = f.name.rsplit(".", 1)[0]
+                if hasattr(eem_core, "load_eem_file"):
+                    parsed = eem_core.load_eem_file(f, sample_id=sample_name)
+                else:
+                    df = pd.read_csv(f)
+                    parsed = eem_core.parse_eem_dataframe(df, sample_id=sample_name)
+
                 if clean_scatter:
                     parsed.data = eem_core.remove_scatter_bands(parsed.data, parsed.ex, parsed.em)
                 if norm_raman:
                     parsed.data, _ = eem_core.normalize_to_raman_units(parsed.data, parsed.ex, parsed.em)
                 samples.append(parsed)
             except Exception as e:
-                st.error(f"Error reading {f.name}: {e}")
+                st.error(f"Error reading EEM {f.name}: {e}")
 
-    if not samples:
+    # Чтение 1D УФ-Вид спектров
+    uv_samples = []
+    if uv_files:
+        for uf in uv_files:
+            try:
+                u_name = uf.name.rsplit(".", 1)[0]
+                parsed_uv = eem_core.parse_uv_vis_spectrum(uf, sample_id=u_name)
+                parsed_uv.doc = default_doc_val if default_doc_val > 0 else None
+                uv_samples.append(parsed_uv)
+            except Exception as e:
+                st.error(f"Error reading UV-Vis {uf.name}: {e}")
+
+    # Автоматическая связка УФ-Вид спектров с EEM образцами
+    if samples and uv_samples:
+        doc_dict = {s.sample_id: default_doc_val for s in samples} if default_doc_val > 0 else None
+        eem_core.link_uv_vis_to_eem(samples, uv_samples, doc_map=doc_dict)
+
+    if not samples and not uv_samples:
         st.warning(T[lang]["eem_warn_no_data"])
     else:
-        tab_eem1, tab_eem2, tab_eem3 = st.tabs([
-            T[lang]["eem_tab1"], T[lang]["eem_tab2"], T[lang]["eem_tab3"]
+        tab_eem1, tab_eem2, tab_eem3, tab_eem4 = st.tabs([
+            T[lang]["eem_tab1"], T[lang]["eem_tab2"], T[lang]["eem_tab3"], T[lang]["eem_tab4"]
         ])
 
         # Экран 1: Контурные карты EEM
         with tab_eem1:
-            s_names = [s.sample_id for s in samples]
-            selected_sname = st.selectbox(T[lang]["eem_select_sample"], s_names, key="eem_active_sample")
-            s_obj = next(s for s in samples if s.sample_id == selected_sname)
+            if not samples:
+                st.info("Нет загруженных матриц EEM." if lang == "ru" else "No EEM matrices loaded.")
+            else:
+                s_names = [s.sample_id for s in samples]
+                selected_sname = st.selectbox(T[lang]["eem_select_sample"], s_names, key="eem_active_sample")
+                s_obj = next(s for s in samples if s.sample_id == selected_sname)
 
-            fig_eem = go.Figure(data=go.Contour(
-                z=s_obj.data, x=s_obj.ex, y=s_obj.em, colorscale=palette.lower(),
-                contours=dict(coloring="heatmap", showlabels=True, labelfont=dict(size=10, color="white")),
-                colorbar=dict(title=T[lang]["eem_int_label"]),
-            ))
-            fig_eem.update_layout(
-                title=T[lang]["eem_contour_title"].format(name=s_obj.sample_id),
-                xaxis_title=T[lang]["eem_ex_axis"],
-                yaxis_title=T[lang]["eem_em_axis"],
-                height=560,
-                template="plotly_dark",
-            )
-            st_plotly(fig_eem)
+                fig_eem = go.Figure(data=go.Contour(
+                    z=s_obj.data, x=s_obj.ex, y=s_obj.em, colorscale=palette.lower(),
+                    contours=dict(coloring="heatmap", showlabels=True, labelfont=dict(size=10, color="white")),
+                    colorbar=dict(title=T[lang]["eem_int_label"]),
+                ))
+                fig_eem.update_layout(
+                    title=T[lang]["eem_contour_title"].format(name=s_obj.sample_id),
+                    xaxis_title=T[lang]["eem_ex_axis"],
+                    yaxis_title=T[lang]["eem_em_axis"],
+                    height=560,
+                    template="plotly_dark",
+                )
+                st_plotly(fig_eem)
 
         # Экран 2: Индексы
         with tab_eem2:
             st.subheader(T[lang]["eem_indices_title"])
-            indices_list = [eem_core.calculate_spectral_indices(s) for s in samples]
-            df_indices = pd.DataFrame(indices_list)
+            if not samples:
+                st.info("Нет загруженных матриц EEM." if lang == "ru" else "No EEM matrices loaded.")
+            else:
+                indices_list = [eem_core.calculate_spectral_indices(s) for s in samples]
+                df_indices = pd.DataFrame(indices_list)
 
-            c_idx1, c_idx2 = st.columns([3, 1])
-            with c_idx1:
-                st.dataframe(df_indices.style.format({"FI": "{:.2f}", "HIX": "{:.2f}", "SUVA254": "{:.2f}"}), use_container_width=True)
-            with c_idx2:
-                st.download_button(
-                    label=T[lang]["eem_dl_indices"],
-                    data=df_indices.to_csv(index=False).encode("utf-8"),
-                    file_name="EEM_Indices.csv",
-                    mime="text/csv",
-                    key="eem_dl_indices_btn",
-                )
+                c_idx1, c_idx2 = st.columns([3, 1])
+                with c_idx1:
+                    st.dataframe(
+                        df_indices.style.format(
+                            {"FI": "{:.2f}", "HIX": "{:.2f}", "A254": "{:.4f}", "DOC": "{:.2f}", "SUVA254": "{:.2f}"},
+                            na_rep="—"
+                        ),
+                        use_container_width=True
+                    )
+                with c_idx2:
+                    st.download_button(
+                        label=T[lang]["eem_dl_indices"],
+                        data=df_indices.to_csv(index=False).encode("utf-8"),
+                        file_name="EEM_Indices.csv",
+                        mime="text/csv",
+                        key="eem_dl_indices_btn",
+                    )
 
         # Экран 3: PARAFAC
         with tab_eem3:
             st.subheader(T[lang]["eem_parafac_title"])
-            with st.spinner(T[lang]["eem_parafac_spinner"]):
-                tensor_x, em_ax, ex_ax, s_ids = eem_core.build_eem_tensor(samples)
-                results = eem_core.fit_parafac(tensor_x, n_components=3, random_state=42)
+            if not samples or len(samples) < 2:
+                st.warning("Для факторизации PARAFAC необходимо минимум 2 матрицы EEM." if lang == "ru" else "At least 2 EEM matrices required for PARAFAC.")
+            else:
+                all_sample_ids = [s.sample_id for s in samples]
+                col_sel1, col_sel2 = st.columns([3, 1])
+                with col_sel1:
+                    selected_parafac_ids = st.multiselect(
+                        T[lang]["eem_parafac_select_tables"],
+                        options=all_sample_ids,
+                        default=all_sample_ids,
+                        key="parafac_active_tables_multiselect",
+                    )
+                with col_sel2:
+                    n_components_sel = st.selectbox(
+                        "Компонентов (R):" if lang == "ru" else "Components (R):",
+                        [2, 3, 4],
+                        index=1,
+                        key="parafac_n_components_select"
+                    )
 
-            m_c1, m_c2, m_c3 = st.columns(3)
-            m_c1.metric(T[lang]["eem_m_exp_var"], f"{results['explained_variance']:.2f}%")
-            m_c2.metric(
-                T[lang]["eem_m_corcondia"],
-                f"{results['corcondia']:.1f}%",
-                delta=T[lang]["eem_corcondia_ok"] if results["corcondia"] > 85.0 else T[lang]["eem_corcondia_warn"],
-            )
-            m_c3.metric(T[lang]["eem_m_components"], T[lang]["eem_m_comp_val"])
+                if len(selected_parafac_ids) < 2:
+                    st.warning(T[lang]["eem_parafac_min_samples"])
+                else:
+                    active_parafac_samples = [s for s in samples if s.sample_id in selected_parafac_ids]
+                    with st.spinner(T[lang]["eem_parafac_spinner"]):
+                        tensor_x, em_ax, ex_ax, s_ids = eem_core.build_eem_tensor(active_parafac_samples)
+                        results = eem_core.fit_parafac(tensor_x, n_components=n_components_sel, random_state=42)
 
-            st.markdown("---")
-            col_p1, col_p2 = st.columns(2)
-            c_labels = [T[lang]["eem_comp_c1"], T[lang]["eem_comp_c2"], T[lang]["eem_comp_c3"]]
+                    m_c1, m_c2, m_c3 = st.columns(3)
+                    m_c1.metric(T[lang]["eem_m_exp_var"], f"{results['explained_variance']:.2f}%")
+                    m_c2.metric(
+                        T[lang]["eem_m_corcondia"],
+                        f"{results['corcondia']:.1f}%",
+                        delta=T[lang]["eem_corcondia_ok"] if results["corcondia"] > 85.0 else T[lang]["eem_corcondia_warn"],
+                    )
+                    m_c3.metric(T[lang]["eem_m_components"], f"{n_components_sel} флуорофора" if lang == "ru" else f"{n_components_sel} Components")
 
-            with col_p1:
-                fig_em = go.Figure()
-                for r in range(3):
-                    fig_em.add_trace(go.Scatter(x=em_ax, y=results["em_profiles"][:, r], mode="lines", name=c_labels[r], line=dict(width=2.5)))
-                fig_em.update_layout(title=T[lang]["eem_em_prof_title"], xaxis_title=T[lang]["eem_em_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
-                st_plotly(fig_em)
+                    st.markdown("---")
+                    col_p1, col_p2 = st.columns(2)
+                    comp_names = [f"C{r+1}" for r in range(n_components_sel)]
+                    if n_components_sel == 3:
+                        comp_names = [T[lang]["eem_comp_c1"], T[lang]["eem_comp_c2"], T[lang]["eem_comp_c3"]]
 
-            with col_p2:
-                fig_ex = go.Figure()
-                for r in range(3):
-                    fig_ex.add_trace(go.Scatter(x=ex_ax, y=results["ex_profiles"][:, r], mode="lines", name=c_labels[r], line=dict(width=2.5)))
-                fig_ex.update_layout(title=T[lang]["eem_ex_prof_title"], xaxis_title=T[lang]["eem_ex_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
-                st_plotly(fig_ex)
+                    with col_p1:
+                        fig_em = go.Figure()
+                        for r in range(n_components_sel):
+                            fig_em.add_trace(go.Scatter(x=em_ax, y=results["em_profiles"][:, r], mode="lines", name=comp_names[r], line=dict(width=2.5)))
+                        fig_em.update_layout(title=T[lang]["eem_em_prof_title"], xaxis_title=T[lang]["eem_em_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
+                        st_plotly(fig_em)
 
-            st.subheader(T[lang]["eem_scores_title"])
-            scores_df = pd.DataFrame(results["scores"], columns=["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"])
-            scores_df.insert(0, "Sample_ID", s_ids)
+                    with col_p2:
+                        fig_ex = go.Figure()
+                        for r in range(n_components_sel):
+                            fig_ex.add_trace(go.Scatter(x=ex_ax, y=results["ex_profiles"][:, r], mode="lines", name=comp_names[r], line=dict(width=2.5)))
+                        fig_ex.update_layout(title=T[lang]["eem_ex_prof_title"], xaxis_title=T[lang]["eem_ex_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
+                        st_plotly(fig_ex)
 
-            fig_scores = px.bar(
-                scores_df, x="Sample_ID", y=["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"],
-                title=T[lang]["eem_scores_chart_title"], labels={"value": T[lang]["eem_int_label"], "variable": "Component"},
-                barmode="stack", template="plotly_white",
-            )
-            st_plotly(fig_scores)
+                    st.subheader(T[lang]["eem_scores_title"])
+                    score_col_names = [f"C{r+1}" for r in range(n_components_sel)]
+                    if n_components_sel == 3:
+                        score_col_names = ["C1_Fulvic", "C2_Lignin_Humic", "C3_Protein"]
 
-            ml_export_df = pd.merge(df_indices, scores_df, on="Sample_ID")
-            st.session_state["eem_ml_descriptors"] = ml_export_df
-            st.download_button(
-                label=T[lang]["eem_dl_ml_btn"],
-                data=ml_export_df.to_csv(index=False).encode("utf-8"),
-                file_name="ChemoSuite_EEM_ML_Features.csv",
-                mime="text/csv",
-                key="eem_dl_ml_btn",
-            )
+                    scores_df = pd.DataFrame(results["scores"], columns=score_col_names)
+                    scores_df.insert(0, "Sample_ID", s_ids)
+
+                    fig_scores = px.bar(
+                        scores_df, x="Sample_ID", y=score_col_names,
+                        title=T[lang]["eem_scores_chart_title"], labels={"value": T[lang]["eem_int_label"], "variable": "Component"},
+                        barmode="stack", template="plotly_white",
+                    )
+                    st_plotly(fig_scores)
+
+                    # Экспорт объединенных оптических признаков
+                    ml_export_df = pd.merge(df_indices[df_indices["Sample_ID"].isin(s_ids)], scores_df, on="Sample_ID")
+                    st.session_state["eem_ml_descriptors"] = ml_export_df
+                    st.download_button(
+                        label=T[lang]["eem_dl_ml_btn"],
+                        data=ml_export_df.to_csv(index=False).encode("utf-8"),
+                        file_name="ChemoSuite_EEM_ML_Features.csv",
+                        mime="text/csv",
+                        key="eem_dl_ml_btn",
+                    )
+
+        # Экран 4: УФ-Вид спектрофотометрия (UV-Vis)
+        with tab_eem4:
+            st.subheader(T[lang]["eem_uv_title"])
+            if not uv_samples:
+                st.info(T[lang]["eem_uv_no_data"])
+            else:
+                uv_names = [u.sample_id for u in uv_samples]
+                col_uv1, col_uv2 = st.columns([3, 1])
+                with col_uv1:
+                    active_uv_name = st.selectbox(T[lang]["eem_uv_select_sample"], uv_names, key="active_uv_sample_select")
+                active_uv = next(u for u in uv_samples if u.sample_id == active_uv_name)
+
+                # График A(λ) с реперными точками
+                fig_uv = go.Figure()
+                fig_uv.add_trace(go.Scatter(
+                    x=active_uv.wl, y=active_uv.absorbance,
+                    mode="lines",
+                    line=dict(color="#0b5394", width=2.0),
+                    name="A(λ)",
+                    hovertemplate="<b>λ</b>: %{x:.1f} нм<br><b>A</b>: %{y:.4f}<extra></extra>"
+                ))
+
+                for mw, col in zip([254.0, 280.0, 365.0], ["#d62728", "#e69138", "#2ca02c"]):
+                    idx = np.argmin(np.abs(active_uv.wl - mw))
+                    if abs(active_uv.wl[idx] - mw) <= 5.0:
+                        fig_uv.add_trace(go.Scatter(
+                            x=[active_uv.wl[idx]], y=[active_uv.absorbance[idx]],
+                            mode="markers+text",
+                            marker=dict(color=col, size=8),
+                            text=[f"A_{int(mw)}={active_uv.absorbance[idx]:.3f}"],
+                            textposition="top right",
+                            name=f"A_{int(mw)}",
+                            hoverinfo="skip"
+                        ))
+
+                fig_uv.add_hline(y=0.0, line_dash="dash", line_color="gray", line_width=0.8)
+                fig_uv.update_layout(
+                    title=T[lang]["eem_uv_plot_title"].format(name=active_uv.sample_id),
+                    xaxis_title="Длина волны λ (нм)" if lang == "ru" else "Wavelength λ (nm)",
+                    yaxis_title="Оптическая плотность A" if lang == "ru" else "Absorbance A",
+                    plot_bgcolor="white",
+                    height=450,
+                    margin=dict(l=40, r=20, t=40, b=40)
+                )
+                st_plotly(fig_uv)
+
+                # Таблица оптических дескрипторов УФ-Вид для всех загруженных проб
+                uv_indices_list = [
+                    eem_core.calculate_uv_vis_indices(u, doc=default_doc_val if default_doc_val > 0 else None)
+                    for u in uv_samples
+                ]
+                df_uv_indices = pd.DataFrame(uv_indices_list)
+                st.session_state["uv_ml_descriptors"] = df_uv_indices
+
+                st.markdown(f"##### {T[lang]['eem_uv_tbl_title']}")
+                c_tbl1, c_tbl2 = st.columns([3, 1])
+                with c_tbl1:
+                    st.dataframe(
+                        df_uv_indices.style.format({
+                            "A254": "{:.4f}", "A280": "{:.4f}", "A365": "{:.4f}",
+                            "E2_E3": "{:.2f}", "E4_E6": "{:.2f}",
+                            "S_275_295": "{:.4f}", "S_350_400": "{:.4f}", "S_R": "{:.2f}",
+                            "DOC": "{:.2f}", "SUVA254": "{:.2f}"
+                        }, na_rep="—"),
+                        use_container_width=True
+                    )
+                with c_tbl2:
+                    st.download_button(
+                        label=T[lang]["eem_dl_uv_indices"],
+                        data=df_uv_indices.to_csv(index=False).encode("utf-8"),
+                        file_name="UV_Vis_Descriptors.csv",
+                        mime="text/csv",
+                        key="dl_uv_vis_descriptors_btn",
+                    )
 
 # ==============================================================================
-# МОДУЛЬ 3: DATA FUSION И ХЕМОМЕТРИКА (PLS-DA)
+# МОДУЛЬ 3: DATA FUSION И ХЕМОМЕТРИКА (PLS-DA & VALIDATION)
 # ==============================================================================
 elif active_module == T[lang]["mod3_name"]:
     st.title(T[lang]["ml_title"])
@@ -1732,15 +1980,108 @@ elif active_module == T[lang]["mod3_name"]:
         st.stop()
 
     st.subheader(T[lang]["ml_sec1_title"])
-    col_btn1, _ = st.columns([2, 3])
-    with col_btn1:
-        if st.button(T[lang]["ml_load_demo_btn"], type="primary", key="btn_ml_load_demo"):
+
+    # Выбор источника данных
+    data_source_mode = st.radio(
+        "Источник мультимодальных данных:" if lang == "ru" else "Multimodal Data Source:",
+        [T[lang]["ml_src_session"], T[lang]["ml_src_files"], T[lang]["ml_src_benchmark"]],
+        horizontal=True,
+        key="ml_data_source_mode_radio",
+    )
+
+    # 1. Сборка из сессии
+    if data_source_mode == T[lang]["ml_src_session"]:
+        assigned_spectra = {
+            k: v["assigned_df"] for k, v in st.session_state.get("spectra_db", {}).items()
+            if v.get("assigned_df") is not None and not v["assigned_df"].empty
+        }
+        eem_df = st.session_state.get("eem_ml_descriptors", None)
+        uv_df = st.session_state.get("uv_ml_descriptors", None)
+
+        st.info(T[lang]["ml_session_status"].format(
+            n_ms=len(assigned_spectra),
+            n_eem=len(eem_df) if eem_df is not None else 0,
+            n_uv=len(uv_df) if uv_df is not None else 0,
+        ))
+
+        if st.button(T[lang]["ml_btn_assemble_session"], type="primary", key="btn_assemble_session"):
+            if not assigned_spectra and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty):
+                st.warning(T[lang]["ml_session_need_more"])
+            else:
+                fticr_rows = []
+                for s_name, a_df in assigned_spectra.items():
+                    desc = chemo_ml.extract_fticr_descriptors(a_df, s_name)
+                    if desc:
+                        fticr_rows.append(desc)
+                df_ms_assembled = pd.DataFrame(fticr_rows) if fticr_rows else pd.DataFrame()
+
+                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df)
+                if not merged_df.empty:
+                    if "Class_Target" not in merged_df.columns:
+                        # Разметка по умолчанию: 1 для образцов со словом lignin / impact
+                        merged_df["Class_Target"] = merged_df["Sample_ID"].apply(
+                            lambda s: 1 if any(k in str(s).lower() for k in ["lignin", "impact", "шлам"]) else 0
+                        )
+                    st.session_state["fused_data"] = merged_df
+                    st.session_state["fused_source"] = "Сессионные спектры" if lang == "ru" else "Session Spectra"
+                    st.success(f"Успешно собрано образцов: {len(merged_df)}" if lang == "ru" else f"Successfully assembled samples: {len(merged_df)}")
+                    st.rerun()
+                else:
+                    st.warning("Не удалось сопоставить образцы между Модулем 1 и 2 по Sample_ID." if lang == "ru" else "Failed to match samples by Sample_ID between Module 1 and 2.")
+
+    # 2. Загрузка внешних файлов
+    elif data_source_mode == T[lang]["ml_src_files"]:
+        upload_type = st.radio(
+            T[lang]["ml_uploader_mode"],
+            [T[lang]["ml_upload_two"], T[lang]["ml_upload_single"]],
+            horizontal=True,
+            key="ml_upload_type_radio"
+        )
+        if upload_type == T[lang]["ml_upload_two"]:
+            col_u1, col_u2, col_u3 = st.columns(3)
+            with col_u1:
+                f_ms = st.file_uploader(T[lang]["ml_up_ms"], type=["csv", "tsv", "txt"], key="up_ms_features")
+            with col_u2:
+                f_eem = st.file_uploader(T[lang]["ml_up_eem"], type=["csv", "tsv", "txt"], key="up_eem_features")
+            with col_u3:
+                f_uv = st.file_uploader(T[lang]["ml_up_uv"], type=["csv", "tsv", "txt"], key="up_uv_features")
+
+            if f_ms or f_eem or f_uv:
+                try:
+                    df_up_ms = pd.read_csv(f_ms) if f_ms else None
+                    df_up_eem = pd.read_csv(f_eem) if f_eem else None
+                    df_up_uv = pd.read_csv(f_uv) if f_uv else None
+                    merged = chemo_ml.merge_feature_blocks(df_up_ms, df_up_eem, df_up_uv)
+                    if not merged.empty:
+                        if "Class_Target" not in merged.columns:
+                            merged["Class_Target"] = 0
+                        st.session_state["fused_data"] = merged
+                        src_names = [f.name for f in [f_ms, f_eem, f_uv] if f is not None]
+                        st.session_state["fused_source"] = " + ".join(src_names)
+                except Exception as e:
+                    st.error(f"Error reading files: {e}")
+        else:
+            f_single = st.file_uploader(T[lang]["ml_up_single"], type=["csv", "tsv", "txt"], key="up_single_features")
+            if f_single:
+                try:
+                    df_s = pd.read_csv(f_single)
+                    if "Class_Target" not in df_s.columns:
+                        df_s["Class_Target"] = 0
+                    st.session_state["fused_data"] = df_s
+                    st.session_state["fused_source"] = f_single.name
+                except Exception as e:
+                    st.error(f"Error reading file: {e}")
+
+    # 3. Синтетический бенчмарк
+    else:
+        if st.button(T[lang]["ml_load_demo_btn"], type="primary", key="btn_ml_load_demo_main"):
             demo_df, demo_y = chemo_ml.generate_multimodal_benchmark()
             demo_df["Class_Target"] = demo_y
             st.session_state["fused_data"] = demo_df
             st.session_state["fused_source"] = T[lang]["ml_demo_source_name"]
             st.rerun()
 
+    # Отображение активного датасета и редактора классов
     fused_df = st.session_state.get("fused_data", None)
     if fused_df is None:
         st.info(T[lang]["ml_info_no_data"])
@@ -1769,10 +2110,18 @@ elif active_module == T[lang]["mod3_name"]:
         max_allowed_lvs = max(2, min(5, len(edited_df) - 1))
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1:
-            n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+            strategy_choice = st.selectbox(
+                T[lang]["ml_strategy_label"],
+                [T[lang]["ml_strat_low"], T[lang]["ml_strat_mid"]],
+                index=0,
+                key="pls_strategy_select"
+            )
+            strat_code = "mid_level" if strategy_choice == T[lang]["ml_strat_mid"] else "low_level"
         with col_p2:
-            use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
+            n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+            use_perm = st.checkbox(T[lang]["ml_perm_chk"], value=True, key="pls_perm_chk")
         with col_p3:
+            use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
             st.write("")
             run_pls = st.button(T[lang]["ml_run_btn"], type="primary", key="btn_run_pls_da")
 
@@ -1781,75 +2130,189 @@ elif active_module == T[lang]["mod3_name"]:
             X_input = edited_df[feat_cols]
             y_input = edited_df["Class_Target"].values
 
-            try:
-                with st.spinner(T[lang]["ml_spinner"]):
-                    res = chemo_ml.train_plsda_model(X_input, y_input, n_components=n_lvs, block_scaling=use_block_scale)
-
-                t1_vals = res.get("t1", res.get("scores_t1"))
-                t2_vals = res.get("t2", res.get("scores_t2"))
-                ell_x = res.get("ell_x", res.get("ellipse_x", np.array([])))
-                ell_y = res.get("ell_y", res.get("ellipse_y", np.array([])))
-                vip_df = res.get("VIP_df", res.get("vip_df", pd.DataFrame()))
-
-                st.markdown("---")
-                st.subheader(T[lang]["ml_sec3_title"])
-
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric(T[lang]["ml_m_r2x"], f"{res.get('R2X', 0.0):.1f}%")
-                m2.metric(T[lang]["ml_m_r2y"], f"{res.get('R2Y', 0.0):.1f}%")
-                q2_val = res.get("Q2", 0.0)
-                m3.metric(T[lang]["ml_m_q2"], f"{q2_val:.1f}%", delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"])
-                m4.metric(T[lang]["ml_m_acc"], f"{res.get('Accuracy', 0.0):.1f}%")
-
-                col_g1, col_g2 = st.columns(2)
-                with col_g1:
-                    st.markdown(f"##### {T[lang]['ml_scores_chart_title']}")
-                    fig_sc = go.Figure()
-
-                    if ell_x is not None and len(ell_x) > 0:
-                        fig_sc.add_trace(go.Scatter(
-                            x=ell_x, y=ell_y, mode="lines",
-                            line=dict(dash="dot", color="#7f7f7f", width=1.5),
-                            name=T[lang]["ml_hotelling_name"], hoverinfo="skip"
-                        ))
-
-                    colors = ["#D62728" if int(y) == 1 else "#0020C2" for y in y_input]
-                    labels = [T[lang]["ml_class1_label"] if int(y) == 1 else T[lang]["ml_class0_label"] for y in y_input]
-                    fig_sc.add_trace(go.Scatter(
-                        x=t1_vals, y=t2_vals, mode="markers+text",
-                        text=edited_df["Sample_ID"], textposition="top center",
-                        marker=dict(size=11, color=colors, line=dict(width=1, color="black"), opacity=0.85),
-                        hovertext=[f"<b>{s}</b><br>{lbl}<br>LV1: {t1:.2f}, LV2: {t2:.2f}" for s, lbl, t1, t2 in zip(edited_df["Sample_ID"], labels, t1_vals, t2_vals)],
-                        hoverinfo="text", name="Samples",
-                    ))
-                    fig_sc.update_layout(xaxis_title="LV1", yaxis_title="LV2", plot_bgcolor="white", height=480, margin=dict(l=40, r=30, t=30, b=40))
-                    st_plotly(fig_sc)
-
-                with col_g2:
-                    st.markdown(f"##### {T[lang]['ml_vip_chart_title']}")
-                    if not vip_df.empty:
-                        top_vip = vip_df.head(12)
-                        fig_vip = px.bar(
-                            top_vip, x="VIP", y="Descriptor", orientation="h",
-                            color="VIP", color_continuous_scale="Reds",
-                            text=top_vip["VIP"].apply(lambda v: f"{v:.2f}")
+            # Проверка наличия двух классов
+            unique_classes = np.unique(y_input)
+            if len(unique_classes) < 2:
+                st.warning(T[lang]["ml_warn_two_classes"])
+            else:
+                try:
+                    with st.spinner(T[lang]["ml_spinner"]):
+                        res = chemo_ml.train_plsda_model(
+                            X_input, y_input,
+                            n_components=n_lvs,
+                            fusion_strategy=strat_code,
+                            block_scaling=use_block_scale
                         )
-                        fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text=T[lang]["ml_vip_cutoff"])
-                        fig_vip.update_layout(yaxis=dict(autorange="reversed", title="Descriptor"), xaxis=dict(title="VIP Score"), plot_bgcolor="white", height=480, margin=dict(l=40, r=30, t=30, b=40))
-                        st_plotly(fig_vip)
+                        st.session_state["pls_results"] = res
+                        st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
+                        st.session_state["pls_y_input"] = y_input
 
-                st.markdown("---")
-                col_csv1, col_csv2 = st.columns([3, 1])
-                with col_csv1:
-                    st.write(f"**{T[lang]['ml_vip_tbl_title']}**")
+                        if use_perm:
+                            perm_res = chemo_ml.run_permutation_test(
+                                X_input, y_input,
+                                n_components=n_lvs,
+                                n_permutations=50,
+                                fusion_strategy=strat_code,
+                                block_scaling=use_block_scale
+                            )
+                            st.session_state["perm_results"] = perm_res
+                        else:
+                            st.session_state["perm_results"] = None
+
+                except ValueError as val_err:
+                    st.error(T[lang]["ml_warn_input"].format(err=val_err))
+
+        # Вывод результатов из session_state
+        res = st.session_state.get("pls_results", None)
+        if res is not None:
+            sample_ids_curr = st.session_state.get("pls_sample_ids", edited_df["Sample_ID"].values)
+            y_curr = st.session_state.get("pls_y_input", edited_df["Class_Target"].values)
+            t1_vals = res.get("t1", res.get("scores_t1"))
+            t2_vals = res.get("t2", res.get("scores_t2"))
+            ell_x = res.get("ell_x", res.get("ellipse_x", np.array([])))
+            ell_y = res.get("ell_y", res.get("ellipse_y", np.array([])))
+            vip_df = res.get("VIP_df", res.get("vip_df", pd.DataFrame()))
+            perm_res = st.session_state.get("perm_results", None)
+
+            st.markdown("---")
+            st.subheader(T[lang]["ml_sec3_title"])
+
+            # 4 ключевые сводные метрики
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric(T[lang]["ml_m_r2x"], f"{res.get('R2X', 0.0):.1f}%")
+            m2.metric(T[lang]["ml_m_r2y"], f"{res.get('R2Y', 0.0):.1f}%")
+            q2_val = res.get("Q2", 0.0)
+            m3.metric(T[lang]["ml_m_q2"], f"{q2_val:.1f}%", delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"])
+            m4.metric(T[lang]["ml_m_acc"], f"{res.get('Accuracy', 0.0):.1f}%")
+
+            # Вкладки детального дашборда
+            tab_ml1, tab_ml2, tab_ml3, tab_ml4, tab_ml5 = st.tabs([
+                T[lang]["ml_tab_scores"],
+                T[lang]["ml_tab_vips"],
+                T[lang]["ml_tab_val"],
+                T[lang]["ml_tab_blocks"],
+                "💾 Экспорт отчетов" if lang == "ru" else "💾 Export Reports"
+            ])
+
+            # Таб 1: Scores Plot
+            with tab_ml1:
+                fig_sc = go.Figure()
+                if ell_x is not None and len(ell_x) > 0:
+                    fig_sc.add_trace(go.Scatter(
+                        x=ell_x, y=ell_y, mode="lines",
+                        line=dict(dash="dot", color="#7f7f7f", width=1.5),
+                        name=T[lang]["ml_hotelling_name"], hoverinfo="skip"
+                    ))
+
+                colors = ["#D62728" if int(y) == 1 else "#0020C2" for y in y_curr]
+                labels = [T[lang]["ml_class1_label"] if int(y) == 1 else T[lang]["ml_class0_label"] for y in y_curr]
+                fig_sc.add_trace(go.Scatter(
+                    x=t1_vals, y=t2_vals, mode="markers+text",
+                    text=sample_ids_curr, textposition="top center",
+                    marker=dict(size=11, color=colors, line=dict(width=1, color="black"), opacity=0.85),
+                    hovertext=[f"<b>{s}</b><br>{lbl}<br>LV1: {t1:.2f}, LV2: {t2:.2f}" for s, lbl, t1, t2 in zip(sample_ids_curr, labels, t1_vals, t2_vals)],
+                    hoverinfo="text", name="Samples",
+                ))
+                fig_sc.update_layout(xaxis_title="LV1", yaxis_title="LV2", plot_bgcolor="white", height=520)
+                st_plotly(fig_sc)
+
+            # Таб 2: VIP Scores с цветовой кодировкой аналитических блоков
+            with tab_ml2:
+                if not vip_df.empty:
+                    top_vip = vip_df.head(15).copy()
+                    fig_vip = px.bar(
+                        top_vip, x="VIP", y="Descriptor", orientation="h",
+                        color="Block",
+                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
+                        text=top_vip["VIP"].apply(lambda v: f"{v:.2f}")
+                    )
+                    fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text=T[lang]["ml_vip_cutoff"])
+                    fig_vip.update_layout(yaxis=dict(autorange="reversed", title="Descriptor"), xaxis=dict(title="VIP Score"), plot_bgcolor="white", height=520)
+                    st_plotly(fig_vip)
+
                     st.dataframe(vip_df, use_container_width=True)
-                with col_csv2:
+
+            # Таб 3: Валидация (Confusion Matrix + Permutation Test)
+            with tab_ml3:
+                c_v1, c_v2 = st.columns(2)
+                with c_v1:
+                    st.write(f"**{T[lang]['ml_cm_title']}**")
+                    cm_mat = res.get("Confusion_Matrix", np.zeros((2, 2)))
+                    fig_cm = px.imshow(
+                        cm_mat,
+                        text_auto=True,
+                        labels=dict(x="Predicted", y="Actual", color="Count"),
+                        x=[T[lang]["ml_class0_label"], T[lang]["ml_class1_label"]],
+                        y=[T[lang]["ml_class0_label"], T[lang]["ml_class1_label"]],
+                        color_continuous_scale="Blues"
+                    )
+                    fig_cm.update_layout(height=360, margin=dict(l=20, r=20, t=30, b=20))
+                    st_plotly(fig_cm)
+
+                    st.markdown(
+                        f"""
+                        * **Чувствительность (Sensitivity):** `{res.get('Sensitivity', 0.0):.1f}%`
+                        * **Специфичность (Specificity):** `{res.get('Specificity', 0.0):.1f}%`
+                        * **Сбалансированная точность:** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                        """
+                    )
+
+                with c_v2:
+                    if perm_res is not None:
+                        st.write(f"**{T[lang]['ml_perm_title']}**")
+                        q2_o = perm_res["q2_orig"]
+                        perm_q2_vals = perm_res["perm_q2"]
+                        p_val = perm_res["p_val_q2"]
+
+                        fig_perm = go.Figure()
+                        fig_perm.add_trace(go.Histogram(
+                            x=perm_q2_vals,
+                            name="Permuted Q²",
+                            marker_color="#8da9c4",
+                            opacity=0.75
+                        ))
+                        fig_perm.add_vline(x=q2_o, line_width=2.5, line_dash="dash", line_color="#d62728", annotation_text=f"Q²={q2_o:.1f}%")
+                        fig_perm.update_layout(xaxis_title="Q² (%)", yaxis_title="Frequencies", height=360, plot_bgcolor="white", margin=dict(l=20, r=20, t=30, b=20))
+                        st_plotly(fig_perm)
+
+                        if p_val < 0.05:
+                            st.success(f"✅ Модель статистически значима: эмпирический p-value = **{p_val:.4f}** (< 0.05)." if lang == "ru" else f"✅ Model is statistically significant: empirical p-value = **{p_val:.4f}** (< 0.05).")
+                        else:
+                            st.warning(f"⚠️ Риск оверфиттинга: эмпирический p-value = **{p_val:.4f}** (≥ 0.05)." if lang == "ru" else f"⚠️ Overfitting risk: empirical p-value = **{p_val:.4f}** (≥ 0.05).")
+
+            # Таб 4: Вклад аналитических блоков
+            with tab_ml4:
+                block_contribs = res.get("Block_Contributions", {})
+                if block_contribs:
+                    st.write(f"**{T[lang]['ml_donut_title']}**")
+                    b_palette = {"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"}
+                    donut_colors = [b_palette.get(k, "#7f7f7f") for k in block_contribs.keys()]
+                    fig_donut = go.Figure(data=[go.Pie(
+                        labels=list(block_contribs.keys()),
+                        values=list(block_contribs.values()),
+                        hole=0.45,
+                        marker=dict(colors=donut_colors)
+                    )])
+                    fig_donut.update_layout(height=420)
+                    st_plotly(fig_donut)
+
+            # Таб 5: Экспорт
+            with tab_ml5:
+                st.write("### 📥 Выгрузка аналитических отчетов" if lang == "ru" else "### 📥 Download Analytical Reports")
+                c_dl1, c_dl2 = st.columns(2)
+                with c_dl1:
+                    st.download_button(
+                        label="📥 Скачать объединенную матрицу признаков (CSV)" if lang == "ru" else "📥 Download Fused Feature Matrix (CSV)",
+                        data=edited_df.to_csv(index=False).encode("utf-8"),
+                        file_name="ChemoSuite_Fused_Matrix.csv",
+                        mime="text/csv",
+                        key="dl_fused_csv_main_btn",
+                    )
+                with c_dl2:
                     st.download_button(
                         label=T[lang]["ml_dl_vip_btn"],
                         data=vip_df.to_csv(index=False).encode("utf-8"),
-                        file_name="ChemoSuite_PLSDA_VIP.csv",
+                        file_name="ChemoSuite_PLSDA_VIP_Biomarkers.csv",
                         mime="text/csv",
-                        key="dl_pls_vip_csv_btn",
+                        key="dl_pls_vip_csv_main_btn",
                     )
-            except ValueError as val_err:
-                st.error(T[lang]["ml_warn_input"].format(err=val_err))

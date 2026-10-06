@@ -1,16 +1,23 @@
 """
-eem_core.py — Математическое ядро анализа EEM-PARAFAC.
+eem_core.py — Математическое ядро оптической спектроскопии (EEM-PARAFAC и УФ-Вид).
+Методология кафедры аналитической химии и лаборатории природных гуминовых систем химфака МГУ.
 """
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+import io
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from scipy.integrate import simpson
 from scipy.interpolate import griddata
-import tensorly as tl
-from tensorly.decomposition import non_negative_parafac
+import scipy.signal
 
-tl.set_backend("numpy")
+try:
+    import tensorly as tl
+    from tensorly.decomposition import non_negative_parafac
+    tl.set_backend("numpy")
+    TENSORLY_AVAILABLE = True
+except ImportError:
+    TENSORLY_AVAILABLE = False
 
 
 @dataclass
@@ -23,23 +30,163 @@ class EEMSample:
     a254: Optional[float] = None
 
 
+@dataclass
+class UVVisSample:
+    sample_id: str
+    wl: np.ndarray
+    absorbance: np.ndarray
+    doc: Optional[float] = None
+
+
+def decode_bytes(b: bytes) -> str:
+    """Универсальное декодирование байтов файла."""
+    for enc in ("utf-8-sig", "utf-8", "cp1251", "latin-1"):
+        try:
+            return b.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return b.decode("utf-8", errors="replace")
+
+
+# ==============================================================================
+# ПАРСИНГ И ОБРАБОТКА МАТРИЦ ФЛУОРЕСЦЕНЦИИ (EEM)
+# ==============================================================================
 def parse_eem_dataframe(
     df: pd.DataFrame, sample_id: str = "Sample"
 ) -> EEMSample:
+    """
+    Универсальный парсер DataFrame матрицы EEM.
+    Автоматически очищает служебные строки (nm, CPS), текстовые шапки,
+    находит числовые сетки Ex/Em и ориентирует матрицу (Em — строки, Ex — столбцы).
+    """
     cleaned = df.copy()
-    if not np.issubdtype(cleaned.iloc[:, 0].dtype, np.number):
-        cleaned = cleaned.set_index(cleaned.columns[0])
-    em_vals = cleaned.index.astype(float).values
-    ex_vals = cleaned.columns.astype(float).values
-    matrix = cleaned.values.astype(float)
 
-    if ex_vals[0] > em_vals[0] and np.mean(ex_vals) > np.mean(em_vals):
-        matrix = matrix.T
-        em_vals, ex_vals = ex_vals, em_vals
+    if hasattr(cleaned, "map"):
+        cleaned = cleaned.map(lambda x: x.strip() if isinstance(x, str) else x)
+    else:
+        cleaned = cleaned.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+
+    col_num = pd.to_numeric(cleaned.columns.astype(str).str.replace(",", "."), errors="coerce")
+    col_wv_count = int(np.sum((col_num >= 180) & (col_num <= 1200)))
+
+    if col_wv_count < 3 and len(cleaned) > 1:
+        row0_num = pd.to_numeric(cleaned.iloc[0].astype(str).str.replace(",", "."), errors="coerce")
+        row0_wv_count = int(np.sum((row0_num >= 180) & (row0_num <= 1200)))
+        if row0_wv_count > col_wv_count:
+            cleaned.columns = cleaned.iloc[0]
+            cleaned = cleaned.iloc[1:].copy()
+
+    idx_num = pd.to_numeric(cleaned.index.astype(str).str.replace(",", "."), errors="coerce")
+    idx_wv_count = int(np.sum((idx_num >= 180) & (idx_num <= 1200)))
+
+    if idx_wv_count < 3 and cleaned.shape[1] > 1:
+        col0_num = pd.to_numeric(cleaned.iloc[:, 0].astype(str).str.replace(",", "."), errors="coerce")
+        col0_wv_count = int(np.sum((col0_num >= 180) & (col0_num <= 1200)))
+        if col0_wv_count > idx_wv_count:
+            cleaned = cleaned.set_index(cleaned.columns[0])
+
+    idx_num = pd.to_numeric(cleaned.index.astype(str).str.replace(",", "."), errors="coerce")
+    row_mask = idx_num.notna() & (idx_num >= 180) & (idx_num <= 1200)
+    cleaned = cleaned.loc[row_mask].copy()
+    row_wavelengths = idx_num[row_mask].values.astype(float)
+
+    col_num = pd.to_numeric(cleaned.columns.astype(str).str.replace(",", "."), errors="coerce")
+    col_mask = col_num.notna() & (col_num >= 180) & (col_num <= 1200)
+    cleaned = cleaned.loc[:, col_mask].copy()
+    col_wavelengths = col_num[col_mask].values.astype(float)
+
+    if len(row_wavelengths) < 3 or len(col_wavelengths) < 3:
+        raise ValueError(
+            f"Не удалось распознать сетку длин волн EEM для '{sample_id}'. "
+            f"Обнаружено: строк={len(row_wavelengths)}, колонок={len(col_wavelengths)}."
+        )
+
+    def to_float_val(v):
+        if isinstance(v, (int, float, np.number)):
+            return float(v)
+        try:
+            return float(str(v).replace(",", ".").strip())
+        except (ValueError, TypeError):
+            return 0.0
+
+    if hasattr(cleaned, "map"):
+        mat_df = cleaned.map(to_float_val)
+    else:
+        mat_df = cleaned.applymap(to_float_val)
+
+    matrix = mat_df.fillna(0.0).values.astype(float)
+
+    if np.mean(col_wavelengths) < np.mean(row_wavelengths):
+        ex_vals = col_wavelengths
+        em_vals = row_wavelengths
+        data = matrix
+    else:
+        ex_vals = row_wavelengths
+        em_vals = col_wavelengths
+        data = matrix.T
+
+    if len(ex_vals) > 1 and ex_vals[1] < ex_vals[0]:
+        ex_sort = np.argsort(ex_vals)
+        ex_vals = ex_vals[ex_sort]
+        data = data[:, ex_sort]
+
+    if len(em_vals) > 1 and em_vals[1] < em_vals[0]:
+        em_sort = np.argsort(em_vals)
+        em_vals = em_vals[em_sort]
+        data = data[em_sort, :]
 
     return EEMSample(
-        sample_id=sample_id, ex=ex_vals, em=em_vals, data=matrix
+        sample_id=sample_id,
+        ex=ex_vals,
+        em=em_vals,
+        data=data,
     )
+
+
+def load_eem_file(file_input: Union[str, bytes, Any], sample_id: str = "Sample") -> EEMSample:
+    """Чтение матрицы EEM напрямую из файла, пути, байтов или объекта Streamlit UploadedFile."""
+    if isinstance(file_input, str):
+        if "\n" in file_input or "\r" in file_input:
+            text = file_input
+        else:
+            with open(file_input, "rb") as f:
+                text = decode_bytes(f.read())
+    elif isinstance(file_input, bytes):
+        text = decode_bytes(file_input)
+    elif hasattr(file_input, "getvalue"):
+        b = file_input.getvalue()
+        text = decode_bytes(b) if isinstance(b, bytes) else str(b)
+    elif hasattr(file_input, "read"):
+        b = file_input.read()
+        if hasattr(file_input, "seek"):
+            file_input.seek(0)
+        text = decode_bytes(b) if isinstance(b, bytes) else str(b)
+    else:
+        raise ValueError(f"Неподдерживаемый тип входного файла: {type(file_input)}")
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        raise ValueError(f"Файл {sample_id} пуст.")
+
+    data_lines = [l for l in lines if not l.startswith(("#", "!", "//"))]
+    if not data_lines:
+        raise ValueError(f"Файл {sample_id} содержит только комментарии.")
+
+    sample_block = data_lines[:min(20, len(data_lines))]
+    candidates = [",", ";", "\t", " "]
+    counts = {c: sum(l.count(c) for l in sample_block) for c in candidates}
+    best_sep = max(counts, key=counts.get)
+    sep = r"\s+" if best_sep == " " else best_sep
+
+    df = pd.read_csv(
+        io.StringIO("\n".join(data_lines)),
+        sep=sep,
+        header=None,
+        engine="python",
+        dtype=str,
+        on_bad_lines="skip",
+    )
+    return parse_eem_dataframe(df, sample_id=sample_id)
 
 
 def remove_scatter_bands(
@@ -85,7 +232,7 @@ def normalize_to_raman_units(
     return eem / factor, factor
 
 
-def calculate_spectral_indices(sample: EEMSample) -> Dict[str, float]:
+def calculate_spectral_indices(sample: EEMSample) -> Dict[str, Any]:
     ex, em, d = sample.ex, sample.em, sample.data
 
     idx_ex_370 = np.argmin(np.abs(ex - 370.0))
@@ -108,27 +255,50 @@ def calculate_spectral_indices(sample: EEMSample) -> Dict[str, float]:
 
     return {
         "Sample_ID": sample.sample_id,
-        "FI": fi,
-        "HIX": hix,
-        "SUVA254": suva if not np.isnan(suva) else None,
+        "FI": round(fi, 2) if not np.isnan(fi) else np.nan,
+        "HIX": round(hix, 2) if not np.isnan(hix) else np.nan,
+        "A254": round(sample.a254, 4) if (sample.a254 is not None and not np.isnan(sample.a254)) else np.nan,
+        "DOC": round(sample.doc, 2) if (sample.doc is not None and not np.isnan(sample.doc)) else np.nan,
+        "SUVA254": round(suva, 2) if not np.isnan(suva) else np.nan,
     }
 
 
 def build_eem_tensor(
     samples: List[EEMSample],
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
+    if not samples:
+        raise ValueError("Список образцов EEM пуст.")
+
     ref_ex, ref_em = samples[0].ex, samples[0].em
     tensor = np.zeros((len(samples), len(ref_em), len(ref_ex)), dtype=np.float64)
     names = []
+
     for i, s in enumerate(samples):
-        tensor[i, :, :] = s.data
         names.append(s.sample_id)
+        if (
+            len(s.em) == len(ref_em)
+            and len(s.ex) == len(ref_ex)
+            and np.allclose(s.em, ref_em)
+            and np.allclose(s.ex, ref_ex)
+        ):
+            tensor[i, :, :] = s.data
+        else:
+            s_ex_g, s_em_g = np.meshgrid(s.ex, s.em)
+            ref_ex_g, ref_em_g = np.meshgrid(ref_ex, ref_em)
+            points = np.column_stack((s_em_g.ravel(), s_ex_g.ravel()))
+            interp = griddata(
+                points, s.data.ravel(), (ref_em_g, ref_ex_g), method="linear", fill_value=0.0
+            )
+            tensor[i, :, :] = np.maximum(0.0, interp)
+
     return tensor, ref_em, ref_ex, names
 
 
 def compute_corcondia(
     tensor: np.ndarray, factors: Tuple[np.ndarray, np.ndarray, np.ndarray]
 ) -> float:
+    if not TENSORLY_AVAILABLE:
+        return 0.0
     a, b, c = factors
     r = a.shape[1]
     g = tl.tenalg.multi_mode_dot(
@@ -146,6 +316,8 @@ def compute_corcondia(
 def fit_parafac(
     tensor: np.ndarray, n_components: int = 3, random_state: int = 42
 ) -> Dict:
+    if not TENSORLY_AVAILABLE:
+        raise RuntimeError("Библиотека tensorly не установлена в окружении.")
     weights, factors = non_negative_parafac(
         tensor, rank=n_components, n_iter_max=300, tol=1e-6, init="svd", random_state=random_state
     )
@@ -197,3 +369,324 @@ def generate_synthetic_chemometrics_dataset(n_samples: int = 10) -> List[EEMSamp
         clean = remove_scatter_bands(raw, ex, em)
         samples.append(EEMSample(sample_id=name, ex=ex, em=em, data=clean, doc=round(doc, 2), a254=round(a254, 3)))
     return samples
+
+
+# ==============================================================================
+# ПАРСИНГ, ПРОИЗВОДНЫЕ И РАСЧЕТ УФ-ВИД СПЕКТРОВ ПОГЛОЩЕНИЯ (UV-VIS)
+# ==============================================================================
+def parse_uv_vis_spectrum(file_input: Any, sample_id: str = "Sample") -> UVVisSample:
+    """Парсер 1D-спектров поглощения УФ-Вид (200-800 нм)."""
+    if hasattr(file_input, "getvalue"):
+        content = file_input.getvalue()
+        text = decode_bytes(content) if isinstance(content, bytes) else str(content)
+    elif hasattr(file_input, "read"):
+        content = file_input.read()
+        if hasattr(file_input, "seek"):
+            file_input.seek(0)
+        text = decode_bytes(content) if isinstance(content, bytes) else str(content)
+    elif isinstance(file_input, str):
+        if "\n" in file_input or "\r" in file_input:
+            text = file_input
+        else:
+            with open(file_input, "rb") as f:
+                text = decode_bytes(f.read())
+    elif isinstance(file_input, bytes):
+        text = decode_bytes(file_input)
+    else:
+        raise ValueError(f"Неподдерживаемый тип входных данных: {type(file_input)}")
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    data_lines = [l for l in lines if not l.startswith(("#", "!", "//"))]
+    if not data_lines:
+        raise ValueError(f"Файл {sample_id} пуст или не содержит данных.")
+
+    sample_block = data_lines[:min(20, len(data_lines))]
+    candidates = [",", ";", "\t", " "]
+    counts = {c: sum(l.count(c) for l in sample_block) for c in candidates}
+    best_sep = max(counts, key=counts.get)
+    sep = r"\s+" if best_sep == " " else best_sep
+
+    df = pd.read_csv(
+        io.StringIO("\n".join(data_lines)),
+        sep=sep,
+        header=None,
+        engine="python",
+        dtype=str,
+        on_bad_lines="skip"
+    )
+
+    row0 = df.iloc[0].astype(str).str.lower()
+    has_header = any(any(k in cell for k in ["wave", "wl", "nm", "lambda", "int", "abs", "a", "длина"]) for cell in row0)
+    if has_header and len(df) > 1:
+        df.columns = df.iloc[0]
+        df = df.iloc[1:].copy()
+
+    col_wl, col_abs = None, None
+    for c in df.columns:
+        clow = str(c).lower()
+        if any(k in clow for k in ["wave", "wl", "nm", "lambda", "длина"]):
+            col_wl = c
+        elif any(k in clow for k in ["int", "abs", "a", "opt", "поглощ", "dens"]):
+            col_abs = c
+
+    if col_wl is None:
+        col_wl = df.columns[0]
+    if col_abs is None:
+        col_abs = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+
+    wl_series = pd.to_numeric(df[col_wl].astype(str).str.replace(",", ".").str.strip(), errors="coerce")
+    abs_series = pd.to_numeric(df[col_abs].astype(str).str.replace(",", ".").str.strip(), errors="coerce")
+
+    mask = wl_series.notna() & abs_series.notna() & (wl_series >= 180) & (wl_series <= 1200)
+    wl_clean = wl_series[mask].values.astype(float)
+    abs_clean = abs_series[mask].values.astype(float)
+
+    if len(wl_clean) < 5:
+        raise ValueError(f"Не удалось извлечь спектр УФ-Вид для '{sample_id}'. Найдено точек: {len(wl_clean)}.")
+
+    sort_idx = np.argsort(wl_clean)
+    return UVVisSample(
+        sample_id=sample_id,
+        wl=wl_clean[sort_idx],
+        absorbance=abs_clean[sort_idx]
+    )
+
+
+def compute_uv_derivatives(
+    wl: np.ndarray,
+    absorbance: np.ndarray,
+    window_length: int = 21,
+    polyorder: int = 3,
+) -> Dict[str, Any]:
+    """
+    Расчет 1-й и 2-й производных спектра поглощения по алгоритму Савицкого — Голея.
+    Выявляет скрытые плечи поглощения монолигнолов и фенолов (минимум d2A в 270–290 нм).
+    """
+    step = float(np.mean(np.diff(wl)))
+    w_len = window_length
+    if w_len >= len(wl):
+        w_len = len(wl) - 1 if len(wl) % 2 == 0 else len(wl) - 2
+    if w_len < 5:
+        w_len = 5
+
+    d1_a = scipy.signal.savgol_filter(absorbance, window_length=w_len, polyorder=polyorder, deriv=1, delta=step)
+    d2_a = scipy.signal.savgol_filter(absorbance, window_length=w_len, polyorder=polyorder, deriv=2, delta=step)
+
+    mask_280 = (wl >= 270.0) & (wl <= 290.0)
+    if np.any(mask_280):
+        sub_wl = wl[mask_280]
+        sub_d2 = d2_a[mask_280]
+        min_idx = np.argmin(sub_d2)
+        lignin_min_wl = float(sub_wl[min_idx])
+        lignin_d2_val = float(sub_d2[min_idx])
+    else:
+        lignin_min_wl, lignin_d2_val = np.nan, np.nan
+
+    return {
+        "d1_a": d1_a,
+        "d2_a": d2_a,
+        "lignin_min_wl": lignin_min_wl,
+        "lignin_d2_val": lignin_d2_val,
+    }
+
+
+def compute_spectral_slope_curve(
+    wl: np.ndarray,
+    absorbance: np.ndarray,
+    window_length: int = 21,
+    polyorder: int = 3,
+) -> np.ndarray:
+    """Непрерывная кривая спектрального наклона S(lambda) = -d(ln A) / d(lambda) [нм^-1]."""
+    w_len = window_length
+    if w_len >= len(wl):
+        w_len = len(wl) - 1 if len(wl) % 2 == 0 else len(wl) - 2
+    if w_len < 5:
+        w_len = 5
+
+    s_curve = np.full_like(absorbance, np.nan, dtype=float)
+    pos_mask = absorbance > 1e-4
+
+    if np.sum(pos_mask) >= w_len:
+        wl_pos = wl[pos_mask]
+        a_pos = absorbance[pos_mask]
+        step_pos = float(np.mean(np.diff(wl_pos)))
+        ln_a = np.log(a_pos)
+        d_ln_a = scipy.signal.savgol_filter(ln_a, window_length=w_len, polyorder=polyorder, deriv=1, delta=step_pos)
+        s_curve[pos_mask] = -d_ln_a
+
+    return s_curve
+
+
+def estimate_molecular_weight_uv(e2_e3: float) -> float:
+    """
+    Эмпирическая оценка среднемассовой молекулярной массы (Mw)
+    по уравнению Перминовой (1998, 2000) для гуминовых веществ:
+    Mw = 3450 - 390 * (E2/E3) [Да].
+    """
+    if e2_e3 is None or np.isnan(e2_e3) or e2_e3 <= 0:
+        return np.nan
+    mw = 3450.0 - 390.0 * float(e2_e3)
+    return float(np.clip(mw, 400.0, 15000.0))
+
+
+def calculate_uv_vis_indices(
+    sample: UVVisSample,
+    doc: Optional[float] = None,
+    pathlength_cm: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Расчет оптических индексов УФ-Вид:
+    A254, A280, A365, E2/E3, E4/E6, S_275-295, S_350-400, S_R,
+    минимум 2-й производной d2A_280, оценка Mw и SUVA254.
+    """
+    wl, absorbance = sample.wl, sample.absorbance
+
+    def get_abs(target_wl: float) -> float:
+        idx = np.argmin(np.abs(wl - target_wl))
+        if abs(wl[idx] - target_wl) > 5.0:
+            return np.nan
+        return float(absorbance[idx])
+
+    a250 = get_abs(250.0)
+    a254 = get_abs(254.0)
+    a280 = get_abs(280.0)
+    a350 = get_abs(350.0)
+    a365 = get_abs(365.0)
+    a465 = get_abs(465.0)
+    a665 = get_abs(665.0)
+
+    e2_e3 = (a250 / a365) if (not np.isnan(a250) and not np.isnan(a365) and a365 > 1e-4) else np.nan
+    e4_e6 = (a465 / a665) if (not np.isnan(a465) and not np.isnan(a665) and a665 > 1e-4) else np.nan
+
+    def calc_slope(l_min: float, l_max: float) -> float:
+        mask = (wl >= l_min) & (wl <= l_max)
+        if np.sum(mask) < 3:
+            return np.nan
+        sub_wl = wl[mask]
+        sub_a = absorbance[mask]
+        pos_mask = sub_a > 1e-5
+        if np.sum(pos_mask) < 3:
+            return np.nan
+        slope, _ = np.polyfit(sub_wl[pos_mask], np.log(sub_a[pos_mask]), 1)
+        return float(-slope)
+
+    s_275_295 = calc_slope(275.0, 295.0)
+    s_350_400 = calc_slope(350.0, 400.0)
+    sr = (s_275_295 / s_350_400) if (not np.isnan(s_275_295) and not np.isnan(s_350_400) and s_350_400 > 1e-6) else np.nan
+
+    deriv_res = compute_uv_derivatives(wl, absorbance)
+    d2_280 = deriv_res["lignin_d2_val"]
+    mw_est = estimate_molecular_weight_uv(e2_e3)
+
+    doc_val = doc if doc is not None else sample.doc
+    suva254 = np.nan
+    if doc_val is not None and doc_val > 0 and not np.isnan(a254) and a254 > 0:
+        suva254 = float((a254 / (pathlength_cm * doc_val)) * 100.0)
+
+    return {
+        "Sample_ID": sample.sample_id,
+        "A254": round(a254, 4) if not np.isnan(a254) else np.nan,
+        "A280": round(a280, 4) if not np.isnan(a280) else np.nan,
+        "A365": round(a365, 4) if not np.isnan(a365) else np.nan,
+        "E2_E3": round(e2_e3, 2) if not np.isnan(e2_e3) else np.nan,
+        "E4_E6": round(e4_e6, 2) if not np.isnan(e4_e6) else np.nan,
+        "S_275_295": round(s_275_295, 4) if not np.isnan(s_275_295) else np.nan,
+        "S_350_400": round(s_350_400, 4) if not np.isnan(s_350_400) else np.nan,
+        "S_R": round(sr, 2) if not np.isnan(sr) else np.nan,
+        "d2A_280": round(d2_280 * 1e4, 4) if not np.isnan(d2_280) else np.nan,
+        "Mw_est": round(mw_est, 0) if not np.isnan(mw_est) else np.nan,
+        "DOC": round(doc_val, 2) if (doc_val is not None and not np.isnan(doc_val)) else np.nan,
+        "SUVA254": round(suva254, 2) if not np.isnan(suva254) else np.nan,
+    }
+
+
+def correct_inner_filter_effect(
+    eem: np.ndarray,
+    ex: np.ndarray,
+    em: np.ndarray,
+    uv_wl: np.ndarray,
+    uv_a: np.ndarray,
+    pathlength_cm: float = 1.0,
+) -> Tuple[np.ndarray, np.ndarray, Optional[str]]:
+    """
+    Коррекция эффекта внутреннего фильтра (Inner Filter Effect, IFE):
+    F_corr(Ex, Em) = F_obs(Ex, Em) * 10^(0.5 * (A_ex + A_em) * d)
+    """
+    a_clean = np.maximum(0.0, uv_a)
+    a_ex = np.interp(ex, uv_wl, a_clean, left=0.0, right=0.0)
+    a_em = np.interp(em, uv_wl, a_clean, left=0.0, right=0.0)
+
+    cf_matrix = 0.5 * (a_em[:, None] + a_ex[None, :]) * pathlength_cm
+    multiplier = 10.0 ** cf_matrix
+    eem_corr = eem * multiplier
+
+    max_abs = max(float(np.max(a_ex)), float(np.max(a_em)))
+    warning = None
+    if max_abs > 1.5:
+        warning = f"Оптическая плотность A_max = {max_abs:.2f} > 1.5. Рекомендуется предварительное разбавление образца (возможна нелинейность IFE)."
+
+    return eem_corr, cf_matrix, warning
+
+
+def link_uv_vis_to_eem(
+    eem_samples: List[EEMSample],
+    uv_vis_samples: List[UVVisSample],
+    doc_map: Optional[Dict[str, float]] = None,
+    apply_ife: bool = False,
+    pathlength_cm: float = 1.0,
+) -> List[Dict[str, Any]]:
+    """
+    Связывает спектры УФ-Вид с матрицами EEM.
+    Заполняет sample.a254 и sample.doc, а при apply_ife=True корректирует флуоресценцию (IFE).
+    """
+    if not eem_samples or not uv_vis_samples:
+        return []
+
+    uv_dict = {u.sample_id: u for u in uv_vis_samples}
+    uv_keys = list(uv_dict.keys())
+    match_logs = []
+
+    for eem in eem_samples:
+        matched_uv = None
+        if eem.sample_id in uv_dict:
+            matched_uv = uv_dict[eem.sample_id]
+        else:
+            e_base = eem.sample_id.split("_")[0].strip().lower()
+            for k in uv_keys:
+                u_base = k.split("_")[0].strip().lower()
+                if e_base == u_base or eem.sample_id.lower() in k.lower() or k.lower() in eem.sample_id.lower():
+                    matched_uv = uv_dict[k]
+                    break
+
+        if matched_uv is not None:
+            doc_val = None
+            if doc_map and (eem.sample_id in doc_map or matched_uv.sample_id in doc_map):
+                doc_val = doc_map.get(eem.sample_id, doc_map.get(matched_uv.sample_id))
+            elif matched_uv.doc is not None:
+                doc_val = matched_uv.doc
+            elif eem.doc is not None:
+                doc_val = eem.doc
+
+            indices = calculate_uv_vis_indices(matched_uv, doc=doc_val, pathlength_cm=pathlength_cm)
+            eem.a254 = indices["A254"]
+            if doc_val is not None:
+                eem.doc = doc_val
+
+            ife_applied = False
+            ife_warn = None
+            if apply_ife:
+                eem.data, _, ife_warn = correct_inner_filter_effect(
+                    eem.data, eem.ex, eem.em, matched_uv.wl, matched_uv.absorbance, pathlength_cm=pathlength_cm
+                )
+                ife_applied = True
+
+            match_logs.append({
+                "EEM_Sample": eem.sample_id,
+                "UV_Sample": matched_uv.sample_id,
+                "A254": indices["A254"],
+                "DOC": doc_val,
+                "IFE_Applied": ife_applied,
+                "IFE_Warning": ife_warn,
+            })
+
+    return match_logs

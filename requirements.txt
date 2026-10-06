@@ -1,10 +1,7 @@
 streamlit
 pandas
 numpy
-matplotlib
-streamlit
-pandas
-numpy
+scipy
 matplotlib
 plotly
 tensorly

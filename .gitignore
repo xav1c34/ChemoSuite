@@ -4,6 +4,8 @@ ENV/
 Scripts/
 Lib/
 Include/
+etc/
+share/
 pyvenv.cfg
 user_spectra/
 
