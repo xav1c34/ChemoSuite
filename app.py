@@ -1810,8 +1810,12 @@ elif active_module == T[lang]["mod3_name"]:
         st.caption(T[lang]["ml_classes_caption"])
 
         # Редактор классов с поддержкой текстовых меток и мультиклассов
+        fused_df_display = fused_df.copy()
+        if "Class_Target" in fused_df_display.columns:
+            fused_df_display["Class_Target"] = fused_df_display["Class_Target"].astype(str)
+
         edited_df = st.data_editor(
-            fused_df,
+            fused_df_display,
             column_config={
                 "Class_Target": st.column_config.TextColumn(
                     T[lang]["ml_col_class_target"],
@@ -1819,8 +1823,7 @@ elif active_module == T[lang]["mod3_name"]:
                     help="Метка класса (например: 0, 1, 2 или Baikal, Lignin, Sediment)" if lang == "ru" else "Class label (e.g. 0, 1, 2 or Baikal, Lignin, Sediment)",
                 )
             },
-            disabled=[c for c in fused_df.columns if c != "Class_Target"],
-            use_container_width=True,
+            disabled=[c for c in fused_df_display.columns if c != "Class_Target"],
             key="ml_fused_editor",
         )
 
