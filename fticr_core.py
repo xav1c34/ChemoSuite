@@ -779,6 +779,192 @@ def build_tmds_network_graph(
     }
 
 
+def compute_geochemical_vector_fluxes(
+    peaks_df: pd.DataFrame,
+    tol_mda: float = 2.0,
+    top_n: int = 1500,
+) -> Dict[str, Any]:
+    """
+    Количественная оценка геохимических векторных потоков реакций (Geochemical Vector Flux Analysis).
+    Рассчитывает баланс и соотношения ключевых реакционных трансформаций:
+    окисление (+O), декарбоксилирование (-CO2), метилирование/гомология (CH2),
+    гидратация (H2O), сульфирование (SO3) и гидрогенизация (H2).
+    """
+    summary_df, pairs_df = run_tmds_screening(peaks_df, top_n=top_n, tol_mda=tol_mda)
+    if summary_df.empty:
+        return {
+            "flux_counts": {},
+            "flux_shares": {},
+            "indices": {},
+            "summary_df": pd.DataFrame(),
+            "total_reactions": 0,
+        }
+
+    total_reactions = int(summary_df["Count"].sum())
+    counts_by_code: Dict[str, int] = {}
+    for _, row in summary_df.iterrows():
+        t_name = str(row["Transformation"])
+        cnt = int(row["Count"])
+        code = t_name.split()[0]
+        counts_by_code[code] = cnt
+
+    c_o = counts_by_code.get("O", 0)
+    c_co2 = counts_by_code.get("CO2", 0)
+    c_ch2 = counts_by_code.get("CH2", 0)
+    c_h2o = counts_by_code.get("H2O", 0)
+    c_so3 = counts_by_code.get("SO3", 0)
+    c_h2 = counts_by_code.get("H2", 0)
+    denom = max(1, total_reactions)
+
+    indices = {
+        "ox_decarb_ratio": round(c_o / max(1, c_co2), 2),
+        "alkylation_share_pct": round(c_ch2 / denom * 100.0, 2),
+        "hydration_ox_ratio": round(c_h2o / max(1, c_o), 2),
+        "sulfonation_index_pct": round(c_so3 / denom * 100.0, 2),
+        "hydrogenation_index_pct": round(c_h2 / denom * 100.0, 2),
+        "total_reaction_pairs": total_reactions,
+    }
+
+    summary_df["Flux_Type"] = summary_df["Transformation"].apply(
+        lambda t: "Oxidation" if "O (" in t
+        else "Mineralization" if "CO2" in t
+        else "Homology" if "CH2" in t
+        else "Hydration" if "H2O" in t
+        else "Sulfonation" if "SO3" in t
+        else "Hydrogenation" if "H2" in t
+        else "Other"
+    )
+
+    return {
+        "flux_counts": counts_by_code,
+        "flux_shares": {code: round(cnt / denom * 100.0, 2) for code, cnt in counts_by_code.items()},
+        "indices": indices,
+        "summary_df": summary_df,
+        "total_reactions": total_reactions,
+    }
+
+
+def find_transformation_pathways(
+    peaks_df: pd.DataFrame,
+    source_mass: float,
+    target_mass: float,
+    max_depth: int = 4,
+    tol_mda: float = 2.0,
+    max_paths: int = 10,
+) -> List[Dict[str, Any]]:
+    """
+    Многостадийный поиск путей биогеохимической трансформации (Reaction Pathway Discovery).
+    Ищет цепочки химических реакций (+O, -CO2, +CH2, -H2O и др.) между молекулярным
+    ионом-предшественником (source_mass) и продуктом трансформации (target_mass).
+    """
+    if peaks_df.empty or "mass" not in peaks_df.columns:
+        return []
+
+    df_sorted = peaks_df.sort_values("mass").reset_index(drop=True)
+    masses = df_sorted["mass"].to_numpy(dtype=float)
+    formulas = df_sorted["Formula"].tolist() if "Formula" in df_sorted.columns else [f"m/z {m:.4f}" for m in masses]
+
+    tol_da = tol_mda / 1000.0
+
+    # Поиск ближайшего стартового и целевого пика
+    src_idx = int(np.argmin(np.abs(masses - source_mass)))
+    if abs(masses[src_idx] - source_mass) > max(tol_da * 3.0, 0.02):
+        return []
+
+    dst_idx = int(np.argmin(np.abs(masses - target_mass)))
+    if abs(masses[dst_idx] - target_mass) > max(tol_da * 3.0, 0.02):
+        return []
+
+    if src_idx == dst_idx:
+        return []
+
+    from collections import deque
+    queue = deque([(src_idx, [], {src_idx})])
+    found_paths: List[Dict[str, Any]] = []
+
+    while queue:
+        curr_idx, path_steps, visited = queue.popleft()
+
+        if curr_idx == dst_idx:
+            cum_err = sum(abs(step["error_mda"]) for step in path_steps)
+            steps_repr = " -> ".join([f"{step['direction']}{step['code']}" for step in path_steps])
+            path_str = f"{formulas[src_idx]} [{steps_repr}] -> {formulas[dst_idx]}"
+            found_paths.append({
+                "steps": path_steps,
+                "path_str": path_str,
+                "depth": len(path_steps),
+                "cumulative_error_mda": round(cum_err, 3),
+                "source_mass": masses[src_idx],
+                "target_mass": masses[dst_idx],
+                "source_formula": formulas[src_idx],
+                "target_formula": formulas[dst_idx],
+            })
+            if len(found_paths) >= max_paths:
+                break
+            continue
+
+        if len(path_steps) >= max_depth:
+            continue
+
+        curr_mass = masses[curr_idx]
+
+        for tmd in TMDS_LIBRARY:
+            delta = tmd["delta"]
+            name = tmd["name"]
+            code = name.split()[0]
+
+            # 1. Прямой переход: +delta
+            t_fwd = curr_mass + delta
+            l_f = np.searchsorted(masses, t_fwd - tol_da)
+            r_f = np.searchsorted(masses, t_fwd + tol_da)
+            for nxt_idx in range(l_f, r_f):
+                if nxt_idx not in visited:
+                    obs_delta = masses[nxt_idx] - curr_mass
+                    err_mda = (obs_delta - delta) * 1000.0
+                    step_data = {
+                        "from_mass": masses[curr_idx],
+                        "to_mass": masses[nxt_idx],
+                        "from_formula": formulas[curr_idx],
+                        "to_formula": formulas[nxt_idx],
+                        "transformation": name,
+                        "code": code,
+                        "direction": "+",
+                        "delta_theor": delta,
+                        "delta_obs": obs_delta,
+                        "error_mda": round(err_mda, 3),
+                    }
+                    new_visited = set(visited)
+                    new_visited.add(nxt_idx)
+                    queue.append((nxt_idx, path_steps + [step_data], new_visited))
+
+            # 2. Обратный переход: -delta
+            t_rev = curr_mass - delta
+            l_r = np.searchsorted(masses, t_rev - tol_da)
+            r_r = np.searchsorted(masses, t_rev + tol_da)
+            for nxt_idx in range(l_r, r_r):
+                if nxt_idx not in visited:
+                    obs_delta = curr_mass - masses[nxt_idx]
+                    err_mda = (obs_delta - delta) * 1000.0
+                    step_data = {
+                        "from_mass": masses[curr_idx],
+                        "to_mass": masses[nxt_idx],
+                        "from_formula": formulas[curr_idx],
+                        "to_formula": formulas[nxt_idx],
+                        "transformation": name,
+                        "code": code,
+                        "direction": "-",
+                        "delta_theor": delta,
+                        "delta_obs": obs_delta,
+                        "error_mda": round(err_mda, 3),
+                    }
+                    new_visited = set(visited)
+                    new_visited.add(nxt_idx)
+                    queue.append((nxt_idx, path_steps + [step_data], new_visited))
+
+    found_paths.sort(key=lambda p: (p["depth"], p["cumulative_error_mda"]))
+    return found_paths[:max_paths]
+
+
 
 def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
     """Генерация теоретической библиотеки калибрантов (FA / CHO)."""

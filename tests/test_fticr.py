@@ -221,3 +221,66 @@ def test_tmds_network_graph():
     assert net_res["hubs_df"].iloc[0]["Degree"] >= 2
 
 
+def test_compute_geochemical_vector_fluxes():
+    """Тест расчета геохимических векторных потоков реакций."""
+    m0 = 200.00000
+    m_ch2 = m0 + 14.015650
+    m_o = m0 + 15.994915
+    m_co2 = m0 + 43.989829
+
+    peaks_df = pd.DataFrame({
+        "mass": [m0, m_ch2, m_o, m_co2],
+        "intensity": [1000.0, 900.0, 800.0, 700.0],
+        "Formula": ["C10H16O4", "C11H18O4", "C10H16O5", "C11H16O6"],
+    })
+
+    flux_res = fticr_core.compute_geochemical_vector_fluxes(peaks_df, tol_mda=2.0)
+    assert "flux_counts" in flux_res
+    assert "indices" in flux_res
+    assert "summary_df" in flux_res
+    assert flux_res["total_reactions"] >= 3
+    assert flux_res["flux_counts"]["CH2"] >= 1
+    assert flux_res["flux_counts"]["O"] >= 1
+    assert flux_res["flux_counts"]["CO2"] >= 1
+    assert "ox_decarb_ratio" in flux_res["indices"]
+    assert "alkylation_share_pct" in flux_res["indices"]
+
+
+def test_find_transformation_pathways():
+    """Тест поиска многостадийных путей биогеохимической трансформации."""
+    # Цепочка: M0 -> (+O) -> M1 -> (+SO3) -> M2 -> (+CH2) -> M3
+    m0 = 300.000000
+    m1 = m0 + 15.994915  # +O
+    m2 = m1 + 79.956815  # +SO3 -> 395.951730
+    m3 = m2 + 14.015650  # +CH2 -> 409.967380
+
+    peaks_df = pd.DataFrame({
+        "mass": [m0, m1, m2, m3],
+        "intensity": [1000.0, 800.0, 600.0, 400.0],
+        "Formula": ["Precursor", "Int_O", "Int_Sulf", "Product"],
+    })
+
+    # Поиск пути от m0 к m2 (двухстадийный: +O, +SO3)
+    paths = fticr_core.find_transformation_pathways(peaks_df, source_mass=m0, target_mass=m2, max_depth=3, tol_mda=2.0)
+    assert len(paths) >= 1
+    best_path = paths[0]
+    assert best_path["depth"] == 2
+    assert len(best_path["steps"]) == 2
+    assert best_path["steps"][0]["code"] == "O"
+    assert best_path["steps"][0]["direction"] == "+"
+    assert best_path["steps"][1]["code"] == "SO3"
+    assert best_path["steps"][1]["direction"] == "+"
+    assert best_path["cumulative_error_mda"] < 0.1
+
+    # Поиск пути от m0 к m3 (трехстадийный)
+    paths_long = fticr_core.find_transformation_pathways(peaks_df, source_mass=m0, target_mass=m3, max_depth=4, tol_mda=2.0)
+    assert len(paths_long) >= 1
+    assert paths_long[0]["depth"] == 3
+    assert paths_long[0]["steps"][2]["code"] == "CH2"
+
+    # Несуществующий путь (изолированная масса)
+    no_path = fticr_core.find_transformation_pathways(peaks_df, source_mass=m0, target_mass=999.0, max_depth=4)
+    assert no_path == []
+
+
+

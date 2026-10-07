@@ -8,6 +8,7 @@ etc/
 share/
 pyvenv.cfg
 user_spectra/
+.cache_pubchem.json
 
 __pycache__/
 *.py[cod]

@@ -65,6 +65,17 @@ except ImportError:
         project_io = None
         PROJECT_IO_AVAILABLE = False
 
+try:
+    import chemo_pubchem
+    CHEMO_PUBCHEM_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import chemo_pubchem
+        CHEMO_PUBCHEM_AVAILABLE = True
+    except ImportError:
+        chemo_pubchem = None
+        CHEMO_PUBCHEM_AVAILABLE = False
+
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
 # ==============================================================================
@@ -485,6 +496,38 @@ T = {
         "eem_uv_tbl_title": "Оптические дескрипторы УФ-Вид (A254, E2/E3, S_R, SUVA)",
         "eem_dl_uv_indices": "📥 Скачать дескрипторы УФ-Вид (CSV)",
         "eem_uv_no_data": "Загрузите файлы спектров поглощения УФ-Вид в боковой панели.",
+        # Горизонт 3: Хемоинформатика PubChem & Векторные пути трансформаций
+        "pubchem_inspect_expander": "🧪 Хемоинформатика PubChem (Структурная идентификация брутто-формулы)",
+        "pubchem_select_formula": "Выберите формулу из спектра:",
+        "pubchem_custom_input": "Или введите произвольную формулу (C_xH_yO_z...):",
+        "pubchem_search_btn": "🔍 Искать в базе данных PubChem",
+        "pubchem_searching": "Запрос к PubChem PUG-REST API...",
+        "pubchem_res_name": "Каноническое название:",
+        "pubchem_res_iupac": "IUPAC название:",
+        "pubchem_res_class": "Химический класс:",
+        "pubchem_res_subclass": "Биогеохимический субкласс:",
+        "pubchem_res_smiles": "SMILES:",
+        "pubchem_res_cid": "PubChem CID:",
+        "pubchem_link_btn": "🌐 Открыть карточку соединения в PubChem",
+        "tmds_mode_pathways": "🛣️ Трассировка путей реакций (Reaction Pathways)",
+        "tmds_flux_header": "📊 Геохимические векторные потоки (Vector Flux Analysis)",
+        "tmds_flux_ox_decarb": "Окисление / Декарбоксилирование (O/CO₂)",
+        "tmds_flux_alkyl": "Доля алкилирования / гомологии (% CH₂)",
+        "tmds_flux_sulf": "Индекс сульфирования (% SO₃)",
+        "tmds_flux_hydr": "Гидратация / Окисление (H₂O/O)",
+        "tmds_path_source": "Исходный ион-предшественник (m/z):",
+        "tmds_path_target": "Конечный продукт трансформации (m/z):",
+        "tmds_path_depth": "Макс. число стадий (глубина пути):",
+        "tmds_path_tol": "Погрешность TMDS (mDa):",
+        "tmds_path_find_btn": "🛣️ Найти биогеохимические пути",
+        "tmds_path_found": "Найдено допустимых путей трансформации: {n}",
+        "tmds_path_not_found": "Путей между выбранными ионами в пределах заданной погрешности не найдено.",
+        "tmds_dl_paths": "📥 Скачать пути трансформации (CSV)",
+        "ml_pubchem_title": "🧪 Хемоинформатическая идентификация биомаркеров (PubChem)",
+        "ml_pubchem_caption": "Автоматическое сопоставление формул биомаркеров с химическими структурами через PubChem REST API.",
+        "ml_pubchem_btn": "🔍 Аннотировать биомаркеры в PubChem",
+        "ml_pubchem_spinner": "Идентификация биомаркеров через PubChem API...",
+        "ml_pubchem_dl_btn": "📥 Скачать аннотированные биомаркеры (CSV)",
     },
     "en": {
         # Platform
@@ -849,6 +892,38 @@ T = {
         "eem_uv_tbl_title": "UV-Vis Optical Descriptors (A254, E2/E3, S_R, SUVA)",
         "eem_dl_uv_indices": "📥 Download UV-Vis Descriptors (CSV)",
         "eem_uv_no_data": "Upload UV-Vis absorption spectrum files in the sidebar.",
+        # Horizon 3: PubChem Chemoinformatics & Vector Reaction Pathways
+        "pubchem_inspect_expander": "🧪 PubChem Chemoinformatics (Formula Structure Identification)",
+        "pubchem_select_formula": "Select formula from spectrum:",
+        "pubchem_custom_input": "Or enter custom molecular formula (C_xH_yO_z...):",
+        "pubchem_search_btn": "🔍 Search PubChem Database",
+        "pubchem_searching": "Querying PubChem PUG-REST API...",
+        "pubchem_res_name": "Canonical Name:",
+        "pubchem_res_iupac": "IUPAC Name:",
+        "pubchem_res_class": "Chemical Class:",
+        "pubchem_res_subclass": "Biogeochemical Subclass:",
+        "pubchem_res_smiles": "SMILES:",
+        "pubchem_res_cid": "PubChem CID:",
+        "pubchem_link_btn": "🌐 Open Compound in PubChem",
+        "tmds_mode_pathways": "🛣️ Reaction Pathways Tracing",
+        "tmds_flux_header": "📊 Geochemical Vector Flux Analysis",
+        "tmds_flux_ox_decarb": "Oxidation / Decarboxylation Ratio (O/CO₂)",
+        "tmds_flux_alkyl": "Alkylation / Homology Share (% CH₂)",
+        "tmds_flux_sulf": "Sulfonation Stress Index (% SO₃)",
+        "tmds_flux_hydr": "Hydration / Oxidation Ratio (H₂O/O)",
+        "tmds_path_source": "Precursor Ion (m/z):",
+        "tmds_path_target": "Target Product Ion (m/z):",
+        "tmds_path_depth": "Max reaction steps (Depth):",
+        "tmds_path_tol": "TMDS Tolerance (mDa):",
+        "tmds_path_find_btn": "🛣️ Find Transformation Pathways",
+        "tmds_path_found": "Valid transformation pathways found: {n}",
+        "tmds_path_not_found": "No reaction pathways found between selected ions within tolerance.",
+        "tmds_dl_paths": "📥 Download Pathways (CSV)",
+        "ml_pubchem_title": "🧪 Chemoinformatic Biomarker Identification (PubChem)",
+        "ml_pubchem_caption": "Automatic mapping of biomarker formulas to chemical structures via PubChem REST API.",
+        "ml_pubchem_btn": "🔍 Annotate Biomarkers in PubChem",
+        "ml_pubchem_spinner": "Annotating biomarkers via PubChem API...",
+        "ml_pubchem_dl_btn": "📥 Download Annotated Biomarkers (CSV)",
     },
 }
 
@@ -874,6 +949,8 @@ from fticr_core import (
     perform_spectral_algebra,
     run_tmds_screening,
     build_tmds_network_graph,
+    compute_geochemical_vector_fluxes,
+    find_transformation_pathways,
     get_calibrant_library,
 )
 
@@ -1392,6 +1469,42 @@ if active_module == T[lang]["mod1_name"]:
                 st_df(assigned_data)
                 st.download_button(label=T[lang]["dl_csv_formulas"], data=assigned_data.to_csv(index=False).encode("utf-8"),
                                    file_name=f"{active_spectrum_name}_formulas.csv", mime="text/csv", key=f"dl_csv_formulas_{active_spectrum_name}")
+
+                if CHEMO_PUBCHEM_AVAILABLE:
+                    st.markdown("---")
+                    with st.expander(T[lang]["pubchem_inspect_expander"], expanded=False):
+                        top_formulas = assigned_data.sort_values("intensity", ascending=False)["Formula"].head(60).tolist()
+                        col_pc1, col_pc2 = st.columns([2, 2])
+                        with col_pc1:
+                            sel_f = st.selectbox(T[lang]["pubchem_select_formula"], top_formulas, key=f"pc_sel_{active_spectrum_name}")
+                        with col_pc2:
+                            cust_f = st.text_input(T[lang]["pubchem_custom_input"], value="", placeholder="e.g. C20H30O2", key=f"pc_cust_{active_spectrum_name}")
+
+                        target_f = cust_f.strip() if cust_f.strip() else sel_f
+                        if st.button(T[lang]["pubchem_search_btn"], key=f"btn_pc_search_{active_spectrum_name}"):
+                            with st.spinner(T[lang]["pubchem_searching"]):
+                                pc_res = chemo_pubchem.lookup_formula_in_pubchem(target_f, timeout_sec=3.5, fetch_image=True)
+                                st.session_state[f"pc_res_{active_spectrum_name}"] = pc_res
+
+                        pc_active_res = st.session_state.get(f"pc_res_{active_spectrum_name}")
+                        if pc_active_res:
+                            pc_col_img, pc_col_meta = st.columns([1, 2])
+                            with pc_col_img:
+                                if pc_active_res.get("image_bytes"):
+                                    st.image(pc_active_res["image_bytes"], caption=f"2D: {pc_active_res.get('name')}", use_container_width=True)
+                                elif pc_active_res.get("image_url"):
+                                    st.image(pc_active_res["image_url"], caption=f"2D: {pc_active_res.get('name')}", use_container_width=True)
+                                else:
+                                    st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
+                            with pc_col_meta:
+                                st.markdown(f"**{T[lang]['pubchem_res_name']}** `{pc_active_res.get('name', 'N/A')}`")
+                                st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {pc_active_res.get('iupac_name', 'N/A')}")
+                                st.markdown(f"**{T[lang]['pubchem_res_class']}** `{pc_active_res.get('class', 'Unknown')}` — *{pc_active_res.get('subclass', '')}*")
+                                st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{pc_active_res.get('smiles', 'N/A')}`")
+                                if pc_active_res.get("cid"):
+                                    cid_val = pc_active_res["cid"]
+                                    st.markdown(f"**{T[lang]['pubchem_res_cid']}** [{cid_val}](https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val})")
+                                    st.link_button(T[lang]["pubchem_link_btn"], f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val}")
             elif assigned_data is not None:
                 st.warning(T[lang]["no_formulas_warn"])
 
@@ -1951,17 +2064,92 @@ if active_module == T[lang]["mod1_name"]:
         if work_peaks is not None and not work_peaks.empty:
             tmds_view_mode = st.radio(
                 "Режим отображения TMDS:" if lang == "ru" else "TMDS Display Mode:",
-                [T[lang]["tmds_mode_freq"], T[lang]["tmds_mode_network"]],
+                [T[lang]["tmds_mode_freq"], T[lang]["tmds_mode_network"], T[lang]["tmds_mode_pathways"]],
                 horizontal=True,
                 key=f"tmds_view_{active_spectrum_name}"
             )
             if tmds_view_mode == T[lang]["tmds_mode_freq"]:
-                tmds_sum, _ = run_tmds_screening(work_peaks, top_n=1000, tol_mda=2.0)
+                flux_res = compute_geochemical_vector_fluxes(work_peaks, tol_mda=2.0, top_n=1000)
+                tmds_sum = flux_res.get("summary_df", pd.DataFrame())
+                indices = flux_res.get("indices", {})
                 if not tmds_sum.empty:
-                    fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Transformation", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
-                    fig_tmds.update_layout(showlegend=False, xaxis_tickangle=-25, height=420)
+                    st.markdown(f"#### {T[lang]['tmds_flux_header']}")
+                    fx1, fx2, fx3, fx4 = st.columns(4)
+                    fx1.metric(T[lang]["tmds_flux_ox_decarb"], f"{indices.get('ox_decarb_ratio', 0.0):.2f}")
+                    fx2.metric(T[lang]["tmds_flux_alkyl"], f"{indices.get('alkylation_share_pct', 0.0):.1f}%")
+                    fx3.metric(T[lang]["tmds_flux_sulf"], f"{indices.get('sulfonation_index_pct', 0.0):.2f}%")
+                    fx4.metric(T[lang]["tmds_flux_hydr"], f"{indices.get('hydration_ox_ratio', 0.0):.2f}")
+
+                    fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Flux_Type", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
+                    fig_tmds.update_layout(showlegend=True, xaxis_tickangle=-25, height=420)
                     st_plotly(fig_tmds)
                     st_df(tmds_sum)
+            elif tmds_view_mode == T[lang]["tmds_mode_pathways"]:
+                top_pks = work_peaks.sort_values("intensity", ascending=False).head(40).sort_values("mass")
+                cand_options = [
+                    (float(r["mass"]), f"m/z {r['mass']:.4f}" + (f" ({r['Formula']})" if 'Formula' in r and pd.notna(r['Formula']) else ""))
+                    for _, r in top_pks.iterrows()
+                ]
+                col_pw1, col_pw2 = st.columns(2)
+                with col_pw1:
+                    src_sel = st.selectbox(
+                        T[lang]["tmds_path_source"],
+                        options=cand_options,
+                        format_func=lambda x: x[1],
+                        index=0,
+                        key=f"pw_src_{active_spectrum_name}"
+                    )
+                    src_m_custom = st.number_input("Или точная m/z:" if lang == "ru" else "Or exact m/z:", value=0.0, step=0.0001, format="%.4f", key=f"cust_src_{active_spectrum_name}")
+                    src_m = src_m_custom if src_m_custom > 10.0 else src_sel[0]
+                with col_pw2:
+                    dst_default_idx = min(len(cand_options)-1, 5)
+                    dst_sel = st.selectbox(
+                        T[lang]["tmds_path_target"],
+                        options=cand_options,
+                        format_func=lambda x: x[1],
+                        index=dst_default_idx,
+                        key=f"pw_dst_{active_spectrum_name}"
+                    )
+                    dst_m_custom = st.number_input("Или точная m/z продукта:" if lang == "ru" else "Or exact target m/z:", value=0.0, step=0.0001, format="%.4f", key=f"cust_dst_{active_spectrum_name}")
+                    dst_m = dst_m_custom if dst_m_custom > 10.0 else dst_sel[0]
+
+                col_cfg1, col_cfg2, col_cfg3 = st.columns([1, 1, 1])
+                with col_cfg1:
+                    depth_val = st.slider(T[lang]["tmds_path_depth"], min_value=1, max_value=5, value=3, key=f"pw_depth_{active_spectrum_name}")
+                with col_cfg2:
+                    tol_pw_val = st.number_input(T[lang]["tmds_path_tol"], min_value=0.5, max_value=5.0, value=2.0, step=0.5, key=f"pw_tol_{active_spectrum_name}")
+                with col_cfg3:
+                    st.write("")
+                    find_pw_btn = st.button(T[lang]["tmds_path_find_btn"], type="primary", key=f"btn_find_pw_{active_spectrum_name}")
+
+                if find_pw_btn or f"pw_res_{active_spectrum_name}" in st.session_state:
+                    if find_pw_btn:
+                        with st.spinner("Поиск цепочек реакций..." if lang == "ru" else "Traversing reaction pathways..."):
+                            pw_list = find_transformation_pathways(
+                                work_peaks, source_mass=src_m, target_mass=dst_m,
+                                max_depth=depth_val, tol_mda=tol_pw_val, max_paths=10
+                            )
+                            st.session_state[f"pw_res_{active_spectrum_name}"] = pw_list
+
+                    pw_results = st.session_state.get(f"pw_res_{active_spectrum_name}", [])
+                    if pw_results:
+                        st.success(T[lang]["tmds_path_found"].format(n=len(pw_results)))
+                        pw_summary_rows = []
+                        for p_idx, p_item in enumerate(pw_results, 1):
+                            pw_summary_rows.append({
+                                "Path_ID": f"Path #{p_idx}",
+                                "Stages": p_item["depth"],
+                                "Cumulative_Error_mDa": p_item["cumulative_error_mda"],
+                                "Pathway": p_item["path_str"],
+                            })
+                        st_df(pd.DataFrame(pw_summary_rows))
+
+                        for p_idx, p_item in enumerate(pw_results, 1):
+                            with st.expander(f"📍 {p_item['path_str']} (Total err: {p_item['cumulative_error_mda']:.2f} mDa)", expanded=(p_idx == 1)):
+                                steps_df = pd.DataFrame(p_item["steps"])
+                                st_df(steps_df)
+                    else:
+                        st.info(T[lang]["tmds_path_not_found"])
             else:
                 c_n1, c_n2 = st.columns([1, 1])
                 with c_n1:
@@ -2898,6 +3086,29 @@ elif active_module == T[lang]["mod3_name"]:
                     st_plotly(fig_vip)
 
                     st.dataframe(vip_df, use_container_width=True)
+
+                if CHEMO_PUBCHEM_AVAILABLE:
+                    st.markdown("---")
+                    st.write(f"#### {T[lang]['ml_pubchem_title']}")
+                    st.caption(T[lang]["ml_pubchem_caption"])
+                    target_bm = sparse_df[sparse_df["Is_Selected"]].copy() if (curr_model_type == "Sparse PLS-DA (sPLS-DA)" and not sparse_df.empty and "Is_Selected" in sparse_df.columns) else (vip_df.head(20).copy() if not vip_df.empty else pd.DataFrame())
+                    if not target_bm.empty:
+                        if st.button(T[lang]["ml_pubchem_btn"], key="btn_annot_biomarkers_pubchem"):
+                            with st.spinner(T[lang]["ml_pubchem_spinner"]):
+                                desc_col = "Descriptor" if "Descriptor" in target_bm.columns else target_bm.columns[0]
+                                annotated_bm = chemo_pubchem.annotate_formula_table(target_bm, formula_col=desc_col, max_rows=15)
+                                st.session_state["annotated_biomarkers"] = annotated_bm
+
+                        annot_saved = st.session_state.get("annotated_biomarkers")
+                        if annot_saved is not None and not annot_saved.empty:
+                            st_df(annot_saved)
+                            st.download_button(
+                                label=T[lang]["ml_pubchem_dl_btn"],
+                                data=annot_saved.to_csv(index=False).encode("utf-8"),
+                                file_name="ChemoSuite_Biomarkers_PubChem.csv",
+                                mime="text/csv",
+                                key="dl_annot_biomarkers_csv",
+                            )
 
             # Таб S-Plot (для OPLS-DA)
             if is_model_opls and tab_splot is not None:

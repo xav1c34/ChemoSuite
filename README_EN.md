@@ -108,9 +108,10 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ChemoSuite/
 │
 ├── app.py                            # Main super-app: UI routing, trimodal dashboards, and session assembler
-├── fticr_core.py                     # Mass spec core: formulas, 13C isotopes, KMD, Perminova grid, TMDS
+├── fticr_core.py                     # Mass spec core: formulas, 13C isotopes, KMD, Perminova grid, TMDS networks, vector fluxes & reaction pathways
+├── chemo_pubchem.py                  # PubChem chemoinformatics: PUG-REST API, 2D structures, heuristic classes & offline library
 ├── eem_core.py                       # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
-├── chemo_ml.py                       # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, 3D Hotelling, S-Plot, permutation
+├── chemo_ml.py                       # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, permutation
 ├── report_generator.py               # Analytical report generator (.xlsx) styled with openpyxl
 ├── project_io.py                     # .chemo project manager: serialization, ZIP compression, session restore
 │
@@ -121,10 +122,11 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
 │   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Automated test suite (28 unit tests)
-│   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS)
+├── tests/                            # Automated test suite (40 unit tests)
+│   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS networks, vector fluxes, pathways)
+│   ├── test_chemo_pubchem.py         # PubChem chemoinformatics tests (PUG-REST, formula cleaning, biomarker annotation)
 │   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
-│   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
 │   ├── test_report_generator.py      # Multi-sheet Excel passport generation tests (.xlsx)
 │   └── test_project_io.py            # Session serialization & restoration tests (.chemo)
 │

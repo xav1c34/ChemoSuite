@@ -108,9 +108,10 @@
 ChemoSuite/
 │
 ├── app.py                            # Главный супер-апп: UI-маршрутизация, дашборды трех модальностей и сессионный сборщик
-├── fticr_core.py                     # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, сетка 20 ячеек, TMDS
+├── fticr_core.py                     # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, 20 ячеек, TMDS сети, векторные потоки и пути реакций
+├── chemo_pubchem.py                  # Хемоинформатика PubChem: PUG-REST API, 2D структуры, эвристические классы и офлайн-библиотека
 ├── eem_core.py                       # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
-├── chemo_ml.py                       # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, 3D Hotelling, S-Plot, пермутация
+├── chemo_ml.py                       # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, пермутация
 ├── report_generator.py               # Генератор многостраничных Excel-паспортов (.xlsx) с форматированием openpyxl
 ├── project_io.py                     # Модуль проектов .chemo: сериализация, ZIP-сжатие и восстановление сессии
 │
@@ -121,10 +122,11 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
 │   └── README.md                     # Инструкция по использованию демо-файлов
 │
-├── tests/                            # Набор модульных тестов pytest (28 unit-тестов)
-│   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS)
+├── tests/                            # Набор модульных тестов pytest (40 unit-тестов)
+│   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS сети, векторные потоки, пути реакций)
+│   ├── test_chemo_pubchem.py         # Тесты хемоинформатики PubChem (PUG-REST, очистка формул, аннотация биомаркеров)
 │   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
-│   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
 │   ├── test_report_generator.py      # Тесты генерации многостраничных Excel-паспортов (.xlsx)
 │   └── test_project_io.py            # Тесты сериализации и восстановления сессий (.chemo)
 │
