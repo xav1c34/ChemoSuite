@@ -1759,11 +1759,26 @@ elif active_module == T[lang]["mod3_name"]:
         if upload_type == T[lang]["ml_upload_two"]:
             col_u1, col_u2, col_u3 = st.columns(3)
             with col_u1:
-                f_ms = st.file_uploader(T[lang]["ml_up_ms"], type=["csv", "tsv", "txt"], key="up_ms_features")
+                f_ms = st.file_uploader(
+                    T[lang]["ml_up_ms"],
+                    type=["csv", "tsv", "txt"],
+                    key="up_ms_features",
+                    help="Таблица дескрипторов FT-ICR (Sample_ID, 20 ячеек, AI, DBE). Демо: demo_data/multimodal_ml/chemo_fticr_block.csv" if lang == "ru" else "FT-ICR descriptor table (Sample_ID, 20 cells). Demo: demo_data/multimodal_ml/chemo_fticr_block.csv",
+                )
             with col_u2:
-                f_eem = st.file_uploader(T[lang]["ml_up_eem"], type=["csv", "tsv", "txt"], key="up_eem_features")
+                f_eem = st.file_uploader(
+                    T[lang]["ml_up_eem"],
+                    type=["csv", "tsv", "txt"],
+                    key="up_eem_features",
+                    help="Таблица дескрипторов EEM (Sample_ID, FI, HIX, C1..C3). Демо: demo_data/multimodal_ml/chemo_eem_block.csv" if lang == "ru" else "EEM descriptor table (Sample_ID, FI, HIX). Demo: demo_data/multimodal_ml/chemo_eem_block.csv",
+                )
             with col_u3:
-                f_uv = st.file_uploader(T[lang]["ml_up_uv"], type=["csv", "tsv", "txt"], key="up_uv_features")
+                f_uv = st.file_uploader(
+                    T[lang]["ml_up_uv"],
+                    type=["csv", "tsv", "txt"],
+                    key="up_uv_features",
+                    help="Таблица дескрипторов UV-Vis (Sample_ID, A254, E2/E3, SR, Mw). Демо: demo_data/multimodal_ml/chemo_uv_block.csv" if lang == "ru" else "UV-Vis descriptor table (Sample_ID, A254, E2/E3). Demo: demo_data/multimodal_ml/chemo_uv_block.csv",
+                )
 
             if f_ms or f_eem or f_uv:
                 try:
@@ -1778,18 +1793,42 @@ elif active_module == T[lang]["mod3_name"]:
                         src_names = [f.name for f in [f_ms, f_eem, f_uv] if f is not None]
                         st.session_state["fused_source"] = " + ".join(src_names)
                 except Exception as e:
-                    st.error(f"Error reading files: {e}")
+                    st.error(f"⚠️ Ошибка загрузки файлов: {e}")
+                    st.info(
+                        "💡 **Подсказка:** Для Модуля 3 требуются сводные таблицы дескрипторов по образцам из каталога `demo_data/multimodal_ml/`:\n"
+                        "- FT-ICR MS: `demo_data/multimodal_ml/chemo_fticr_block.csv`\n"
+                        "- EEM-PARAFAC: `demo_data/multimodal_ml/chemo_eem_block.csv`\n"
+                        "- UV-Vis: `demo_data/multimodal_ml/chemo_uv_block.csv`\n\n"
+                        "*Примечание:* Сырые файлы пик-листов (`demo_data/fticr_ms/`) и 1D-спектров (`demo_data/uv_vis/`) предназначены для обработки в Модулях 1 и 2, после чего их можно передать сюда через опцию «Собрать из сессии»."
+                        if lang == "ru" else
+                        "💡 **Tip:** Module 3 requires summary descriptor tables across samples from `demo_data/multimodal_ml/`:\n"
+                        "- FT-ICR MS: `demo_data/multimodal_ml/chemo_fticr_block.csv`\n"
+                        "- EEM-PARAFAC: `demo_data/multimodal_ml/chemo_eem_block.csv`\n"
+                        "- UV-Vis: `demo_data/multimodal_ml/chemo_uv_block.csv`"
+                    )
         else:
-            f_single = st.file_uploader(T[lang]["ml_up_single"], type=["csv", "tsv", "txt"], key="up_single_features")
+            f_single = st.file_uploader(
+                T[lang]["ml_up_single"],
+                type=["csv", "tsv", "txt"],
+                key="up_single_features",
+                help="Единая мультимодальная матрица признаков. Демо: demo_data/multimodal_ml/chemo_unified_multimodal.csv" if lang == "ru" else "Unified multimodal matrix with Sample_ID. Demo: demo_data/multimodal_ml/chemo_unified_multimodal.csv",
+            )
             if f_single:
                 try:
                     df_s = pd.read_csv(f_single)
+                    if "Sample_ID" not in df_s.columns:
+                        raise KeyError("В таблице отсутствует колонка 'Sample_ID'. Для единого файла дескрипторов используйте demo_data/multimodal_ml/chemo_unified_multimodal.csv.")
                     if "Class_Target" not in df_s.columns:
                         df_s["Class_Target"] = 0
                     st.session_state["fused_data"] = df_s
                     st.session_state["fused_source"] = f_single.name
                 except Exception as e:
-                    st.error(f"Error reading file: {e}")
+                    st.error(f"⚠️ Ошибка чтения файла: {e}")
+                    st.info(
+                        "💡 **Подсказка:** Для единого файла используйте `demo_data/multimodal_ml/chemo_unified_multimodal.csv`."
+                        if lang == "ru" else
+                        "💡 **Tip:** For a single file, use `demo_data/multimodal_ml/chemo_unified_multimodal.csv`."
+                    )
 
     # 3. Синтетический бенчмарк
     else:

@@ -103,6 +103,13 @@ def merge_feature_blocks(
     dfs = [df for df in [df_fticr, df_eem, df_uv] if df is not None and not df.empty]
     if not dfs:
         return pd.DataFrame()
+    for d in dfs:
+        if on_col not in d.columns:
+            cols_preview = ", ".join(list(d.columns[:5]))
+            raise KeyError(
+                f"В таблице отсутствует колонка '{on_col}' (найдены колонки: {cols_preview}). "
+                f"Для Модуля 3 требуются таблицы дескрипторов образцов (Sample_ID, признаки), а не сырые спектры."
+            )
     if len(dfs) == 1:
         return dfs[0].copy()
 
