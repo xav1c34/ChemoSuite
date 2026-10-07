@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-34%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-44%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -57,6 +57,11 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 * Digitization of the continuous molecular space of the Van Krevelen diagram into a discrete 20-dimensional feature vector ($VK_1–VK_{20}$) based on the relative number of formulas and intensity-weighted averages.
 
+#### Interactive Reaction Network Graph (TMDS Network Graph)
+<img src="assets/fticr_tmds_network.png" width="100%" alt="TMDS Reaction Network Graph" />
+
+* Topological reaction network mapping transformations between natural and anthropogenic organic molecules along discrete geochemical vectors ($\text{CH}_2$, $\text{O}$, $\text{H}_2\text{O}$, $\text{CO}_2$, $\text{SO}_3$) with identification of key topological reaction hubs and node connectivity degrees ($\text{Degree}$).
+
 ---
 
 ### Module 2: Optical Spectroscopy (EEM-PARAFAC & UV-Vis)
@@ -92,10 +97,18 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 * Multimodal classification model built on the merged descriptor pool of all three methods (**FT-ICR MS + EEM-PARAFAC + UV-Vis**).
 * **PLS-DA & OPLS-DA Architectures:** standard PLS-DA and orthogonal OPLS-DA (Orthogonal PLS-DA) separating predictive variation ($t_{\text{pred}}$) from orthogonal noise ($t_{\text{ortho}}$).
-* **2D & 3D Scores Plot:** interactive projection toggle ($t_1 \times t_2$ and $t_1 \times t_2 \times t_3$) with parametric 95% Hotelling's $T^2$ confidence ellipsoid surface in 3D.
-* **Multiclass Classification ($K \ge 2$):** $K \times K$ confusion matrix, balanced accuracy, sensitivity, and specificity.
+
+#### 3D Latent Scores Space & 95% Hotelling's Ellipsoid (Scores Plot 3D)
+<img src="assets/ml_scores_3d_hotelling.png" width="100%" alt="3D Scores Plot with Hotelling Ellipsoid" />
+
+* Interactive three-dimensional latent score space ($LV_1 \times LV_2 \times LV_3$) featuring a parametric 95% Hotelling's $T^2$ confidence ellipsoid surface, cleanly segregating pristine Lake Baikal samples from industrial kraft sludge-lignin.
+
+#### Multiblock Biomarker Ranking (VIP Scores Barplot)
+<img src="assets/ml_splot_biomarkers.png" width="100%" alt="Ranked VIP Biomarkers" />
+
+* Multifactorial ranking of discriminative predictors ($VIP > 1.0$) with color-coded analytical source tagging (blue: ultrahigh-resolution FT-ICR MS, orange: EEM-PARAFAC fluorescence, green: UV-Vis spectrophotometry).
+
 * **S-Plot Diagram (OPLS-DA):** covariance $p[1]$ (magnitude) vs correlation $p(\text{corr})[1]$ (reliability) visualization for biomarker discovery with block color tags.
-* **VIP Scores & Block Contributions:** ranking of biomarkers ($VIP > 1.0$) and relative percentage contribution of analytical blocks ($\text{VIP}^2$ share).
 * **Validation & Diagnostics:** Leave-One-Out / K-Fold cross-validation ($Q^2$) and permutation testing (50 iterations) with empirical $p$-value.
 * **Comprehensive Analytical Passport (.xlsx):** export multi-sheet styled Excel report containing metadata summary, fused feature matrix, FT-ICR MS 20-cells, EEM-PARAFAC, UV-Vis indices, VIP biomarkers, and S-Plot.
 * **Save & Restore Projects (.chemo):** package full analytical workspace session (mass spectra, optical descriptors, fused matrix, trained models) into a portable compressed project file and restore workspace state in one click.

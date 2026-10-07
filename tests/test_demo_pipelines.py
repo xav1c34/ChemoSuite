@@ -141,3 +141,30 @@ def test_demo_multimodal_ml_and_reports():
     restored = project_io.load_chemo_project(chemo_bytes)
     assert "fused_data" in restored
     assert "pls_results" in restored
+
+
+def test_batch_descriptors_and_kmd_slicing():
+    """Тест пакетного извлечения дескрипторов FT-ICR MS и KMD-среза."""
+    demo_csv = os.path.join("demo_data", "fticr_ms", "Baikal_Control_01_fticr.csv")
+    assert os.path.exists(demo_csv)
+    df_peaks = pd.read_csv(demo_csv)
+
+    # Приписывание формул
+    assigned = fticr_core.fast_formula_assigner(df_peaks, ppm_tolerance=1.5)
+    assert assigned is not None and not assigned.empty
+
+    # Извлечение вектора дескрипторов (Feature 4)
+    desc = chemo_ml.extract_fticr_descriptors(assigned, sample_id="Baikal_Control_01")
+    assert desc["Sample_ID"] == "Baikal_Control_01"
+    assert "VK_1" in desc and "VK_20" in desc
+    assert "Mn" in desc and "H/C" in desc and "O/C" in desc and "AI" in desc
+
+    # KMD Slicing (Feature 2)
+    km, kmd, nkm = fticr_core.compute_kmd(assigned["mass"].values, "CH2")
+    assigned["KMD"] = kmd
+    target_kmd = float(np.median(kmd))
+    tol_kmd = 0.015
+    mask = (assigned["KMD"] >= target_kmd - tol_kmd) & (assigned["KMD"] <= target_kmd + tol_kmd)
+    sliced = assigned[mask]
+    assert len(sliced) > 0
+    assert (sliced["KMD"].max() - sliced["KMD"].min()) <= (2 * tol_kmd + 1e-6)

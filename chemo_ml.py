@@ -37,9 +37,31 @@ def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: 
     if assigned_df is None or assigned_df.empty or "C" not in assigned_df.columns:
         return {}
 
-    sub = assigned_df[
-        (assigned_df["O/C"] >= 0.0) & (assigned_df["O/C"] <= 1.0) &
-        (assigned_df["H/C"] >= 0.2) & (assigned_df["H/C"] <= 2.2)
+    df = assigned_df.copy()
+    c_safe = np.where(df["C"] > 0, df["C"], 1e-6)
+    if "O/C" not in df.columns and "O" in df.columns:
+        df["O/C"] = np.round(df["O"] / c_safe, 4)
+    if "H/C" not in df.columns and "H" in df.columns:
+        df["H/C"] = np.round(df["H"] / c_safe, 4)
+    if "DBE" not in df.columns and "H" in df.columns:
+        n_val = df["N"] if "N" in df.columns else 0.0
+        df["DBE"] = np.round(1.0 + df["C"] - 0.5 * df["H"] + 0.5 * n_val, 2)
+    if "AI" not in df.columns and "O" in df.columns:
+        o_val = df["O"]
+        n_val = df["N"] if "N" in df.columns else 0.0
+        s_val = df["S"] if "S" in df.columns else 0.0
+        c_denom = df["C"] - o_val - n_val - s_val
+        dbe_ai = 1.0 + df["C"] - o_val - s_val - 0.5 * df["H"]
+        ai_raw = np.where(c_denom > 0, dbe_ai / c_denom, 0.0)
+        df["AI"] = np.round(np.clip(ai_raw, 0.0, 1.0), 4)
+    if "NOSC" not in df.columns and "O" in df.columns:
+        n_val = df["N"] if "N" in df.columns else 0.0
+        s_val = df["S"] if "S" in df.columns else 0.0
+        df["NOSC"] = np.round(4.0 - ((4.0 * df["C"] + df["H"] - 3.0 * n_val - 2.0 * df["O"] - 2.0 * s_val) / c_safe), 3)
+
+    sub = df[
+        (df["O/C"] >= 0.0) & (df["O/C"] <= 1.0) &
+        (df["H/C"] >= 0.2) & (df["H/C"] <= 2.2)
     ].copy()
 
     res = {"Sample_ID": sample_id}
@@ -70,21 +92,21 @@ def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: 
         for c in range(4):
             res[f"VK_{1 + r * 4 + c}"] = round(float(active_mat[r, c]), 3)
 
-    res["Mn"] = round(float(assigned_df["mass"].mean()), 2)
-    if "intensity" in assigned_df.columns and assigned_df["intensity"].sum() > 0:
-        res["Mw"] = round(float(np.average(assigned_df["mass"], weights=assigned_df["intensity"])), 2)
+    res["Mn"] = round(float(df["mass"].mean()), 2)
+    if "intensity" in df.columns and df["intensity"].sum() > 0:
+        res["Mw"] = round(float(np.average(df["mass"], weights=df["intensity"])), 2)
     else:
         res["Mw"] = res["Mn"]
 
-    res["H/C"] = round(float(assigned_df["H/C"].mean()), 3)
-    res["O/C"] = round(float(assigned_df["O/C"].mean()), 3)
-    res["DBE"] = round(float(assigned_df["DBE"].mean()), 2)
-    res["AI"] = round(float(assigned_df["AI"].mean()), 3)
-    if "NOSC" in assigned_df.columns:
-        res["NOSC"] = round(float(assigned_df["NOSC"].mean()), 3)
+    res["H/C"] = round(float(df["H/C"].mean()), 3)
+    res["O/C"] = round(float(df["O/C"].mean()), 3)
+    res["DBE"] = round(float(df["DBE"].mean()), 2)
+    res["AI"] = round(float(df["AI"].mean()), 3)
+    if "NOSC" in df.columns:
+        res["NOSC"] = round(float(df["NOSC"].mean()), 3)
 
-    if "Hetero_Class" in assigned_df.columns:
-        counts = assigned_df["Hetero_Class"].value_counts(normalize=True) * 100.0
+    if "Hetero_Class" in df.columns:
+        counts = df["Hetero_Class"].value_counts(normalize=True) * 100.0
         res["CHO_pct"] = round(float(counts.get("CHO", 0.0)), 2)
         res["CHON_pct"] = round(float(counts.get("CHON", 0.0)), 2)
         res["CHOS_pct"] = round(float(counts.get("CHOS", 0.0)), 2)

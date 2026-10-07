@@ -528,6 +528,20 @@ T = {
         "ml_pubchem_btn": "🔍 Аннотировать биомаркеры в PubChem",
         "ml_pubchem_spinner": "Идентификация биомаркеров через PubChem API...",
         "ml_pubchem_dl_btn": "📥 Скачать аннотированные биомаркеры (CSV)",
+        # Улучшения UX / Фичи 1-4
+        "demo_loader_btn": "🧪 Загрузить демо-данные МГУ (1-Click Demo)",
+        "demo_loader_success": "Эталонные данные МГУ загружены! Образцы FT-ICR MS, EEM-PARAFAC, UV-Vis и мультимодальная матрица готовы к работе.",
+        "kmd_slicer_title": "🎯 Срез гомологической серии (KMD Slicer)",
+        "kmd_slicer_enable": "Включить фильтрацию гомологического ряда по KMD",
+        "kmd_target_val": "Целевой KMD (дефект массы):",
+        "kmd_tol_val": "Допуск среза (± ΔKMD):",
+        "kmd_slicer_count": "Выделено членов серии: **{n}** из {total} ({pct:.1f}%)",
+        "kmd_dl_series": "📥 Скачать выделенный гомологический ряд (CSV)",
+        "batch_desc_title": "📊 Пакетный экспорт дескрипторов всех спектров",
+        "batch_desc_caption": "Сводная таблица биогеохимических индексов (Mn, Mw, H/C, O/C, DBE, AI, NOSC) и 20 ячеек Перминовой для всех идентифицированных спектров сессии.",
+        "batch_desc_dl_csv": "📥 Экспорт сводной таблицы (CSV)",
+        "batch_desc_dl_excel": "📊 Экспорт в Excel (.xlsx)",
+        "batch_desc_no_data": "В текущей сессии еще нет спектров с приписанными брутто-формулами. Выполните приписывание хотя бы для одного образца.",
     },
     "en": {
         # Platform
@@ -924,6 +938,20 @@ T = {
         "ml_pubchem_btn": "🔍 Annotate Biomarkers in PubChem",
         "ml_pubchem_spinner": "Annotating biomarkers via PubChem API...",
         "ml_pubchem_dl_btn": "📥 Download Annotated Biomarkers (CSV)",
+        # UX Improvements / Features 1-4
+        "demo_loader_btn": "🧪 Load MSU Demo Data (1-Click Demo)",
+        "demo_loader_success": "MSU reference dataset loaded! FT-ICR MS, EEM-PARAFAC, UV-Vis spectra, and fused benchmark are ready to explore.",
+        "kmd_slicer_title": "🎯 Homologous Series Slicer (KMD Slicer)",
+        "kmd_slicer_enable": "Enable KMD homologous series isolation",
+        "kmd_target_val": "Target KMD (Mass Defect):",
+        "kmd_tol_val": "Slice Tolerance (± ΔKMD):",
+        "kmd_slicer_count": "Series members isolated: **{n}** of {total} ({pct:.1f}%)",
+        "kmd_dl_series": "📥 Download Isolated Series (CSV)",
+        "batch_desc_title": "📊 Batch Export Descriptors Across All Spectra",
+        "batch_desc_caption": "Consolidated table of biogeochemical indices (Mn, Mw, H/C, O/C, DBE, AI, NOSC) and Perminova 20-cells for all identified spectra in session.",
+        "batch_desc_dl_csv": "📥 Export Summary Table (CSV)",
+        "batch_desc_dl_excel": "📊 Export to Excel (.xlsx)",
+        "batch_desc_no_data": "No spectra with assigned formulas found in the current session. Run formula assignment for at least one sample.",
     },
 }
 
@@ -1110,6 +1138,69 @@ with st.sidebar:
                         st.rerun()
                 except Exception as e_load:
                     st.error(f"Ошибка чтения проекта: {e_load}")
+
+            st.markdown("---")
+            if st.button(T[lang]["demo_loader_btn"], type="secondary", use_container_width=True, key="btn_load_demo_msu"):
+                demo_fticr_dir = os.path.join("demo_data", "fticr_ms")
+                loaded_any = False
+                if os.path.exists(demo_fticr_dir):
+                    for d_fname in sorted(os.listdir(demo_fticr_dir)):
+                        if d_fname.lower().endswith(".csv"):
+                            d_path = os.path.join(demo_fticr_dir, d_fname)
+                            try:
+                                with open(d_path, "rb") as f_dem:
+                                    b_content = f_dem.read()
+                                local_p = os.path.join(STORAGE_DIR, d_fname)
+                                with open(local_p, "wb") as f_loc:
+                                    f_loc.write(b_content)
+                                p_df = pd.read_csv(d_path)
+                                if "mass" in p_df.columns and "intensity" in p_df.columns:
+                                    p_df["norm_intensity"] = (p_df["intensity"] / p_df["intensity"].max()) * 100.0
+                                    # Рассчитываем формулы по умолчанию для первого образца
+                                    a_df = fast_formula_assigner(p_df, ppm_tolerance=1.2)
+                                else:
+                                    a_df = None
+                                st.session_state["spectra_db"][d_fname] = {
+                                    "raw_path": local_p,
+                                    "file_bytes": b_content,
+                                    "parsed_peaks": p_df,
+                                    "assigned_df": a_df,
+                                    "raw_df": p_df,
+                                }
+                                loaded_any = True
+                            except Exception:
+                                pass
+
+                # Подгрузка мультимодальной матрицы ML
+                fused_path = os.path.join("demo_data", "multimodal_ml", "chemo_unified_multimodal.csv")
+                if os.path.exists(fused_path):
+                    try:
+                        fused_demo_df = pd.read_csv(fused_path)
+                        st.session_state["fused_data"] = fused_demo_df
+                        st.session_state["fused_source"] = "MSU Baikal vs Sludge-Lignin (Demo)"
+                        loaded_any = True
+                    except Exception:
+                        pass
+
+                # Подгрузка дескрипторов EEM и UV
+                eem_b_path = os.path.join("demo_data", "multimodal_ml", "chemo_eem_block.csv")
+                if os.path.exists(eem_b_path):
+                    try:
+                        st.session_state["eem_ml_descriptors"] = pd.read_csv(eem_b_path)
+                    except Exception:
+                        pass
+
+                uv_b_path = os.path.join("demo_data", "multimodal_ml", "chemo_uv_block.csv")
+                if os.path.exists(uv_b_path):
+                    try:
+                        st.session_state["uv_ml_descriptors"] = pd.read_csv(uv_b_path)
+                    except Exception:
+                        pass
+
+                if loaded_any:
+                    st.toast(T[lang]["demo_loader_success"], icon="🧪")
+                    st.rerun()
+
             st.markdown("---")
 
 # Фирменный баннер платформы
@@ -1483,10 +1574,17 @@ if active_module == T[lang]["mod1_name"]:
                             cust_f = st.text_input(T[lang]["pubchem_custom_input"], value="", placeholder="e.g. C20H30O2", key=f"pc_cust_{active_spectrum_name}")
 
                         target_f = cust_f.strip() if cust_f.strip() else sel_f
-                        if st.button(T[lang]["pubchem_search_btn"], key=f"btn_pc_search_{active_spectrum_name}"):
+                        col_btn_pc1, col_btn_pc2 = st.columns([1, 2])
+                        with col_btn_pc1:
+                            search_clicked = st.button(T[lang]["pubchem_search_btn"], key=f"btn_pc_search_{active_spectrum_name}")
+
+                        # Автоматическая загрузка при смене формулы или по клику на кнопку
+                        cached_target = st.session_state.get(f"pc_last_f_{active_spectrum_name}")
+                        if (search_clicked or (target_f and target_f != cached_target)):
                             with st.spinner(T[lang]["pubchem_searching"]):
                                 pc_matches = chemo_pubchem.lookup_formula_in_pubchem(target_f, max_records=1, timeout=4.0)
                                 st.session_state[f"pc_res_{active_spectrum_name}"] = pc_matches[0] if (pc_matches and len(pc_matches) > 0) else None
+                                st.session_state[f"pc_last_f_{active_spectrum_name}"] = target_f
 
                         pc_active_res = st.session_state.get(f"pc_res_{active_spectrum_name}")
                         if pc_active_res:
@@ -1754,6 +1852,51 @@ if active_module == T[lang]["mod1_name"]:
 
             get_plot_download_buttons(fig_kmd_mpl, f"{active_spectrum_name}_kmd_{base_label}", lang)
             plt.close(fig_kmd_mpl)
+
+            # Feature 2: KMD Homologous Series Slicer
+            with st.expander(T[lang]["kmd_slicer_title"], expanded=False):
+                col_sl1, col_sl2, col_sl3 = st.columns([1, 1, 1])
+                with col_sl1:
+                    enable_slicer = st.checkbox(T[lang]["kmd_slicer_enable"], value=False, key=f"kmd_sl_chk_{active_spectrum_name}")
+                with col_sl2:
+                    med_kmd = float(work_df["KMD"].median()) if not work_df.empty else 0.5
+                    target_kmd = st.number_input(
+                        T[lang]["kmd_target_val"],
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=round(med_kmd, 3),
+                        step=0.01,
+                        format="%.3f",
+                        disabled=not enable_slicer,
+                        key=f"kmd_sl_target_{active_spectrum_name}",
+                    )
+                with col_sl3:
+                    tol_kmd = st.number_input(
+                        T[lang]["kmd_tol_val"],
+                        min_value=0.001,
+                        max_value=0.100,
+                        value=0.010,
+                        step=0.002,
+                        format="%.3f",
+                        disabled=not enable_slicer,
+                        key=f"kmd_sl_tol_{active_spectrum_name}",
+                    )
+
+                if enable_slicer:
+                    kmd_mask = (work_df["KMD"] >= target_kmd - tol_kmd) & (work_df["KMD"] <= target_kmd + tol_kmd)
+                    sliced_df = work_df[kmd_mask].sort_values("mass").reset_index(drop=True)
+                    pct_sliced = (len(sliced_df) / len(work_df) * 100.0) if len(work_df) > 0 else 0.0
+
+                    st.markdown(T[lang]["kmd_slicer_count"].format(n=len(sliced_df), total=len(work_df), pct=pct_sliced))
+                    if not sliced_df.empty:
+                        st_df(sliced_df)
+                        st.download_button(
+                            label=T[lang]["kmd_dl_series"],
+                            data=sliced_df.to_csv(index=False).encode("utf-8"),
+                            file_name=f"{active_spectrum_name}_kmd_{base_choice}_series_{target_kmd:.3f}.csv",
+                            mime="text/csv",
+                            key=f"dl_kmd_series_{active_spectrum_name}",
+                        )
 
     # 6. Хемотипирование 20 ячеек
     with tabs[5]:
@@ -2242,6 +2385,57 @@ if active_module == T[lang]["mod1_name"]:
             c2.metric("H/C (Mn)", f"{assigned_data['H/C'].mean():.3f}")
             c3.metric("O/C (Mn)", f"{assigned_data['O/C'].mean():.3f}")
             c4.metric(T[lang]["desc_ai"], f"{assigned_data['AI'].mean():.3f}")
+
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric(T[lang]["desc_mw"], f"{np.average(assigned_data['mass'], weights=assigned_data['intensity']):.2f} Da" if "intensity" in assigned_data.columns and assigned_data["intensity"].sum() > 0 else f"{assigned_data['mass'].mean():.2f} Da")
+            c6.metric(T[lang]["desc_dbe"], f"{assigned_data['DBE'].mean():.2f}")
+            c7.metric("NOSC", f"{assigned_data['NOSC'].mean():.3f}" if "NOSC" in assigned_data.columns else "N/A")
+            c8.metric("DBE - O", f"{(assigned_data['DBE'] - assigned_data['O']).mean():.2f}")
+
+        # Feature 4: Batch Descriptors Export across all spectra in session
+        st.markdown("---")
+        st.write(f"### {T[lang]['batch_desc_title']}")
+        st.caption(T[lang]["batch_desc_caption"])
+
+        assigned_spectra_all = {
+            s_name: s_obj["assigned_df"]
+            for s_name, s_obj in st.session_state.get("spectra_db", {}).items()
+            if s_obj.get("assigned_df") is not None and not s_obj["assigned_df"].empty
+        }
+
+        if not assigned_spectra_all:
+            st.info(T[lang]["batch_desc_no_data"])
+        else:
+            batch_rows = []
+            for s_name, a_df in assigned_spectra_all.items():
+                d = chemo_ml.extract_fticr_descriptors(a_df, s_name)
+                if d:
+                    batch_rows.append(d)
+
+            if batch_rows:
+                batch_df = pd.DataFrame(batch_rows)
+                st_df(batch_df)
+
+                col_dl_b1, col_dl_b2 = st.columns([1, 1])
+                with col_dl_b1:
+                    st.download_button(
+                        label=T[lang]["batch_desc_dl_csv"],
+                        data=batch_df.to_csv(index=False).encode("utf-8"),
+                        file_name="ChemoSuite_Batch_FTICR_Descriptors.csv",
+                        mime="text/csv",
+                        key="dl_batch_desc_csv",
+                    )
+                with col_dl_b2:
+                    excel_buf = io.BytesIO()
+                    with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+                        batch_df.to_excel(writer, index=False, sheet_name="FTICR_Descriptors")
+                    st.download_button(
+                        label=T[lang]["batch_desc_dl_excel"],
+                        data=excel_buf.getvalue(),
+                        file_name="ChemoSuite_Batch_FTICR_Descriptors.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_batch_desc_excel",
+                    )
 
 # ==============================================================================
 # МОДУЛЬ 2: 3D ОПТИЧЕСКАЯ СПЕКТРОСКОПИЯ (EEM-PARAFAC & UV-VIS)
