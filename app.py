@@ -1219,10 +1219,13 @@ if active_module == T[lang]["mod1_name"]:
                         st.error("Error: No valid numeric data found." if lang == "en" else "Ошибка: Нет корректных числовых данных.")
                         st.stop()
 
-                    min_m_data, max_m_data = float(valid_df["mass"].min()), float(valid_df["mass"].max())
-                    mz_range = st.slider(T[lang]["mz_range"], min_value=max(50.0, float(np.floor(min_m_data))),
-                                         max_value=min(2500.0, float(np.ceil(max_m_data))),
-                                         value=(max(100.0, float(np.floor(min_m_data))), min(1200.0, float(np.ceil(max_m_data)))),
+                    min_m_bound = max(50.0, float(np.floor(min_m_data)))
+                    max_m_bound = max(min_m_bound + 10.0, min(2500.0, float(np.ceil(max_m_data))))
+                    def_low = max(min_m_bound, min(100.0, max_m_bound - 1.0))
+                    def_high = min(max_m_bound, max(def_low + 1.0, min(max_m_bound, 1200.0)))
+                    mz_range = st.slider(T[lang]["mz_range"], min_value=min_m_bound,
+                                         max_value=max_m_bound,
+                                         value=(def_low, def_high),
                                          step=10.0, key=f"mzrange_{active_spectrum_name}")
 
                     max_int_data = float(valid_df["intensity"].max())
@@ -2611,14 +2614,33 @@ elif active_module == T[lang]["mod3_name"]:
             strat_code = "mid_level" if strategy_choice == T[lang]["ml_strat_mid"] else "low_level"
         with col_p2:
             if is_opls:
-                n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=1, max_value=max(1, min(3, len(edited_df) - 2)), value=1, key="opls_ortho_slider")
+                max_ortho = max(1, min(3, len(edited_df) - 2))
+                if max_ortho > 1:
+                    n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=1, max_value=max_ortho, value=1, key="opls_ortho_slider")
+                else:
+                    n_ortho = 1
+                    st.caption(f"{T[lang]['ml_ortho_slider']} **1**")
                 use_perm = False
             elif is_spls:
-                n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
-                keep_x_val = st.slider(T[lang]["ml_spls_keep_slider"], min_value=3, max_value=max(5, min(50, len(edited_df.columns) - 2)), value=15, step=1, key="spls_keep_slider")
+                if max_allowed_lvs > 2:
+                    n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+                else:
+                    n_lvs = 2
+                    st.caption(f"{T[lang]['ml_lvs_slider']} **2**")
+                feat_count = max(1, len(edited_df.columns) - 2)
+                max_keep = max(4, min(50, feat_count))
+                if max_keep > 3:
+                    keep_x_val = st.slider(T[lang]["ml_spls_keep_slider"], min_value=3, max_value=max_keep, value=min(15, max_keep), step=1, key="spls_keep_slider")
+                else:
+                    keep_x_val = min(3, feat_count)
+                    st.caption(f"{T[lang]['ml_spls_keep_slider']} **{keep_x_val}**")
                 use_perm = False
             else:
-                n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+                if max_allowed_lvs > 2:
+                    n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+                else:
+                    n_lvs = 2
+                    st.caption(f"{T[lang]['ml_lvs_slider']} **2**")
                 use_perm = st.checkbox(T[lang]["ml_perm_chk"], value=True, key="pls_perm_chk")
         with col_p3:
             use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
