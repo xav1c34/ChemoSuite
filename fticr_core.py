@@ -587,6 +587,193 @@ def run_tmds_screening(peaks_df: pd.DataFrame, top_n: int = 1500, tol_mda: float
     return pd.DataFrame(summary_rows), pd.DataFrame(pair_rows)
 
 
+def build_tmds_network_graph(
+    peaks_df: pd.DataFrame,
+    top_n: int = 150,
+    tol_mda: float = 2.0,
+    max_edges: int = 250,
+    layout: str = "spring",
+) -> Dict[str, Any]:
+    """
+    Построение молекулярной сети биогеохимических реакций/трансформаций (TMDS Network Graph).
+    Определяет узлы (пики масс-спектра), ребра (химические переходы: CH2, O, H2O, CO2, NH3)
+    и рассчитывает топологические характеристики сети (Degree Centrality, Hubs).
+
+    Parameters:
+    -----------
+    peaks_df : pd.DataFrame
+        Датафрейм пиков спектра (обязательны 'mass', 'intensity', опционально 'Formula', 'Hetero_Class').
+    top_n : int
+        Число наиболее интенсивных пиков для построения сети (по умолчанию 150).
+    tol_mda : float
+        Допуск погрешности разности масс (mDa).
+    max_edges : int
+        Максимальное количество ребер для визуализации.
+    layout : str
+        Тип пространственной раскладки графа ('spring' - силовой пружинный граф, 'chemical' - m/z vs int или O/C vs H/C).
+
+    Returns:
+    --------
+    Dict с ключами:
+      - 'nodes_df': pd.DataFrame узлов (id, mass, intensity, degree, x, y, formula, class)
+      - 'edges_df': pd.DataFrame ребер (source, target, transformation, delta_m, error_mDa)
+      - 'hubs_df': pd.DataFrame топ-хабов сети с наибольшим числом связей
+      - 'summary_df': частоты обнаружения трансформаций
+    """
+    if peaks_df.empty or "mass" not in peaks_df.columns:
+        return {
+            "nodes_df": pd.DataFrame(),
+            "edges_df": pd.DataFrame(),
+            "hubs_df": pd.DataFrame(),
+            "summary_df": pd.DataFrame(),
+        }
+
+    sub = peaks_df.sort_values("intensity", ascending=False).head(top_n).copy()
+    sub = sub.sort_values("mass").reset_index(drop=True)
+    masses = sub["mass"].values
+    n_nodes = len(masses)
+
+    if n_nodes < 2:
+        return {
+            "nodes_df": pd.DataFrame(),
+            "edges_df": pd.DataFrame(),
+            "hubs_df": pd.DataFrame(),
+            "summary_df": pd.DataFrame(),
+        }
+
+    # Поиск связанных пар через TMDS
+    summary_df, pairs_df = run_tmds_screening(sub, top_n=top_n, tol_mda=tol_mda)
+
+    if pairs_df.empty:
+        # Нет обнаруженных связей в заданном окне
+        return {
+            "nodes_df": pd.DataFrame(),
+            "edges_df": pd.DataFrame(),
+            "hubs_df": pd.DataFrame(),
+            "summary_df": summary_df,
+        }
+
+    edges_subset = pairs_df.head(max_edges).copy()
+
+    # Построение карты узлов и степени связанности (Degree)
+    degree_map: Dict[float, int] = {}
+    trans_map: Dict[float, set] = {}
+
+    for _, row in edges_subset.iterrows():
+        m1 = round(float(row["Mass_1"]), 4)
+        m2 = round(float(row["Mass_2"]), 4)
+        t_name = str(row["Transformation"])
+        degree_map[m1] = degree_map.get(m1, 0) + 1
+        degree_map[m2] = degree_map.get(m2, 0) + 1
+        trans_map.setdefault(m1, set()).add(t_name.split()[0])
+        trans_map.setdefault(m2, set()).add(t_name.split()[0])
+
+    # Оставляем только узлы, участвующие хотя бы в одной связи
+    connected_masses = set(degree_map.keys())
+    sub["mass_round"] = sub["mass"].round(4)
+    nodes_df = sub[sub["mass_round"].isin(connected_masses)].copy().reset_index(drop=True)
+
+    if nodes_df.empty:
+        return {
+            "nodes_df": pd.DataFrame(),
+            "edges_df": pd.DataFrame(),
+            "hubs_df": pd.DataFrame(),
+            "summary_df": summary_df,
+        }
+
+    nodes_df["Degree"] = nodes_df["mass_round"].map(degree_map).fillna(0).astype(int)
+    nodes_df["Node_ID"] = nodes_df["mass_round"].apply(lambda m: f"m/z {m:.4f}")
+
+    if "Formula" not in nodes_df.columns:
+        nodes_df["Formula"] = nodes_df["Node_ID"]
+    if "Hetero_Class" not in nodes_df.columns:
+        nodes_df["Hetero_Class"] = "Unknown"
+    if "Bio_Class" not in nodes_df.columns:
+        nodes_df["Bio_Class"] = "NOM"
+
+    # Расчет пространственных координат (X, Y)
+    n_pts = len(nodes_df)
+    m_to_idx = {r["mass_round"]: idx for idx, r in nodes_df.iterrows()}
+
+    if layout == "chemical" and "O/C" in nodes_df.columns and "H/C" in nodes_df.columns and nodes_df["O/C"].notna().any():
+        nodes_df["x"] = nodes_df["O/C"].fillna(0.0)
+        nodes_df["y"] = nodes_df["H/C"].fillna(1.0)
+    elif layout == "chemical":
+        nodes_df["x"] = (nodes_df["mass"] - nodes_df["mass"].min()) / (nodes_df["mass"].max() - nodes_df["mass"].min() + 1e-6) * 2.0 - 1.0
+        max_int = nodes_df["intensity"].max()
+        nodes_df["y"] = np.log10(np.maximum(1.0, nodes_df["intensity"])) / (np.log10(max_int + 1.0) + 1e-6) * 2.0 - 1.0
+    else:
+        # Быстрый пружинный алгоритм Фрухтермана — Рейнгольда на NumPy
+        rng = np.random.RandomState(42)
+        angles = np.linspace(0, 2 * np.pi, n_pts, endpoint=False)
+        pos = np.column_stack([np.cos(angles), np.sin(angles)]) + rng.uniform(-0.1, 0.1, size=(n_pts, 2))
+
+        edge_pairs = []
+        for _, r_edge in edges_subset.iterrows():
+            m1_r = round(float(r_edge["Mass_1"]), 4)
+            m2_r = round(float(r_edge["Mass_2"]), 4)
+            if m1_r in m_to_idx and m2_r in m_to_idx:
+                edge_pairs.append((m_to_idx[m1_r], m_to_idx[m2_r]))
+
+        k_spring = np.sqrt(1.0 / max(1, n_pts))
+        t_temp = 1.0
+        n_iters = 40
+
+        for it in range(n_iters):
+            # Отталкивание между всеми парами
+            disp = np.zeros_like(pos)
+            delta = pos[:, None, :] - pos[None, :, :]
+            dist = np.sqrt(np.sum(delta ** 2, axis=-1)) + 1e-4
+            np.fill_diagonal(dist, np.inf)
+
+            rep_force = (k_spring ** 2) / (dist ** 2)
+            disp += np.sum(rep_force[:, :, None] * (delta / dist[:, :, None]), axis=1)
+
+            # Притяжение по ребрам
+            for i_u, i_v in edge_pairs:
+                d_vec = pos[i_u] - pos[i_v]
+                d_val = np.linalg.norm(d_vec) + 1e-4
+                att_force = (d_val ** 2) / k_spring
+                d_norm = d_vec / d_val
+                disp[i_u] -= att_force * d_norm
+                disp[i_v] += att_force * d_norm
+
+            # Смещение с температурным затуханием
+            disp_norm = np.linalg.norm(disp, axis=1, keepdims=True) + 1e-4
+            step = (disp / disp_norm) * np.minimum(disp_norm, t_temp)
+            pos += step
+            t_temp *= (1.0 - (it / float(n_iters)))
+
+        # Нормировка позиций в [-1, 1]
+        pos_min = pos.min(axis=0)
+        pos_max = pos.max(axis=0)
+        pos_range = np.maximum(pos_max - pos_min, 1e-4)
+        pos_norm = (pos - pos_min) / pos_range * 2.0 - 1.0
+
+        nodes_df["x"] = pos_norm[:, 0]
+        nodes_df["y"] = pos_norm[:, 1]
+
+    # Добавляем координаты узлов в ребра
+    edges_subset["x0"] = edges_subset["Mass_1"].apply(lambda m: nodes_df.loc[m_to_idx[round(m, 4)], "x"] if round(m, 4) in m_to_idx else np.nan)
+    edges_subset["y0"] = edges_subset["Mass_1"].apply(lambda m: nodes_df.loc[m_to_idx[round(m, 4)], "y"] if round(m, 4) in m_to_idx else np.nan)
+    edges_subset["x1"] = edges_subset["Mass_2"].apply(lambda m: nodes_df.loc[m_to_idx[round(m, 4)], "x"] if round(m, 4) in m_to_idx else np.nan)
+    edges_subset["y1"] = edges_subset["Mass_2"].apply(lambda m: nodes_df.loc[m_to_idx[round(m, 4)], "y"] if round(m, 4) in m_to_idx else np.nan)
+    edges_valid = edges_subset.dropna(subset=["x0", "y0", "x1", "y1"]).copy().reset_index(drop=True)
+
+    # Топ-хабы сети
+    hubs = nodes_df.sort_values("Degree", ascending=False).head(10).copy()
+    hubs["Key_Reactions"] = hubs["mass_round"].apply(lambda m: ", ".join(sorted(list(trans_map.get(m, set())))))
+    hubs_df = hubs[["Node_ID", "mass", "Formula", "Degree", "Hetero_Class", "Bio_Class", "Key_Reactions"]].reset_index(drop=True)
+
+    return {
+        "nodes_df": nodes_df,
+        "edges_df": edges_valid,
+        "hubs_df": hubs_df,
+        "summary_df": summary_df,
+    }
+
+
+
 def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
     """Генерация теоретической библиотеки калибрантов (FA / CHO)."""
     calibrants = []

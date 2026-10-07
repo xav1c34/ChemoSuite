@@ -601,6 +601,258 @@ def train_oplsda_model(
     }
 
 
+def train_splsda_model(
+    X_df: pd.DataFrame,
+    y_labels: Union[np.ndarray, pd.Series, List],
+    n_components: int = 2,
+    keep_x: int = 15,
+    fusion_strategy: str = "low_level",
+    block_scaling: bool = True,
+    n_mid_components: int = 3,
+) -> Dict:
+    """
+    Разреженный дискриминантный анализ (Sparse PLS-DA / sPLS-DA).
+    Использует L1-штраф / отбор top-k признаков на каждой компоненте для автоматического
+    обнуления шума и выявления компактной панели ключевых биомаркеров.
+
+    Parameters:
+    -----------
+    X_df : pd.DataFrame
+        Мультимодальная матрица дескрипторов (FT-ICR MS, EEM-PARAFAC, UV-Vis).
+    y_labels : Union[np.ndarray, pd.Series, List]
+        Вектор меток классов.
+    n_components : int
+        Число латентных компонент (по умолчанию 2).
+    keep_x : int
+        Число отбираемых дескрипторов на компоненту (параметр разреженности).
+    fusion_strategy : str
+        Стратегия слияния ('low_level' или 'mid_level').
+    block_scaling : bool
+        Флаг блочного масштабирования 1/sqrt(P_k).
+    n_mid_components : int
+        Число компонент PCA для сжатия блока MS в mid-level стратегии.
+
+    Returns:
+    --------
+    Dict с результатами: проекции scores, sparse loadings, отобранные биомаркеры, R2X, R2Y, Q2 и точность.
+    """
+    X_scaled, feature_names, block_map = prepare_fused_features(
+        X_df, strategy=fusion_strategy, block_scaling=block_scaling, n_mid_components=n_mid_components
+    )
+    y_arr = np.asarray(y_labels)
+    unique_classes = np.unique(y_arr)
+    k_classes = len(unique_classes)
+    if k_classes < 2:
+        raise ValueError("Для классификации требуется как минимум 2 различных класса!")
+
+    n_samples, n_features = X_scaled.shape
+    is_multiclass = (k_classes > 2)
+
+    if is_multiclass:
+        Y_mat = np.zeros((n_samples, k_classes), dtype=float)
+        for idx, c in enumerate(unique_classes):
+            Y_mat[y_arr == c, idx] = 1.0
+        y_eval_true = y_arr
+    else:
+        if set(unique_classes).issubset({0, 1, 0.0, 1.0, True, False, "0", "1"}):
+            y_numeric = np.array([1.0 if str(v).strip() in ["1", "1.0", "True"] else 0.0 for v in y_arr])
+        else:
+            y_numeric = np.array([1.0 if v == unique_classes[1] else 0.0 for v in y_arr])
+        Y_mat = y_numeric.reshape(-1, 1)
+        y_eval_true = (y_numeric >= 0.5).astype(int)
+
+    max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    k_features_to_keep = max(1, min(keep_x, n_features))
+
+    def _fit_spls_core(X_in, Y_in, n_c, k_keep):
+        X_curr = X_in.copy()
+        Y_curr = Y_in.copy()
+        n_p = X_in.shape[1]
+        W = np.zeros((n_p, n_c), dtype=float)
+        P = np.zeros((n_p, n_c), dtype=float)
+        Q = np.zeros((Y_in.shape[1], n_c), dtype=float)
+        T = np.zeros((X_in.shape[0], n_c), dtype=float)
+
+        for h in range(n_c):
+            # Кросс-ковариация
+            cov_mat = X_curr.T @ Y_curr
+            if Y_in.shape[1] == 1:
+                w_raw = cov_mat.flatten()
+            else:
+                u, s, vt = np.linalg.svd(cov_mat, full_matrices=False)
+                w_raw = u[:, 0]
+
+            # Soft-thresholding / Top-k отбор признаков
+            abs_w = np.abs(w_raw)
+            if k_keep < n_p:
+                cutoff = np.partition(abs_w, n_p - k_keep)[n_p - k_keep]
+                w_sparse = np.where(abs_w >= cutoff, w_raw, 0.0)
+            else:
+                w_sparse = w_raw.copy()
+
+            w_norm = np.linalg.norm(w_sparse)
+            if w_norm < 1e-12:
+                w_sparse = w_raw / (np.linalg.norm(w_raw) + 1e-12)
+            else:
+                w_sparse = w_sparse / w_norm
+
+            t_h = X_curr @ w_sparse
+            denom_t = float(t_h @ t_h)
+            if denom_t < 1e-12:
+                break
+
+            p_h = (X_curr.T @ t_h) / denom_t
+            q_h = (Y_curr.T @ t_h) / denom_t
+
+            # Дефляция
+            X_curr = X_curr - np.outer(t_h, p_h)
+            Y_curr = Y_curr - np.outer(t_h, q_h)
+
+            W[:, h] = w_sparse
+            P[:, h] = p_h
+            Q[:, h] = q_h
+            T[:, h] = t_h
+
+        # Матрица коэффициентов регрессии B = W (P^T W)^(-1) Q^T
+        pt_w = P.T @ W
+        try:
+            pt_w_inv = np.linalg.pinv(pt_w)
+            B_coeff = W @ pt_w_inv @ Q.T
+        except Exception:
+            B_coeff = np.zeros((n_p, Y_in.shape[1]))
+
+        return W, P, Q, T, B_coeff
+
+    Y_mean = np.mean(Y_mat, axis=0)
+    Y_centered = Y_mat - Y_mean
+
+    W_mat, P_mat, Q_mat, T_mat, B_mat = _fit_spls_core(X_scaled, Y_centered, max_comp, k_features_to_keep)
+
+    t1 = T_mat[:, 0]
+    t2 = T_mat[:, 1] if max_comp > 1 else np.zeros(n_samples)
+    t3 = T_mat[:, 2] if max_comp > 2 else np.zeros(n_samples)
+
+    # Прогнозы модели (с учетом интерцепта)
+    y_pred_raw = Y_mean + X_scaled @ B_mat
+    if is_multiclass:
+        pred_indices = np.argmax(y_pred_raw, axis=1)
+        y_class_pred = unique_classes[pred_indices]
+    else:
+        y_class_pred = (y_pred_raw.flatten() >= 0.5).astype(int)
+
+    # Метрики качества
+    cm = confusion_matrix(y_eval_true, y_class_pred, labels=unique_classes if is_multiclass else [0, 1])
+    acc = float(np.mean(y_eval_true == y_class_pred) * 100.0)
+
+    if is_multiclass:
+        recalls = []
+        for c_i in range(k_classes):
+            c_sum = np.sum(cm[c_i, :])
+            recalls.append(float(cm[c_i, c_i] / c_sum) if c_sum > 0 else 0.0)
+        bal_acc = float(np.mean(recalls) * 100.0)
+        sens = bal_acc
+        spec = bal_acc
+    else:
+        tn, fp, fn, tp = cm.ravel()
+        sens = float(tp / (tp + fn) * 100.0) if (tp + fn) > 0 else 0.0
+        spec = float(tn / (tn + fp) * 100.0) if (tn + fp) > 0 else 0.0
+        bal_acc = float((sens + spec) / 2.0)
+
+    # Дисперсия R2X и R2Y
+    tot_var_x = np.sum(np.var(X_scaled, axis=0))
+    r2x = float(np.sum(np.var(T_mat, axis=0)) / tot_var_x * 100.0) if tot_var_x > 0 else 0.0
+    ss_tot_y = float(np.sum((Y_mat - np.mean(Y_mat, axis=0)) ** 2))
+    ss_res_y = float(np.sum((Y_mat - y_pred_raw) ** 2))
+    r2y = float((1.0 - (ss_res_y / ss_tot_y)) * 100.0) if ss_tot_y > 0 else 0.0
+
+    # Кросс-валидация Q2
+    cv = LeaveOneOut() if n_samples <= 30 else KFold(n_splits=5, shuffle=True, random_state=42)
+    y_cv_pred = np.zeros_like(Y_mat)
+
+    for train_idx, test_idx in cv.split(X_scaled):
+        y_tr_m = np.mean(Y_mat[train_idx], axis=0)
+        y_tr_c = Y_mat[train_idx] - y_tr_m
+        _, _, _, _, b_cv = _fit_spls_core(X_scaled[train_idx], y_tr_c, max_comp, k_features_to_keep)
+        y_cv_pred[test_idx] = y_tr_m + X_scaled[test_idx] @ b_cv
+
+    press = float(np.sum((Y_mat - y_cv_pred) ** 2))
+    q2 = float((1.0 - (press / ss_tot_y)) * 100.0) if ss_tot_y > 0 else 0.0
+
+    # Отобранные разреженные признаки
+    abs_weights = np.sqrt(np.sum(W_mat ** 2, axis=1))
+    blocks_col = [block_map.get(col, "Other") for col in feature_names]
+    selected_mask = (abs_weights > 1e-6)
+
+    sparse_df = pd.DataFrame({
+        "Descriptor": feature_names,
+        "Weight_Comp1": np.round(W_mat[:, 0], 4),
+        "Weight_Comp2": np.round(W_mat[:, 1] if max_comp > 1 else np.zeros(n_features), 4),
+        "Absolute_Weight": np.round(abs_weights, 4),
+        "Block": blocks_col,
+        "Is_Selected": selected_mask,
+    }).sort_values("Absolute_Weight", ascending=False).reset_index(drop=True)
+
+    selected_features = sparse_df[sparse_df["Is_Selected"]]["Descriptor"].tolist()
+
+    # VIP-аналог (на основе весов разреженных компонент)
+    vip_approx = abs_weights / (np.max(abs_weights) + 1e-12) * 2.0
+    sparse_df["VIP"] = np.round(vip_approx, 3)
+
+    # Вклад блоков среди отобранных признаков
+    sel_df = sparse_df[sparse_df["Is_Selected"]].copy()
+    b_contribs = {}
+    if not sel_df.empty:
+        sel_df["W_sq"] = sel_df["Absolute_Weight"] ** 2
+        b_sums = sel_df.groupby("Block")["W_sq"].sum()
+        tot_sq = b_sums.sum()
+        if tot_sq > 0:
+            for b, s in b_sums.items():
+                b_contribs[b] = round(float(s / tot_sq * 100.0), 1)
+
+    ell_x, ell_y = compute_hotelling_ellipse(t1, t2)
+    ell_3d_x, ell_3d_y, ell_3d_z = compute_hotelling_ellipsoid_3d(t1, t2, t3) if max_comp >= 3 else (None, None, None)
+
+    return {
+        "model_type": "Sparse PLS-DA (sPLS-DA)",
+        "scores_t1": t1,
+        "t1": t1,
+        "scores_t2": t2,
+        "t2": t2,
+        "scores_t3": t3,
+        "t3": t3,
+        "ellipse_x": ell_x,
+        "ell_x": ell_x,
+        "ellipse_y": ell_y,
+        "ell_y": ell_y,
+        "ell_3d_x": ell_3d_x,
+        "ell_3d_y": ell_3d_y,
+        "ell_3d_z": ell_3d_z,
+        "ell_x_3d": ell_3d_x,
+        "ell_y_3d": ell_3d_y,
+        "ell_z_3d": ell_3d_z,
+        "R2X": max(0.0, r2x),
+        "R2Y": max(0.0, r2y),
+        "Q2": q2,
+        "Accuracy": acc,
+        "Balanced_Accuracy": bal_acc,
+        "Sensitivity": sens,
+        "Specificity": spec,
+        "Confusion_Matrix": cm,
+        "VIP_df": sparse_df[["Descriptor", "VIP", "Block"]],
+        "vip_df": sparse_df[["Descriptor", "VIP", "Block"]],
+        "Sparse_Loadings_df": sparse_df,
+        "sparse_df": sparse_df,
+        "Selected_Features": selected_features,
+        "n_selected": len(selected_features),
+        "Block_Contributions": b_contribs,
+        "y_pred": y_pred_raw,
+        "y_cv_pred": y_cv_pred,
+        "classes": unique_classes,
+        "is_multiclass": is_multiclass,
+        "feature_names": feature_names,
+    }
+
+
 def run_permutation_test(
     X_df: pd.DataFrame,
     y_labels: np.ndarray,

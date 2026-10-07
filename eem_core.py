@@ -782,3 +782,176 @@ def link_uv_vis_to_eem(
             })
 
     return match_logs
+
+
+# ==============================================================================
+# ЭТАЛОННАЯ БИБЛИОТЕКА ФЛУОРОФОРОВ И ИДЕНТИФИКАЦИЯ (OPENFLUOR MATCHING)
+# ==============================================================================
+OPENFLUOR_REFERENCE_LIBRARY = {
+    "C1_Terrestrial_Fulvic": {
+        "id": "OF_C1",
+        "name_ru": "C1: Терригенный фульвоподобный флуорофор (Fulvic-like)",
+        "name_en": "C1: Terrestrial Fulvic-like (Coble A/C, Murphy C1)",
+        "category": "Humic / Terrestrial",
+        "origin_ru": "Низкомолекулярное окисленное аллохтонное гуминовое вещество почв и речного стока.",
+        "origin_en": "Allochthonous degraded humic material from watershed and soil organic matter.",
+        "ex_peaks": [(315.0, 35.0, 1.0), (245.0, 20.0, 0.6)],
+        "em_peaks": [(410.0, 45.0, 1.0)],
+    },
+    "C2_Industrial_Lignin_Humic": {
+        "id": "OF_C2",
+        "name_ru": "C2: Техногенный шлам-лигнин / Высокомолекулярный гуминовый (BPPM Marker)",
+        "name_en": "C2: Sludge Lignin / High-MW Humic (BPPM Kraft Pulp Marker)",
+        "category": "Anthropogenic / Lignin",
+        "origin_ru": "Устойчивый полифенольный ароматический комплекс отходов переработки древесины (маркер шлам-лигнина).",
+        "origin_en": "Recalcitrant polyphenolic kraft lignin derivative from wood processing waste.",
+        "ex_peaks": [(365.0, 45.0, 1.0), (260.0, 25.0, 0.8)],
+        "em_peaks": [(470.0, 55.0, 1.0)],
+    },
+    "C3_Protein_Tryptophan": {
+        "id": "OF_C3",
+        "name_ru": "C3: Белковоподобный (Триптофаноподобный, Peak T)",
+        "name_en": "C3: Protein-like (Tryptophan-like, Peak T)",
+        "category": "Protein / Autochthonous",
+        "origin_ru": "Индикатор биогенной продуктивности гидробионтов и активного микробного метаболизма.",
+        "origin_en": "Autochthonous biogenic productivity and microbial degradation indicator.",
+        "ex_peaks": [(275.0, 22.0, 1.0)],
+        "em_peaks": [(340.0, 30.0, 1.0)],
+    },
+    "C4_Protein_Tyrosine": {
+        "id": "OF_C4",
+        "name_ru": "C4: Тирозиноподобный белковый компонент (Peak B)",
+        "name_en": "C4: Protein-like (Tyrosine-like, Peak B)",
+        "category": "Protein / Labile",
+        "origin_ru": "Свободные аминокислоты и белковые фракции свежего фотосинтеза микроводорослей.",
+        "origin_en": "Free amino acids and labile proteins associated with algal growth.",
+        "ex_peaks": [(275.0, 20.0, 1.0)],
+        "em_peaks": [(305.0, 25.0, 1.0)],
+    },
+    "C5_Aquatic_Microbial_Humic": {
+        "id": "OF_C5",
+        "name_ru": "C5: Микробный гуминовый флуорофор (Marine/Aquatic Humic, Peak M)",
+        "name_en": "C5: Aquatic Microbial Humic (Peak M)",
+        "category": "Humic / Microbial",
+        "origin_ru": "Продукты микробиологической переработки автохтонной органики в водной толще.",
+        "origin_en": "Autochthonous humic materials produced in situ by aquatic bacterial reworking.",
+        "ex_peaks": [(310.0, 30.0, 1.0), (250.0, 20.0, 0.7)],
+        "em_peaks": [(385.0, 38.0, 1.0)],
+    },
+    "C6_Oxidized_Quinone": {
+        "id": "OF_C6",
+        "name_ru": "C6: Окисленный полифенольный / Хиноидный компонент (Oxidized Quinone)",
+        "name_en": "C6: Oxidized Polyphenol / Quinone-like (Stedmon C6)",
+        "category": "Photochemically Altered",
+        "origin_ru": "Фотохимически окисленные гуминовые вещества и редокс-активные хиноидные фрагменты.",
+        "origin_en": "Photochemically oxidized humic matter and redox-active quinoid fragments.",
+        "ex_peaks": [(370.0, 40.0, 1.0), (270.0, 22.0, 0.6)],
+        "em_peaks": [(495.0, 50.0, 1.0)],
+    },
+}
+
+
+def match_parafac_to_openfluor(
+    em_profiles: np.ndarray,
+    ex_profiles: np.ndarray,
+    em_ax: np.ndarray,
+    ex_ax: np.ndarray,
+    threshold_tcc: float = 0.85,
+    lang: str = "ru",
+) -> pd.DataFrame:
+    """
+    Сравнение извлеченных PARAFAC компонент с библиотекой флуорофоров OpenFluor
+    по критерию конгруэнтности Такера (Tucker Congruence Coefficient, TCC).
+
+    Parameters:
+    -----------
+    em_profiles : np.ndarray
+        Матрица профилей эмиссии (len(em_ax) x n_components).
+    ex_profiles : np.ndarray
+        Матрица профилей возбуждения (len(ex_ax) x n_components).
+    em_ax : np.ndarray
+        Сетка длин волн эмиссии (нм).
+    ex_ax : np.ndarray
+        Сетка длин волн возбуждения (нм).
+    threshold_tcc : float
+        Минимальный порог средней конгруэнтности (по умолчанию 0.85).
+    lang : str
+        Язык вывода ('ru' или 'en').
+
+    Returns:
+    --------
+    pd.DataFrame сопоставления с колонками:
+      Component, Best_Match_ID, Name, Category, TCC_Mean, TCC_Em, TCC_Ex, Status, Origin
+    """
+    n_components = em_profiles.shape[1]
+
+    def _eval_peaks(grid: np.ndarray, peaks: List[Tuple[float, float, float]]) -> np.ndarray:
+        curve = np.zeros_like(grid, dtype=float)
+        for mu, sigma, amp in peaks:
+            curve += amp * np.exp(-0.5 * ((grid - mu) / max(1.0, sigma)) ** 2)
+        norm = np.linalg.norm(curve)
+        return (curve / norm) if norm > 1e-12 else curve
+
+    def _calc_tcc(v1: np.ndarray, v2: np.ndarray) -> float:
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+        if n1 < 1e-12 or n2 < 1e-12:
+            return 0.0
+        return float(np.dot(v1, v2) / (n1 * n2))
+
+    # Предварительно рассчитываем спектры библиотеки на активных сетках
+    ref_spectra = {}
+    for ref_key, ref_info in OPENFLUOR_REFERENCE_LIBRARY.items():
+        ref_ex = _eval_peaks(ex_ax, ref_info["ex_peaks"])
+        ref_em = _eval_peaks(em_ax, ref_info["em_peaks"])
+        ref_spectra[ref_key] = (ref_ex, ref_em)
+
+    match_rows = []
+
+    for c_idx in range(n_components):
+        v_em = em_profiles[:, c_idx]
+        v_ex = ex_profiles[:, c_idx]
+
+        best_key = None
+        best_tcc_mean = -1.0
+        best_tcc_em = 0.0
+        best_tcc_ex = 0.0
+
+        for ref_key, (ref_ex, ref_em) in ref_spectra.items():
+            tcc_em = _calc_tcc(v_em, ref_em)
+            tcc_ex = _calc_tcc(v_ex, ref_ex)
+            tcc_mean = (tcc_em + tcc_ex) / 2.0
+
+            if tcc_mean > best_tcc_mean:
+                best_tcc_mean = tcc_mean
+                best_tcc_em = tcc_em
+                best_tcc_ex = tcc_ex
+                best_key = ref_key
+
+        if best_key is not None:
+            ref_data = OPENFLUOR_REFERENCE_LIBRARY[best_key]
+            name = ref_data[f"name_{lang}"] if f"name_{lang}" in ref_data else ref_data["name_en"]
+            origin = ref_data[f"origin_{lang}"] if f"origin_{lang}" in ref_data else ref_data["origin_en"]
+
+            if best_tcc_mean >= 0.95:
+                status = "Идентичен (TCC ≥ 0.95)" if lang == "ru" else "Identical (TCC ≥ 0.95)"
+            elif best_tcc_mean >= 0.90:
+                status = "Высокое сходство (TCC ≥ 0.90)" if lang == "ru" else "High Similarity (TCC ≥ 0.90)"
+            elif best_tcc_mean >= threshold_tcc:
+                status = "Умеренное сходство" if lang == "ru" else "Moderate Match"
+            else:
+                status = "Низкое сходство (Уникальный флуорофор)" if lang == "ru" else "Low Similarity (Novel Fluorophore)"
+
+            match_rows.append({
+                "Component": f"C{c_idx + 1}",
+                "Best_Match_ID": ref_data["id"],
+                "Fluorophore_Name": name,
+                "Category": ref_data["category"],
+                "TCC_Mean": round(best_tcc_mean, 3),
+                "TCC_Em": round(best_tcc_em, 3),
+                "TCC_Ex": round(best_tcc_ex, 3),
+                "Confidence_Status": status,
+                "Ecological_Origin": origin,
+            })
+
+    return pd.DataFrame(match_rows)

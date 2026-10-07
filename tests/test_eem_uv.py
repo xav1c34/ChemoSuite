@@ -154,3 +154,28 @@ def test_corcondia_and_split_half_analysis():
     assert len(split_res["tcc_ex"]) == 3
     assert isinstance(split_res["mean_tcc"], float)
     assert 0.0 <= split_res["mean_tcc"] <= 1.0
+
+
+def test_openfluor_matching():
+    """Тест сравнения извлеченных PARAFAC компонент с библиотекой OpenFluor."""
+    samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=5)
+    tensor, ref_em, ref_ex, names = eem_core.build_eem_tensor(samples)
+    res = eem_core.fit_parafac(tensor, n_components=3, random_state=42)
+
+    matches_df = eem_core.match_parafac_to_openfluor(
+        em_profiles=res["em_profiles"],
+        ex_profiles=res["ex_profiles"],
+        em_ax=ref_em,
+        ex_ax=ref_ex,
+        threshold_tcc=0.80,
+        lang="ru",
+    )
+
+    assert not matches_df.empty
+    assert len(matches_df) == 3
+    assert "Component" in matches_df.columns
+    assert "Best_Match_ID" in matches_df.columns
+    assert "TCC_Mean" in matches_df.columns
+    # Синтетический датасет сгенерирован на основе канонических флуорофоров, сходство должно быть высоким
+    assert any(matches_df["TCC_Mean"] >= 0.85)
+

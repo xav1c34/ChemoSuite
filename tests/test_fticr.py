@@ -189,3 +189,35 @@ def test_batch_process_fticr_spectra():
     assert len(summary_zip_df) == 2
     assert set(summary_zip_df["Sample_ID"].values) == {"Zip_Sample_01", "Zip_Sample_02"}
 
+
+def test_tmds_network_graph():
+    """Тест построения графа сети реакций TMDS и топологических хабов."""
+    # Создаем 4 пика, связанные превращениями CH2 и O
+    m0 = 200.00000
+    m_ch2 = m0 + 14.01565
+    m_o = m0 + 15.994915
+    m_ch2_o = m_ch2 + 15.994915
+
+    peaks_df = pd.DataFrame({
+        "mass": [m0, m_ch2, m_o, m_ch2_o],
+        "intensity": [1000.0, 800.0, 600.0, 400.0],
+        "Formula": ["C10H16O4", "C11H18O4", "C10H16O5", "C11H18O5"],
+        "Hetero_Class": ["CHO", "CHO", "CHO", "CHO"],
+    })
+
+    net_res = fticr_core.build_tmds_network_graph(peaks_df, top_n=10, tol_mda=2.0, max_edges=50, layout="spring")
+
+    assert "nodes_df" in net_res
+    assert "edges_df" in net_res
+    assert "hubs_df" in net_res
+    assert not net_res["nodes_df"].empty
+    assert not net_res["edges_df"].empty
+    assert not net_res["hubs_df"].empty
+    assert "Degree" in net_res["nodes_df"].columns
+    assert "x" in net_res["nodes_df"].columns
+    assert "y" in net_res["nodes_df"].columns
+    assert len(net_res["edges_df"]) >= 2
+    # Проверка, что хаб имеет степень >= 2
+    assert net_res["hubs_df"].iloc[0]["Degree"] >= 2
+
+

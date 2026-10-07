@@ -303,6 +303,15 @@ T = {
         "tmds_count_col": "Число связей",
         "tmds_share_col": "Доля от всех пар (%)",
         "tmds_dl_csv": "📥 Скачать пары связей TMDS (CSV)",
+        "tmds_mode_freq": "📊 Частотное распределение",
+        "tmds_mode_network": "🕸️ Молекулярный граф реакций",
+        "tmds_net_title": "Молекулярная сеть биогеохимических реакций (TMDS Network Graph)",
+        "tmds_net_peaks": "Число пиков для графа:",
+        "tmds_net_layout": "Пространственная раскладка:",
+        "tmds_layout_spring": "Пружинная (Силовой граф / Spring)",
+        "tmds_layout_chem": "Химические координаты (m/z vs Int)",
+        "tmds_hubs_title": "👑 Ключевые узлы-хабы сети реакций (Network Reaction Hubs)",
+        "tmds_dl_edges": "📥 Скачать ребра сети реакций (CSV)",
         "desc_num_avg": "Среднечисленные значения (Number-averaged parameters)",
         "desc_mn": "Среднечисленная масса (Mn)",
         "desc_mw": "Mw (Взвешенная масса)",
@@ -371,6 +380,9 @@ T = {
         "eem_splithalf_success": "✅ Модель PARAFAC стабильна и валидирована (Mean TCC = {tcc:.3f} ≥ 0.90)",
         "eem_splithalf_fail": "⚠️ Модель PARAFAC нестабильна (Mean TCC = {tcc:.3f} < 0.90). Возможно перефакторизована.",
         "eem_splithalf_tcc_title": "Коэффициенты конгруэнтности Такера (TCC) по компонентам:",
+        "eem_openfluor_expander": "🏷️ Идентификация по спектральной библиотеке OpenFluor",
+        "eem_openfluor_tbl_title": "Результаты сопоставления с эталонной библиотекой OpenFluor:",
+        "eem_openfluor_dl_btn": "📥 Скачать результаты идентификации (CSV)",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -432,6 +444,13 @@ T = {
         "ml_model_type_label": "Архитектура модели:",
         "ml_model_plsda": "PLS-DA (Мультикласс / Проекция LV)",
         "ml_model_oplsda": "OPLS-DA (Ортогональный фильтр шума / S-Plot)",
+        "ml_model_splsda": "Sparse PLS-DA (sPLS-DA с L1-отбором биомаркеров)",
+        "ml_spls_keep_slider": "Отбор признаков (число дескрипторов на компоненту):",
+        "ml_spls_biomarkers_title": "🎯 Отобранная панель биомаркеров (L1 Sparse Features):",
+        "ml_spls_weight_axis": "Абсолютный разреженный вес (|W|)",
+        "ml_spls_table_title": "Панель отобранных биомаркеров",
+        "ml_spls_selected_count": "отобрано",
+        "ml_spls_dl_btn": "📥 Скачать разреженные биомаркеры (CSV)",
         "ml_ortho_slider": "Ортогональные компоненты (Orthogonal LVs):",
         "ml_scores_mode_label": "Пространство проекции Scores:",
         "ml_scores_2d": "2D Scores (LV1 vs LV2)",
@@ -648,6 +667,15 @@ T = {
         "tmds_count_col": "Connections count",
         "tmds_share_col": "Share of all pairs (%)",
         "tmds_dl_csv": "📥 Download TMDS connected pairs (CSV)",
+        "tmds_mode_freq": "📊 Frequency Distribution",
+        "tmds_mode_network": "🕸️ Reaction Network Graph",
+        "tmds_net_title": "Biogeochemical Reaction Network (TMDS Network Graph)",
+        "tmds_net_peaks": "Top peaks count for network:",
+        "tmds_net_layout": "Network layout:",
+        "tmds_layout_spring": "Spring Force-Directed",
+        "tmds_layout_chem": "Chemical Coordinates (m/z vs Int)",
+        "tmds_hubs_title": "👑 Key Topological Reaction Hubs",
+        "tmds_dl_edges": "📥 Download Reaction Edges (CSV)",
         "desc_num_avg": "Number-averaged parameters (Mn)",
         "desc_mn": "Number-averaged mass (Mn)",
         "desc_mw": "Mw (Weight-averaged mass)",
@@ -716,6 +744,9 @@ T = {
         "eem_splithalf_success": "✅ PARAFAC model is stable and validated (Mean TCC = {tcc:.3f} ≥ 0.90)",
         "eem_splithalf_fail": "⚠️ PARAFAC model unstable (Mean TCC = {tcc:.3f} < 0.90). May be overfactored.",
         "eem_splithalf_tcc_title": "Tucker Congruence Coefficients (TCC) per component:",
+        "eem_openfluor_expander": "🏷️ OpenFluor Spectral Library Matching",
+        "eem_openfluor_tbl_title": "OpenFluor Spectral Library Matching Results:",
+        "eem_openfluor_dl_btn": "📥 Download Identification Results (CSV)",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -777,6 +808,13 @@ T = {
         "ml_model_type_label": "Model Architecture:",
         "ml_model_plsda": "PLS-DA (Multiclass / Latent Variables)",
         "ml_model_oplsda": "OPLS-DA (Orthogonal Noise Filter / S-Plot)",
+        "ml_model_splsda": "Sparse PLS-DA (sPLS-DA with L1 Biomarker Selection)",
+        "ml_spls_keep_slider": "Feature Sparsity (Keep top features per component):",
+        "ml_spls_biomarkers_title": "🎯 Selected Biomarker Panel (L1 Sparse Features):",
+        "ml_spls_weight_axis": "Absolute Sparse Weight (|W|)",
+        "ml_spls_table_title": "Selected Biomarker Panel",
+        "ml_spls_selected_count": "selected",
+        "ml_spls_dl_btn": "📥 Download Sparse Biomarkers (CSV)",
         "ml_ortho_slider": "Orthogonal Components (Orthogonal LVs):",
         "ml_scores_mode_label": "Scores Projection Space:",
         "ml_scores_2d": "2D Scores (LV1 vs LV2)",
@@ -835,6 +873,7 @@ from fticr_core import (
     align_two_spectra_fast,
     perform_spectral_algebra,
     run_tmds_screening,
+    build_tmds_network_graph,
     get_calibrant_library,
 )
 
@@ -1507,13 +1546,94 @@ if active_module == T[lang]["mod1_name"]:
     # 8. TMDS
     with tabs[7]:
         st.subheader(f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}")
-        peaks_df = current_sample.get("parsed_peaks") if current_sample else None
-        if peaks_df is not None and not peaks_df.empty:
-            tmds_sum, _ = run_tmds_screening(peaks_df, top_n=1000, tol_mda=2.0)
-            if not tmds_sum.empty:
-                fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Transformation", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
-                fig_tmds.update_layout(showlegend=False, xaxis_tickangle=-25, height=420)
-                st_plotly(fig_tmds)
+        work_peaks = current_sample.get("assigned_df") if (current_sample and current_sample.get("assigned_df") is not None and not current_sample["assigned_df"].empty) else (current_sample.get("parsed_peaks") if current_sample else None)
+        if work_peaks is not None and not work_peaks.empty:
+            tmds_view_mode = st.radio(
+                "Режим отображения TMDS:" if lang == "ru" else "TMDS Display Mode:",
+                [T[lang]["tmds_mode_freq"], T[lang]["tmds_mode_network"]],
+                horizontal=True,
+                key=f"tmds_view_{active_spectrum_name}"
+            )
+            if tmds_view_mode == T[lang]["tmds_mode_freq"]:
+                tmds_sum, _ = run_tmds_screening(work_peaks, top_n=1000, tol_mda=2.0)
+                if not tmds_sum.empty:
+                    fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Transformation", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
+                    fig_tmds.update_layout(showlegend=False, xaxis_tickangle=-25, height=420)
+                    st_plotly(fig_tmds)
+                    st_df(tmds_sum)
+            else:
+                c_n1, c_n2 = st.columns([1, 1])
+                with c_n1:
+                    n_top_net = st.slider(T[lang]["tmds_net_peaks"], min_value=30, max_value=300, value=120, step=10, key=f"tmds_top_{active_spectrum_name}")
+                with c_n2:
+                    layout_choice = st.selectbox(
+                        T[lang]["tmds_net_layout"],
+                        [T[lang]["tmds_layout_spring"], T[lang]["tmds_layout_chem"]],
+                        index=0,
+                        key=f"tmds_lay_{active_spectrum_name}"
+                    )
+                l_type = "chemical" if layout_choice == T[lang]["tmds_layout_chem"] else "spring"
+                with st.spinner("Построение сетевого графа реакций..." if lang == "ru" else "Constructing reaction network..."):
+                    net_dict = build_tmds_network_graph(work_peaks, top_n=n_top_net, tol_mda=2.0, max_edges=250, layout=l_type)
+
+                nodes_df = net_dict["nodes_df"]
+                edges_df = net_dict["edges_df"]
+                hubs_df = net_dict["hubs_df"]
+
+                if nodes_df.empty or edges_df.empty:
+                    st.warning("В заданных границах связей между пиками не обнаружено." if lang == "ru" else "No connected reactions found in the current selection.")
+                else:
+                    fig_net = go.Figure()
+                    trans_colors = {
+                        "CH2": "#0020C2", "O": "#D62728", "H2O": "#2CA02C",
+                        "CO2": "#FF7F0E", "CO": "#9467BD", "H2": "#8C564B",
+                        "NH3": "#E377C2", "SO3": "#17BECF"
+                    }
+                    for trans_type, g_edges in edges_df.groupby("Transformation"):
+                        edge_x, edge_y = [], []
+                        for _, e_row in g_edges.iterrows():
+                            edge_x.extend([e_row["x0"], e_row["x1"], None])
+                            edge_y.extend([e_row["y0"], e_row["y1"], None])
+                        t_key = trans_type.split()[0]
+                        e_color = trans_colors.get(t_key, "#7F7F7F")
+                        fig_net.add_trace(go.Scatter(
+                            x=edge_x, y=edge_y, mode="lines",
+                            line=dict(width=1.2, color=e_color),
+                            name=trans_type,
+                            hoverinfo="none",
+                            opacity=0.6,
+                        ))
+
+                    node_sizes = 5.0 + 3.0 * np.log1p(nodes_df["Degree"].values)
+                    hover_texts = [
+                        f"<b>{r['Node_ID']}</b><br>Formula: {r.get('Formula', 'N/A')}<br>Degree: {r['Degree']}<br>Class: {r.get('Hetero_Class', 'N/A')} / {r.get('Bio_Class', 'N/A')}"
+                        for _, r in nodes_df.iterrows()
+                    ]
+                    fig_net.add_trace(go.Scatter(
+                        x=nodes_df["x"], y=nodes_df["y"], mode="markers",
+                        marker=dict(size=node_sizes, color=nodes_df["mass"], colorscale="Viridis", showscale=True, colorbar=dict(title="m/z", len=0.7), line=dict(width=1, color="black")),
+                        text=hover_texts, hoverinfo="text", name="Peaks"
+                    ))
+
+                    fig_net.update_layout(
+                        title=T[lang]["tmds_net_title"],
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        height=560, plot_bgcolor="white"
+                    )
+                    st_plotly(fig_net)
+
+                    if not hubs_df.empty:
+                        st.markdown(f"##### {T[lang]['tmds_hubs_title']}")
+                        st_df(hubs_df)
+
+                    st.download_button(
+                        label=T[lang]["tmds_dl_edges"],
+                        data=edges_df.to_csv(index=False).encode("utf-8"),
+                        file_name=f"ChemoSuite_TMDS_Network_Edges_{active_spectrum_name}.csv",
+                        mime="text/csv",
+                        key=f"dl_tmds_edges_{active_spectrum_name}"
+                    )
 
     # 9. Сводные характеристики
     with tabs[8]:
@@ -1768,6 +1888,20 @@ elif active_module == T[lang]["mod2_name"]:
                             fig_ex.add_trace(go.Scatter(x=ex_ax, y=results["ex_profiles"][:, r], mode="lines", name=comp_names[r], line=dict(width=2.5)))
                         fig_ex.update_layout(title=T[lang]["eem_ex_prof_title"], xaxis_title=T[lang]["eem_ex_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
                         st_plotly(fig_ex)
+
+                    with st.expander(T[lang]["eem_openfluor_expander"], expanded=False):
+                        of_matches = eem_core.match_parafac_to_openfluor(
+                            results["em_profiles"], results["ex_profiles"], em_ax, ex_ax, threshold_tcc=0.85, lang=lang
+                        )
+                        st.markdown(f"**{T[lang]['eem_openfluor_tbl_title']}**")
+                        st_df(of_matches)
+                        st.download_button(
+                            label=T[lang]["eem_openfluor_dl_btn"],
+                            data=of_matches.to_csv(index=False).encode("utf-8"),
+                            file_name="ChemoSuite_PARAFAC_OpenFluor_Matches.csv",
+                            mime="text/csv",
+                            key="dl_openfluor_matches_btn",
+                        )
 
                     st.subheader(T[lang]["eem_scores_title"])
                     score_col_names = [f"C{r+1}" for r in range(n_components_sel)]
@@ -2060,11 +2194,12 @@ elif active_module == T[lang]["mod3_name"]:
         with col_m1:
             model_type_sel = st.selectbox(
                 T[lang]["ml_model_type_label"],
-                [T[lang]["ml_model_plsda"], T[lang]["ml_model_oplsda"]],
+                [T[lang]["ml_model_plsda"], T[lang]["ml_model_oplsda"], T[lang]["ml_model_splsda"]],
                 index=0,
                 key="ml_model_arch_select",
             )
             is_opls = (model_type_sel == T[lang]["ml_model_oplsda"])
+            is_spls = (model_type_sel == T[lang]["ml_model_splsda"])
 
         max_allowed_lvs = max(2, min(5, len(edited_df) - 1))
         col_p1, col_p2, col_p3 = st.columns(3)
@@ -2080,13 +2215,17 @@ elif active_module == T[lang]["mod3_name"]:
             if is_opls:
                 n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=1, max_value=max(1, min(3, len(edited_df) - 2)), value=1, key="opls_ortho_slider")
                 use_perm = False
+            elif is_spls:
+                n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
+                keep_x_val = st.slider(T[lang]["ml_spls_keep_slider"], min_value=3, max_value=max(5, min(50, len(edited_df.columns) - 2)), value=15, step=1, key="spls_keep_slider")
+                use_perm = False
             else:
                 n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider")
                 use_perm = st.checkbox(T[lang]["ml_perm_chk"], value=True, key="pls_perm_chk")
         with col_p3:
             use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
             st.write("")
-            run_btn_label = "🚀 Обучить OPLS-DA" if (lang == "ru" and is_opls) else ("🚀 Fit OPLS-DA Model" if is_opls else T[lang]["ml_run_btn"])
+            run_btn_label = "🚀 Обучить sPLS-DA" if (lang == "ru" and is_spls) else ("🚀 Fit sPLS-DA Model" if is_spls else ("🚀 Обучить OPLS-DA" if (lang == "ru" and is_opls) else ("🚀 Fit OPLS-DA Model" if is_opls else T[lang]["ml_run_btn"])))
             run_model = st.button(run_btn_label, type="primary", key="btn_run_chemo_model")
 
         if run_model:
@@ -2106,6 +2245,18 @@ elif active_module == T[lang]["mod3_name"]:
                             res = chemo_ml.train_oplsda_model(
                                 X_input, y_input,
                                 n_ortho=n_ortho,
+                                fusion_strategy=strat_code,
+                                block_scaling=use_block_scale,
+                            )
+                            st.session_state["pls_results"] = res
+                            st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
+                            st.session_state["pls_y_input"] = y_input
+                            st.session_state["perm_results"] = None
+                        elif is_spls:
+                            res = chemo_ml.train_splsda_model(
+                                X_input, y_input,
+                                n_components=n_lvs,
+                                keep_x=keep_x_val,
                                 fusion_strategy=strat_code,
                                 block_scaling=use_block_scale,
                             )
@@ -2285,9 +2436,36 @@ elif active_module == T[lang]["mod3_name"]:
                     fig_sc.update_layout(xaxis_title=axis_x_lbl, yaxis_title=axis_y_lbl, plot_bgcolor="white", height=520)
                     st_plotly(fig_sc)
 
-            # Таб 2: VIP Scores с цветовой кодировкой аналитических блоков
+            # Таб 2: VIP Scores / sPLS-DA Sparse Biomarkers
             with tab_ml2:
-                if not vip_df.empty:
+                sparse_df = res.get("Sparse_Loadings_df", res.get("sparse_df", pd.DataFrame()))
+                if curr_model_type == "Sparse PLS-DA (sPLS-DA)" and not sparse_df.empty:
+                    st.write(f"### {T[lang]['ml_spls_biomarkers_title']}")
+                    sel_only = sparse_df[sparse_df["Is_Selected"]].copy()
+                    top_sparse = sel_only.head(20).copy() if not sel_only.empty else sparse_df.head(15).copy()
+                    fig_sp = px.bar(
+                        top_sparse, x="Absolute_Weight", y="Descriptor", orientation="h",
+                        color="Block",
+                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
+                        text=top_sparse["Absolute_Weight"].apply(lambda v: f"{v:.3f}"),
+                    )
+                    fig_sp.update_layout(
+                        yaxis=dict(autorange="reversed", title="Descriptor"),
+                        xaxis=dict(title=T[lang]["ml_spls_weight_axis"]),
+                        plot_bgcolor="white", height=520
+                    )
+                    st_plotly(fig_sp)
+
+                    st.markdown(f"**{T[lang]['ml_spls_table_title']} ({len(sel_only)} {T[lang]['ml_spls_selected_count']}):**")
+                    st.dataframe(sparse_df, use_container_width=True)
+                    st.download_button(
+                        label=T[lang]["ml_spls_dl_btn"],
+                        data=sparse_df.to_csv(index=False).encode("utf-8"),
+                        file_name="ChemoSuite_sPLSDA_Biomarkers.csv",
+                        mime="text/csv",
+                        key="dl_splsda_biomarkers",
+                    )
+                elif not vip_df.empty:
                     top_vip = vip_df.head(15).copy()
                     fig_vip = px.bar(
                         top_vip, x="VIP", y="Descriptor", orientation="h",

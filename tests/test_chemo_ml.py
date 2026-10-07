@@ -176,3 +176,22 @@ def test_oplsda_model_and_splot():
     # p_corr должен лежать в интервале [-1, 1]
     assert (s_plot["p_corr"] >= -1.01).all() and (s_plot["p_corr"] <= 1.01).all()
 
+
+def test_splsda_model():
+    """Тест Sparse PLS-DA модели: L1-отбор признаков, разреженность весов и точность."""
+    df, y = chemo_ml.generate_multimodal_benchmark()
+    X = df.drop(columns=["Sample_ID"])
+
+    res = chemo_ml.train_splsda_model(X, y.values, n_components=2, keep_x=10, fusion_strategy="low_level")
+    assert res["model_type"] == "Sparse PLS-DA (sPLS-DA)"
+    assert "Selected_Features" in res
+    assert len(res["Selected_Features"]) > 0
+    assert len(res["Selected_Features"]) <= 20  # До 10 признаков на компоненту
+    assert res["Accuracy"] > 80.0
+    assert "Sparse_Loadings_df" in res
+    s_df = res["Sparse_Loadings_df"]
+    assert "Is_Selected" in s_df.columns
+    # Часть признаков должна быть строго обнулена благодаря разреженности
+    assert (s_df["Absolute_Weight"] == 0.0).any()
+
+

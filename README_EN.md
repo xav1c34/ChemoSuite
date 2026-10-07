@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-31%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-34%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -22,7 +22,7 @@
 
 ## 📖 About the Platform
 
-Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), and multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA**) in a single interactive web interface.
+Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), and multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) in a single interactive web interface.
 
 The platform addresses a key task in environmental monitoring: reliably distinguishing the background autochthonous organic matter of natural waters from technogenic wood-processing waste (using BPPM sludge lignin in the Lake Baikal ecosystem as a case study).
 
@@ -32,9 +32,9 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 
 | Module | Input Data | Key Methods and Algorithms | Output Analytical Descriptors |
 | :--- | :--- | :--- | :--- |
-| **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) or **ZIP spectrum archives** | Polynomial mass-scale recalibration, vectorized molecular formula assignment with nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS, biogeochemical Van Krevelen polygons, batch archive processing, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, biomolecular pools (Lipids, Proteins, Lignin/CRAM, Tannins, CAS), Perminova 20-cell grid, KMD series |
-| **💡 2. Optical Spectroscopy (EEM & UV-Vis)** | 2D EEM matrices (`.csv`, `.dat`, `.txt`) and 1D UV-Vis spectra (`.csv`, `.txt`) | Delaunay interpolation for Rayleigh scattering removal, Raman normalization (R.U.), non-negative PARAFAC, **CORCONDIA diagnostic**, **Split-Half model validation with Tucker Congruence ($TCC \ge 0.90$)**, inner filter effect (IFE) correction, Savitzky-Golay filter ($d^1A, d^2A$) | Indices $FI$, $HIX$, fluorophore profiles and contributions $C_1–C_3$, model stability $TCC$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
-| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across three modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), orthogonal PLS-DA, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$) | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, and block contribution shares ($\text{VIP}^2$) |
+| **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) or **ZIP spectrum archives** | Polynomial mass-scale recalibration, vectorized molecular formula assignment with nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS with **interactive molecular reaction network graph** and topological reaction hubs, biogeochemical Van Krevelen polygons, batch archive processing, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, biomolecular pools (Lipids, Proteins, Lignin/CRAM, Tannins, CAS), Perminova 20-cell grid, KMD series, topological node degrees $\text{Degree}$ |
+| **💡 2. Optical Spectroscopy (EEM & UV-Vis)** | 2D EEM matrices (`.csv`, `.dat`, `.txt`) and 1D UV-Vis spectra (`.csv`, `.txt`) | Delaunay interpolation for Rayleigh scattering removal, Raman normalization (R.U.), non-negative PARAFAC, **CORCONDIA diagnostic**, **Split-Half model validation**, **OpenFluor spectral library matching ($TCC \ge 0.85/0.90$)**, inner filter effect (IFE) correction, Savitzky-Golay filter ($d^1A, d^2A$) | Indices $FI$, $HIX$, fluorophore profiles and contributions $C_1–C_3$, OpenFluor matches ($C_1–C_6$), model stability $TCC$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
+| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across three modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), **PLS-DA, OPLS-DA and Sparse PLS-DA (sPLS-DA with $L_1$-regularization)**, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$), S-Plot | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, sparse biomarker panel ($|W|$), and block contribution shares ($\text{VIP}^2$) |
 
 ---
 
