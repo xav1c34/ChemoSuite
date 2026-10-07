@@ -122,11 +122,12 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
 │   └── README.md                     # Инструкция по использованию демо-файлов
 │
-├── tests/                            # Набор модульных тестов pytest (40 unit-тестов)
+├── tests/                            # Набор модульных тестов pytest (43 unit-теста)
 │   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS сети, векторные потоки, пути реакций)
 │   ├── test_chemo_pubchem.py         # Тесты хемоинформатики PubChem (PUG-REST, очистка формул, аннотация биомаркеров)
 │   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
 │   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_demo_pipelines.py        # Сквозные интеграционные тесты реальных демо-данных (FT-ICR, EEM, UV-Vis, ML)
 │   ├── test_report_generator.py      # Тесты генерации многостраничных Excel-паспортов (.xlsx)
 │   └── test_project_io.py            # Тесты сериализации и восстановления сессий (.chemo)
 │

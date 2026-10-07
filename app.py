@@ -1308,8 +1308,8 @@ if active_module == T[lang]["mod1_name"]:
                                          step=10.0, key=f"mzrange_{active_spectrum_name}")
 
                     max_int_data = float(valid_df["intensity"].max())
-                    cutoff_intensity = st.number_input(T[lang]["cutoff_int"], min_value=0.0, max_value=max_int_data, value=0.0,
-                                                       step=max_int_data * 0.001 if max_int_data > 0 else 1.0, format="%.2e", key=f"cutoff_{active_spectrum_name}")
+                    cutoff_intensity = st.number_input(T[lang]["cutoff_int"], min_value=0.0, max_value=max(1.0, max_int_data), value=0.0,
+                                                       step=max(1e-4, max_int_data * 0.001), format="%.2e", key=f"cutoff_{active_spectrum_name}")
 
                     filtered_df = valid_df[(valid_df["mass"] >= mz_range[0]) & (valid_df["mass"] <= mz_range[1]) & (valid_df["intensity"] >= cutoff_intensity)].sort_values("mass").reset_index(drop=True)
                     if not filtered_df.empty:
@@ -1985,22 +1985,23 @@ if active_module == T[lang]["mod1_name"]:
 
                         sub_peaks["intensity"] = new_ints
                         clean_sub_df = sub_peaks[sub_peaks["intensity"] > 0].copy().reset_index(drop=True)
-                        if not clean_sub_df.empty:
+                        if clean_sub_df.empty:
+                            st.warning("В результате вычитания все пики были обнулены." if lang == "ru" else "All peaks were subtracted to zero.")
+                        else:
                             clean_sub_df["norm_intensity"] = (clean_sub_df["intensity"] / clean_sub_df["intensity"].max()) * 100.0
+                            new_sample_name = f"{name_a}_sub_{name_b}.csv"
+                            fpath_sub = os.path.join(STORAGE_DIR, new_sample_name)
+                            clean_sub_df.to_csv(fpath_sub, sep="\t", index=False)
 
-                        new_sample_name = f"{name_a}_sub_{name_b}.csv"
-                        fpath_sub = os.path.join(STORAGE_DIR, new_sample_name)
-                        clean_sub_df.to_csv(fpath_sub, sep="\t", index=False)
-
-                        st.session_state["spectra_db"][new_sample_name] = {
-                            "raw_path": fpath_sub,
-                            "file_bytes": clean_sub_df.to_csv(sep="\t", index=False).encode("utf-8"),
-                            "parsed_peaks": clean_sub_df,
-                            "assigned_df": None,
-                            "raw_df": clean_sub_df,
-                        }
-                        st.success(T[lang]["sub_success"].format(name=new_sample_name, n=len(clean_sub_df)))
-                        st.rerun()
+                            st.session_state["spectra_db"][new_sample_name] = {
+                                "raw_path": fpath_sub,
+                                "file_bytes": clean_sub_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                                "parsed_peaks": clean_sub_df,
+                                "assigned_df": None,
+                                "raw_df": clean_sub_df,
+                            }
+                            st.success(T[lang]["sub_success"].format(name=new_sample_name, n=len(clean_sub_df)))
+                            st.rerun()
 
                 # 3. Алгебра спектров и диаграмма Венна
                 else:
@@ -2010,8 +2011,8 @@ if active_module == T[lang]["mod1_name"]:
                         [
                             ("and", T[lang]["alg_and"]),
                             ("or", T[lang]["alg_or"]),
-                            ("sub_a_b", T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_a_b"] else f"{T[lang]['alg_sub_a_b']} ({name_a} \\ {name_b})"),
-                            ("sub_b_a", T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_b_a"] else f"{T[lang]['alg_sub_b_a']} ({name_b} \\ {name_a})"),
+                            ("sub_a_b", T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_a_b"] else f"{T[lang]["alg_sub_a_b"]} ({name_a} \\ {name_b})"),
+                            ("sub_b_a", T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_b_a"] else f"{T[lang]["alg_sub_b_a"]} ({name_b} \\ {name_a})"),
                             ("xor", T[lang]["alg_xor"]),
                         ],
                         format_func=lambda x: x[1],
@@ -2042,22 +2043,23 @@ if active_module == T[lang]["mod1_name"]:
 
                     if st.button(T[lang]["alg_btn"], type="primary"):
                         alg_df = perform_spectral_algebra(peaks_a, peaks_b, operation=op_choice[0], ppm_tol=tol_comp)
-                        if not alg_df.empty:
+                        if alg_df.empty:
+                            st.warning("В результате операции пики не найдены." if lang == "ru" else "No peaks resulted from this operation.")
+                        else:
                             alg_df["norm_intensity"] = (alg_df["intensity"] / alg_df["intensity"].max()) * 100.0
+                            new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
+                            fpath_alg = os.path.join(STORAGE_DIR, new_alg_name)
+                            alg_df.to_csv(fpath_alg, sep="\t", index=False)
 
-                        new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
-                        fpath_alg = os.path.join(STORAGE_DIR, new_alg_name)
-                        alg_df.to_csv(fpath_alg, sep="\t", index=False)
-
-                        st.session_state["spectra_db"][new_alg_name] = {
-                            "raw_path": fpath_alg,
-                            "file_bytes": alg_df.to_csv(sep="\t", index=False).encode("utf-8"),
-                            "parsed_peaks": alg_df,
-                            "assigned_df": None,
-                            "raw_df": alg_df,
-                        }
-                        st.success(T[lang]["alg_success"].format(name=new_alg_name, n=len(alg_df)))
-                        st.rerun()
+                            st.session_state["spectra_db"][new_alg_name] = {
+                                "raw_path": fpath_alg,
+                                "file_bytes": alg_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                                "parsed_peaks": alg_df,
+                                "assigned_df": None,
+                                "raw_df": alg_df,
+                            }
+                            st.success(T[lang]["alg_success"].format(name=new_alg_name, n=len(alg_df)))
+                            st.rerun()
 
     # 8. TMDS
     with tabs[7]:

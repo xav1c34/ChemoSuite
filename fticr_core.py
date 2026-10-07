@@ -127,16 +127,17 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
     n = res["N"].astype(float) if "N" in res.columns else 0.0
     s = res["S"].astype(float) if "S" in res.columns else 0.0
 
-    res["H/C"] = np.where(c > 0, h / c, np.nan)
-    res["O/C"] = np.where(c > 0, o / c, np.nan)
+    res["H/C"] = np.divide(h, c, out=np.full_like(h, np.nan), where=c > 0)
+    res["O/C"] = np.divide(o, c, out=np.full_like(o, np.nan), where=c > 0)
     res["DBE"] = 1.0 + c - 0.5 * h + 0.5 * n
     res["DBE-O"] = res["DBE"] - o
 
     num_ai = 1.0 + c - o - s - 0.5 * h
     den_ai = c - o - s - n
-    ai = np.where((den_ai > 0) & (num_ai > 0), num_ai / den_ai, 0.0)
+    ai = np.divide(num_ai, den_ai, out=np.zeros_like(num_ai), where=(den_ai > 0) & (num_ai > 0))
     res["AI"] = np.clip(ai, 0.0, 1.0)
-    res["NOSC"] = np.where(c > 0, 4.0 - (4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s) / c, np.nan)
+    nosc_num = 4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s
+    res["NOSC"] = np.where(c > 0, 4.0 - np.divide(nosc_num, c, out=np.zeros_like(nosc_num), where=c > 0), np.nan)
 
     def get_hetero_class(row):
         has_n = row["N"] > 0
@@ -210,7 +211,7 @@ def get_biomolecular_distribution(assigned_df: pd.DataFrame, lang: str = "ru") -
     return {k: round(float(v), 2) for k, v in counts.items()}
 
 
-def parse_uploaded_file(file_bytes: bytes, delimiter: str, decimal_sep: str, has_header: bool) -> pd.DataFrame:
+def parse_uploaded_file(file_bytes: bytes, delimiter: str = "Auto", decimal_sep: str = ".", has_header: bool = True) -> pd.DataFrame:
     """Парсер пик-листов масс-спектров из текстовых файлов."""
     sep_map = {
         "Auto": None, "Авто (автоопределение)": None,

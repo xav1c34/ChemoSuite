@@ -693,17 +693,29 @@ def calculate_uv_vis_indices(
 
 
 def correct_inner_filter_effect(
-    eem: np.ndarray,
-    ex: np.ndarray,
-    em: np.ndarray,
-    uv_wl: np.ndarray,
-    uv_a: np.ndarray,
+    eem: Union[np.ndarray, EEMSample],
+    ex: Union[np.ndarray, UVVisSample, None] = None,
+    em: Optional[np.ndarray] = None,
+    uv_wl: Optional[np.ndarray] = None,
+    uv_a: Optional[np.ndarray] = None,
     pathlength_cm: float = 1.0,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[str]]:
     """
     Коррекция эффекта внутреннего фильтра (Inner Filter Effect, IFE):
     F_corr(Ex, Em) = F_obs(Ex, Em) * 10^(0.5 * (A_ex + A_em) * d)
+    Поддерживает передачу как массивов NumPy, так и объектов EEMSample и UVVisSample.
     """
+    if isinstance(eem, EEMSample) and isinstance(ex, UVVisSample):
+        d_val = float(em) if isinstance(em, (int, float)) else pathlength_cm
+        return correct_inner_filter_effect(
+            eem=eem.data,
+            ex=eem.ex,
+            em=eem.em,
+            uv_wl=ex.wl,
+            uv_a=ex.absorbance,
+            pathlength_cm=d_val,
+        )
+
     a_clean = np.maximum(0.0, uv_a)
     a_ex = np.interp(ex, uv_wl, a_clean, left=0.0, right=0.0)
     a_em = np.interp(em, uv_wl, a_clean, left=0.0, right=0.0)

@@ -541,7 +541,7 @@ def train_oplsda_model(
     s_x = np.std(X_scaled, axis=0, ddof=1)
     s_tp = np.std(t_p, ddof=1)
     denom = s_x * s_tp
-    corr_p = np.where(denom > 1e-12, cov_p / denom, 0.0)
+    corr_p = np.divide(cov_p, denom, out=np.zeros_like(cov_p), where=(denom > 1e-12))
 
     blocks_col = [block_map.get(col, "Other") for col in feature_names]
     vip_vals = np.sqrt(n_features * (corr_p ** 2))
