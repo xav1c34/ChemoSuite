@@ -528,9 +528,7 @@ T = {
         "ml_pubchem_btn": "🔍 Аннотировать биомаркеры в PubChem",
         "ml_pubchem_spinner": "Идентификация биомаркеров через PubChem API...",
         "ml_pubchem_dl_btn": "📥 Скачать аннотированные биомаркеры (CSV)",
-        # Улучшения UX / Фичи 1-4
-        "demo_loader_btn": "🧪 Загрузить демо-данные МГУ (1-Click Demo)",
-        "demo_loader_success": "Эталонные данные МГУ загружены! Образцы FT-ICR MS, EEM-PARAFAC, UV-Vis и мультимодальная матрица готовы к работе.",
+        # Улучшения UX / Фичи
         "kmd_slicer_title": "🎯 Срез гомологической серии (KMD Slicer)",
         "kmd_slicer_enable": "Включить фильтрацию гомологического ряда по KMD",
         "kmd_target_val": "Целевой KMD (дефект массы):",
@@ -938,9 +936,7 @@ T = {
         "ml_pubchem_btn": "🔍 Annotate Biomarkers in PubChem",
         "ml_pubchem_spinner": "Annotating biomarkers via PubChem API...",
         "ml_pubchem_dl_btn": "📥 Download Annotated Biomarkers (CSV)",
-        # UX Improvements / Features 1-4
-        "demo_loader_btn": "🧪 Load MSU Demo Data (1-Click Demo)",
-        "demo_loader_success": "MSU reference dataset loaded! FT-ICR MS, EEM-PARAFAC, UV-Vis spectra, and fused benchmark are ready to explore.",
+        # UX Improvements / Features
         "kmd_slicer_title": "🎯 Homologous Series Slicer (KMD Slicer)",
         "kmd_slicer_enable": "Enable KMD homologous series isolation",
         "kmd_target_val": "Target KMD (Mass Defect):",
@@ -1138,69 +1134,6 @@ with st.sidebar:
                         st.rerun()
                 except Exception as e_load:
                     st.error(f"Ошибка чтения проекта: {e_load}")
-
-            st.markdown("---")
-            if st.button(T[lang]["demo_loader_btn"], type="secondary", use_container_width=True, key="btn_load_demo_msu"):
-                demo_fticr_dir = os.path.join("demo_data", "fticr_ms")
-                loaded_any = False
-                if os.path.exists(demo_fticr_dir):
-                    for d_fname in sorted(os.listdir(demo_fticr_dir)):
-                        if d_fname.lower().endswith(".csv"):
-                            d_path = os.path.join(demo_fticr_dir, d_fname)
-                            try:
-                                with open(d_path, "rb") as f_dem:
-                                    b_content = f_dem.read()
-                                local_p = os.path.join(STORAGE_DIR, d_fname)
-                                with open(local_p, "wb") as f_loc:
-                                    f_loc.write(b_content)
-                                p_df = pd.read_csv(d_path)
-                                if "mass" in p_df.columns and "intensity" in p_df.columns:
-                                    p_df["norm_intensity"] = (p_df["intensity"] / p_df["intensity"].max()) * 100.0
-                                    # Рассчитываем формулы по умолчанию для первого образца
-                                    a_df = fast_formula_assigner(p_df, ppm_tolerance=1.2)
-                                else:
-                                    a_df = None
-                                st.session_state["spectra_db"][d_fname] = {
-                                    "raw_path": local_p,
-                                    "file_bytes": b_content,
-                                    "parsed_peaks": p_df,
-                                    "assigned_df": a_df,
-                                    "raw_df": p_df,
-                                }
-                                loaded_any = True
-                            except Exception:
-                                pass
-
-                # Подгрузка мультимодальной матрицы ML
-                fused_path = os.path.join("demo_data", "multimodal_ml", "chemo_unified_multimodal.csv")
-                if os.path.exists(fused_path):
-                    try:
-                        fused_demo_df = pd.read_csv(fused_path)
-                        st.session_state["fused_data"] = fused_demo_df
-                        st.session_state["fused_source"] = "MSU Baikal vs Sludge-Lignin (Demo)"
-                        loaded_any = True
-                    except Exception:
-                        pass
-
-                # Подгрузка дескрипторов EEM и UV
-                eem_b_path = os.path.join("demo_data", "multimodal_ml", "chemo_eem_block.csv")
-                if os.path.exists(eem_b_path):
-                    try:
-                        st.session_state["eem_ml_descriptors"] = pd.read_csv(eem_b_path)
-                    except Exception:
-                        pass
-
-                uv_b_path = os.path.join("demo_data", "multimodal_ml", "chemo_uv_block.csv")
-                if os.path.exists(uv_b_path):
-                    try:
-                        st.session_state["uv_ml_descriptors"] = pd.read_csv(uv_b_path)
-                    except Exception:
-                        pass
-
-                if loaded_any:
-                    st.toast(T[lang]["demo_loader_success"], icon="🧪")
-                    st.rerun()
-
             st.markdown("---")
 
 # Фирменный баннер платформы
@@ -1859,11 +1792,13 @@ if active_module == T[lang]["mod1_name"]:
                 with col_sl1:
                     enable_slicer = st.checkbox(T[lang]["kmd_slicer_enable"], value=False, key=f"kmd_sl_chk_{active_spectrum_name}")
                 with col_sl2:
-                    med_kmd = float(work_df["KMD"].median()) if not work_df.empty else 0.5
+                    kmd_min_actual = float(work_df["KMD"].min()) if not work_df.empty else -1.0
+                    kmd_max_actual = float(work_df["KMD"].max()) if not work_df.empty else 1.0
+                    med_kmd = float(work_df["KMD"].median()) if not work_df.empty else 0.0
                     target_kmd = st.number_input(
                         T[lang]["kmd_target_val"],
-                        min_value=0.0,
-                        max_value=1.0,
+                        min_value=min(-1.0, np.floor(kmd_min_actual * 10) / 10),
+                        max_value=max(1.0, np.ceil(kmd_max_actual * 10) / 10),
                         value=round(med_kmd, 3),
                         step=0.01,
                         format="%.3f",
