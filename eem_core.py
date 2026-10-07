@@ -343,6 +343,98 @@ def fit_parafac(
     }
 
 
+def split_half_analysis(
+    tensor: np.ndarray,
+    n_components: int = 3,
+    random_state: int = 42,
+) -> Dict[str, Any]:
+    """
+    Сплит-хаф валидация (Split-Half Validation) PARAFAC модели.
+    Разделяет набор образцов (режим 0) на две равные части A и B,
+    независимо обучает неотрицательный PARAFAC на каждой подвыборке и
+    рассчитывает коэффициенты конгруэнтности Такера (Tucker Congruence Coefficient, TCC)
+    для спектров испускания (Em) и возбуждения (Ex).
+
+    Returns:
+    --------
+    Dict с ключами:
+      - 'can_split': bool
+      - 'tcc_em': np.ndarray (конгруэнтность по эмиссии для каждого компонента)
+      - 'tcc_ex': np.ndarray (конгруэнтность по возбуждению для каждого компонента)
+      - 'mean_tcc': float (средняя конгруэнтность)
+      - 'is_validated': bool (True, если mean_tcc >= 0.90)
+    """
+    n_samples = tensor.shape[0]
+    if n_samples < 4:
+        return {
+            "can_split": False,
+            "error": "Для сплит-хаф анализа требуется как минимум 4 образца (по 2 на половину).",
+            "is_validated": False,
+            "mean_tcc": 0.0,
+            "tcc_em": np.zeros(n_components),
+            "tcc_ex": np.zeros(n_components),
+        }
+
+    rng = np.random.default_rng(random_state)
+    indices = rng.permutation(n_samples)
+    mid = n_samples // 2
+    idx_a = indices[:mid]
+    idx_b = indices[mid:]
+
+    tensor_a = tensor[idx_a]
+    tensor_b = tensor[idx_b]
+
+    # Обучение на половине A и B
+    res_a = fit_parafac(tensor_a, n_components=n_components, random_state=random_state)
+    res_b = fit_parafac(tensor_b, n_components=n_components, random_state=random_state + 1)
+
+    em_a = res_a["em_profiles"]
+    ex_a = res_a["ex_profiles"]
+
+    em_b = res_b["em_profiles"]
+    ex_b = res_b["ex_profiles"]
+
+    def _tcc(v1, v2):
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+        if n1 < 1e-12 or n2 < 1e-12:
+            return 0.0
+        return float(np.dot(v1, v2) / (n1 * n2))
+
+    from itertools import permutations
+    best_perm = None
+    best_score = -1.0
+
+    for perm in permutations(range(n_components)):
+        score = 0.0
+        for i_a, i_b in enumerate(perm):
+            score += (_tcc(em_a[:, i_a], em_b[:, i_b]) + _tcc(ex_a[:, i_a], ex_b[:, i_b])) / 2.0
+        if score > best_score:
+            best_score = score
+            best_perm = perm
+
+    tcc_em = []
+    tcc_ex = []
+    for i_a, i_b in enumerate(best_perm):
+        c_em = _tcc(em_a[:, i_a], em_b[:, i_b])
+        c_ex = _tcc(ex_a[:, i_a], ex_b[:, i_b])
+        tcc_em.append(round(c_em, 4))
+        tcc_ex.append(round(c_ex, 4))
+
+    tcc_em_arr = np.array(tcc_em)
+    tcc_ex_arr = np.array(tcc_ex)
+    mean_tcc = float(np.mean((tcc_em_arr + tcc_ex_arr) / 2.0))
+
+    return {
+        "can_split": True,
+        "is_validated": bool(mean_tcc >= 0.90),
+        "mean_tcc": round(mean_tcc, 3),
+        "tcc_em": tcc_em_arr,
+        "tcc_ex": tcc_ex_arr,
+        "matched_perm": list(best_perm),
+    }
+
+
 def generate_synthetic_chemometrics_dataset(n_samples: int = 10) -> List[EEMSample]:
     np.random.seed(42)
     ex = np.linspace(240, 450, 43)

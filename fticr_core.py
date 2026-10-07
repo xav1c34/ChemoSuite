@@ -6,6 +6,7 @@ import inspect
 import io
 import os
 import tempfile
+import zipfile
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -48,6 +49,73 @@ TMDS_LIBRARY = [
     {"name": "NH3 (Amination / Deamination)", "delta": 17.026549},
     {"name": "SO3 (Sulfonation)", "delta": 79.956815},
 ]
+
+# Стандартные биогеохимические полигоны диаграммы Ван-Кревелена (H/C vs O/C)
+VAN_KREVELEN_REGIONS = {
+    "Lipids": {
+        "ru": "Липиды",
+        "en": "Lipids",
+        "hc_range": (1.5, 2.2),
+        "oc_range": (0.0, 0.3),
+        "polygon": [(0.0, 1.5), (0.3, 1.5), (0.3, 2.2), (0.0, 2.2)],
+        "color": "rgba(46, 204, 113, 0.15)",
+        "border": "#27ae60",
+    },
+    "Proteins": {
+        "ru": "Пептиды / Белки",
+        "en": "Peptides / Proteins",
+        "hc_range": (1.5, 2.2),
+        "oc_range": (0.3, 0.67),
+        "polygon": [(0.3, 1.5), (0.67, 1.5), (0.67, 2.2), (0.3, 2.2)],
+        "color": "rgba(52, 152, 219, 0.15)",
+        "border": "#2980b9",
+    },
+    "Carbohydrates": {
+        "ru": "Углеводы",
+        "en": "Carbohydrates",
+        "hc_range": (1.5, 2.4),
+        "oc_range": (0.67, 1.2),
+        "polygon": [(0.67, 1.5), (1.2, 1.5), (1.2, 2.4), (0.67, 2.4)],
+        "color": "rgba(155, 89, 182, 0.15)",
+        "border": "#8e44ad",
+    },
+    "Lignins": {
+        "ru": "Лигнины / Полифенолы / CRAM",
+        "en": "Lignins / Polyphenols / CRAM",
+        "hc_range": (0.7, 1.5),
+        "oc_range": (0.1, 0.67),
+        "polygon": [(0.1, 0.7), (0.67, 0.7), (0.67, 1.5), (0.1, 1.5)],
+        "color": "rgba(243, 156, 18, 0.15)",
+        "border": "#d35400",
+    },
+    "Tannins": {
+        "ru": "Таннины",
+        "en": "Tannins",
+        "hc_range": (0.5, 1.5),
+        "oc_range": (0.67, 1.2),
+        "polygon": [(0.67, 0.5), (1.2, 0.5), (1.2, 1.5), (0.67, 1.5)],
+        "color": "rgba(231, 76, 60, 0.15)",
+        "border": "#c0392b",
+    },
+    "Condensed_Aromatics": {
+        "ru": "Конденсированная ароматика (CAS)",
+        "en": "Condensed Aromatics (CAS)",
+        "hc_range": (0.2, 0.7),
+        "oc_range": (0.0, 0.67),
+        "polygon": [(0.0, 0.2), (0.67, 0.2), (0.67, 0.7), (0.0, 0.7)],
+        "color": "rgba(52, 73, 94, 0.15)",
+        "border": "#2c3e50",
+    },
+    "Unsaturated_HC": {
+        "ru": "Ненасыщенные углеводороды",
+        "en": "Unsaturated Hydrocarbons",
+        "hc_range": (0.7, 1.5),
+        "oc_range": (0.0, 0.1),
+        "polygon": [(0.0, 0.7), (0.1, 0.7), (0.1, 1.5), (0.0, 1.5)],
+        "color": "rgba(26, 188, 156, 0.15)",
+        "border": "#16a085",
+    },
+}
 
 
 def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
@@ -107,7 +175,39 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
         return "Other / Unclassified" if lang == "en" else "Прочие компоненты"
 
     res["Compound_Class"] = res.apply(get_compound_class, axis=1)
+
+    def get_biomolecular_class(row):
+        hc = row["H/C"]
+        oc = row["O/C"]
+        ai_val = row["AI"]
+        if pd.isna(hc) or pd.isna(oc):
+            return "Не определено" if lang == "ru" else "Undefined"
+        if ai_val >= 0.67 or (0.2 <= hc < 0.7 and oc <= 0.67):
+            return VAN_KREVELEN_REGIONS["Condensed_Aromatics"][lang]
+        if 0.7 <= hc <= 1.5 and 0.0 <= oc < 0.1:
+            return VAN_KREVELEN_REGIONS["Unsaturated_HC"][lang]
+        if 1.5 <= hc <= 2.2 and 0.0 <= oc <= 0.3:
+            return VAN_KREVELEN_REGIONS["Lipids"][lang]
+        if 1.5 <= hc <= 2.2 and 0.3 < oc <= 0.67:
+            return VAN_KREVELEN_REGIONS["Proteins"][lang]
+        if 1.5 <= hc <= 2.4 and 0.67 < oc <= 1.2:
+            return VAN_KREVELEN_REGIONS["Carbohydrates"][lang]
+        if 0.5 <= hc <= 1.5 and 0.67 < oc <= 1.2:
+            return VAN_KREVELEN_REGIONS["Tannins"][lang]
+        if 0.7 <= hc <= 1.5 and 0.1 <= oc <= 0.67:
+            return VAN_KREVELEN_REGIONS["Lignins"][lang]
+        return "Прочие компоненты" if lang == "ru" else "Other / Unclassified"
+
+    res["Bio_Class"] = res.apply(get_biomolecular_class, axis=1)
     return res
+
+
+def get_biomolecular_distribution(assigned_df: pd.DataFrame, lang: str = "ru") -> Dict[str, float]:
+    """Возвращает процентное распределение биомолекулярных классов в масс-спектре."""
+    if "Bio_Class" not in assigned_df.columns:
+        assigned_df = calculate_descriptors(assigned_df, lang=lang)
+    counts = assigned_df["Bio_Class"].value_counts(normalize=True) * 100.0
+    return {k: round(float(v), 2) for k, v in counts.items()}
 
 
 def parse_uploaded_file(file_bytes: bytes, delimiter: str, decimal_sep: str, has_header: bool) -> pd.DataFrame:
@@ -159,12 +259,14 @@ def parse_uploaded_file(file_bytes: bytes, delimiter: str, decimal_sep: str, has
 
 
 def fast_formula_assigner(
-    peaks_df: pd.DataFrame, bounds: Dict[str, Tuple[int, int]],
-    max_hc: float, max_oc: float, ppm_tolerance: float,
-    ion_mode: str, max_charge: int = 1,
+    peaks_df: pd.DataFrame, bounds: Optional[Dict[str, Tuple[int, int]]] = None,
+    max_hc: float = 2.5, max_oc: float = 1.2, ppm_tolerance: float = 2.0,
+    ion_mode: str = "ESI(-)", max_charge: int = 1,
     iso_check: bool = False, iso_strict: bool = False,
 ) -> pd.DataFrame:
     """Векторный перебор и приписка брутто-формул с азотным правилом и проверкой 13C."""
+    if bounds is None:
+        bounds = {"C": (4, 120), "H": (4, 200), "O": (1, 60), "N": (0, 2), "S": (0, 1)}
     c_min, c_max = bounds.get("C", (4, 120))
     h_min, h_max = bounds.get("H", (4, 200))
     o_min, o_max = bounds.get("O", (1, 60))
@@ -498,3 +600,137 @@ def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
             m_neut = n * EXACT_MASSES["C"] + h_count * EXACT_MASSES["H"] + 7 * EXACT_MASSES["O"]
             calibrants.append({"name": f"CHO C{n}H{h_count}O7", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
     return pd.DataFrame(calibrants)
+
+
+def batch_process_fticr_spectra(
+    files_input: Union[Dict[str, bytes], bytes, io.BytesIO, str],
+    ion_mode: str = "ESI(-)",
+    ppm_tolerance: float = 2.0,
+    min_intensity: float = 0.0,
+    mz_range: Tuple[float, float] = (150.0, 1000.0),
+    lang: str = "ru",
+) -> Tuple[pd.DataFrame, Dict[str, Dict[str, Any]]]:
+    """
+    Пакетная обработка коллекции масс-спектров FT-ICR MS (из ZIP-архива, словаря файлов или пути).
+    Автоматически парсит, фильтрует пики, приписывает брутто-формулы, рассчитывает
+    20 ячеек Ван-Кревелена Перминовой и биомолекулярные дескрипторы для каждого образца.
+
+    Parameters:
+    -----------
+    files_input : Union[Dict[str, bytes], bytes, io.BytesIO, str]
+        Входные данные: словарь {имя_файла: байты}, байты ZIP-архива или путь к ZIP/папке.
+    ion_mode : str
+        Режим ионизации ('ESI(-)' или 'ESI(+)').
+    ppm_tolerance : float
+        Допуск погрешности массы в ppm.
+    min_intensity : float
+        Порог отсечения шума по интенсивности.
+    mz_range : Tuple[float, float]
+        Диапазон масс (мин, макс).
+    lang : str
+        Язык локализации ('ru' или 'en').
+
+    Returns:
+    --------
+    summary_df : pd.DataFrame
+        Сводная матрица дескрипторов всех образцов со столбцом 'Sample_ID' (готова для ChemoSuite ML).
+    spectra_dict : Dict[str, Dict[str, Any]]
+        Словарь обработанных спектров, готовый для обновления st.session_state["spectra_db"].
+    """
+    files_dict: Dict[str, bytes] = {}
+
+    if isinstance(files_input, dict):
+        files_dict = files_input
+    elif isinstance(files_input, (bytes, io.BytesIO)) or (isinstance(files_input, str) and files_input.lower().endswith(".zip")):
+        bio = io.BytesIO(files_input) if isinstance(files_input, bytes) else (files_input if isinstance(files_input, io.BytesIO) else open(files_input, "rb"))
+        with zipfile.ZipFile(bio, "r") as zf:
+            for fname in zf.namelist():
+                if fname.lower().endswith((".csv", ".tsv", ".txt", ".xy")) and not fname.startswith("__MACOSX"):
+                    files_dict[os.path.basename(fname)] = zf.read(fname)
+        if isinstance(files_input, str) and not isinstance(bio, io.BytesIO):
+            bio.close()
+    elif isinstance(files_input, str) and os.path.isdir(files_input):
+        for fname in os.listdir(files_input):
+            if fname.lower().endswith((".csv", ".tsv", ".txt", ".xy")):
+                with open(os.path.join(files_input, fname), "rb") as f_in:
+                    files_dict[fname] = f_in.read()
+    else:
+        raise ValueError("Неподдерживаемый формат входных данных для пакетной обработки спектров.")
+
+    if not files_dict:
+        return pd.DataFrame(), {}
+
+    summary_rows = []
+    spectra_dict = {}
+
+    for fname, raw_bytes in files_dict.items():
+        sample_id = os.path.splitext(fname)[0]
+        try:
+            # 1. Парсинг
+            parsed_df = parse_uploaded_file(raw_bytes, delimiter="Auto", decimal_sep=".", has_header=True)
+            if parsed_df.empty or "mass" not in parsed_df.columns:
+                continue
+
+            # 2. Фильтрация
+            mask = (parsed_df["mass"] >= mz_range[0]) & (parsed_df["mass"] <= mz_range[1])
+            if min_intensity > 0:
+                mask = mask & (parsed_df["intensity"] >= min_intensity)
+            filtered = parsed_df[mask].reset_index(drop=True)
+            if filtered.empty:
+                continue
+
+            # 3. Приписка формул
+            assigned = fast_formula_assigner(filtered, ion_mode=ion_mode, ppm_tolerance=ppm_tolerance)
+            if assigned.empty:
+                continue
+
+            # 4. Дескрипторы и классы
+            desc_df = calculate_descriptors(assigned, lang=lang)
+
+            # 5. Сетка 20 ячеек Перминовой
+            _, _, grid_df = compute_vk20_grid(desc_df)
+
+            # 6. Биомолекулярное распределение
+            bio_dist = get_biomolecular_distribution(desc_df, lang="en")
+
+            # Формирование строки образца
+            row: Dict[str, Any] = {"Sample_ID": sample_id}
+
+            # Добавляем 20 ячеек (VK_1 .. VK_20)
+            for _, r_cell in grid_df.iterrows():
+                row[str(r_cell["Cell"])] = round(float(r_cell["Pct_Count"]), 2)
+
+            # Базовые хемометрические индексы
+            row["AI"] = round(float(desc_df["AI"].mean()), 3)
+            row["DBE"] = round(float(desc_df["DBE"].mean()), 2)
+            row["H/C"] = round(float(desc_df["H/C"].mean()), 3)
+            row["O/C"] = round(float(desc_df["O/C"].mean()), 3)
+            row["NOSC"] = round(float(desc_df["NOSC"].mean()), 3)
+
+            # Пулы гетероатомов
+            h_counts = desc_df["Hetero_Class"].value_counts(normalize=True) * 100.0
+            row["CHO_pct"] = round(float(h_counts.get("CHO", 0.0)), 2)
+            row["CHON_pct"] = round(float(h_counts.get("CHON", 0.0)), 2)
+            row["CHOS_pct"] = round(float(h_counts.get("CHOS", 0.0)), 2)
+            row["CHONS_pct"] = round(float(h_counts.get("CHONS", 0.0)), 2)
+
+            # Биомолекулярные пулы
+            for b_name, b_pct in bio_dist.items():
+                row[f"Bio_{b_name}"] = b_pct
+
+            row["Assigned_Peaks"] = len(desc_df)
+            summary_rows.append(row)
+
+            # Сохранение спектра
+            spectra_dict[fname] = {
+                "raw_path": fname,
+                "file_bytes": raw_bytes,
+                "raw_df": parsed_df,
+                "parsed_peaks": filtered,
+                "assigned_df": desc_df,
+            }
+        except Exception:
+            continue
+
+    summary_df = pd.DataFrame(summary_rows)
+    return summary_df, spectra_dict

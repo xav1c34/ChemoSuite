@@ -128,3 +128,64 @@ def test_tmds_screening():
     assert not ch2_hit.empty
     assert ch2_hit.iloc[0]["Count"] == 1
     assert len(pairs) == 1
+
+
+def test_biomolecular_regions_and_distribution():
+    """Тест классификации биомолекулярных полигонов Ван-Кревелена и расчета распределения."""
+    df = pd.DataFrame({
+        "C": [10, 20, 15, 8],
+        "H": [10, 36, 12, 16],
+        "O": [4, 2, 7, 1],
+        "N": [0, 0, 0, 0],
+        "S": [0, 0, 0, 0],
+    })
+    desc = fticr_core.calculate_descriptors(df, lang="ru")
+    assert "Bio_Class" in desc.columns
+    # C20H36O2: H/C = 1.8, O/C = 0.1 -> Lipids
+    assert desc.loc[1, "Bio_Class"] == "Липиды"
+    # C10H10O4: H/C = 1.0, O/C = 0.4 -> Lignins / Polyphenols
+    assert "Лигнины" in desc.loc[0, "Bio_Class"]
+
+    dist = fticr_core.get_biomolecular_distribution(desc, lang="ru")
+    assert isinstance(dist, dict)
+    assert np.isclose(sum(dist.values()), 100.0)
+
+
+def test_batch_process_fticr_spectra():
+    """Тест пакетной обработки коллекции масс-спектров."""
+    m_vanillin = 8 * 12.0 + 8 * 1.007825 + 4 * 15.994915 - 1.007276
+    m_caffeic = 9 * 12.0 + 8 * 1.007825 + 4 * 15.994915 - 1.007276
+    content_a = f"mass,intensity\n{m_vanillin},50000\n{m_caffeic},80000\n".encode("utf-8")
+    content_b = f"mass,intensity\n{m_vanillin},30000\n".encode("utf-8")
+
+    files_dict = {
+        "Sample_A.csv": content_a,
+        "Sample_B.csv": content_b,
+    }
+
+    summary_df, spectra_dict = fticr_core.batch_process_fticr_spectra(files_dict, ppm_tolerance=3.0)
+
+    assert not summary_df.empty
+    assert len(summary_df) == 2
+    assert "Sample_ID" in summary_df.columns
+    assert set(summary_df["Sample_ID"].values) == {"Sample_A", "Sample_B"}
+    assert "VK_1" in summary_df.columns
+    assert "VK_20" in summary_df.columns
+    assert "AI" in summary_df.columns
+    assert "DBE" in summary_df.columns
+    assert len(spectra_dict) == 2
+    assert "Sample_A.csv" in spectra_dict
+
+    # Тест загрузки через zip-архив (байты)
+    import io
+    import zipfile
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("Zip_Sample_01.csv", content_a)
+        zf.writestr("Zip_Sample_02.csv", content_b)
+    zip_bytes = zip_buffer.getvalue()
+
+    summary_zip_df, zip_spectra = fticr_core.batch_process_fticr_spectra(zip_bytes, ppm_tolerance=3.0)
+    assert len(summary_zip_df) == 2
+    assert set(summary_zip_df["Sample_ID"].values) == {"Zip_Sample_01", "Zip_Sample_02"}
+

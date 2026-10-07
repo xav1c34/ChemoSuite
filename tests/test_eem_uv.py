@@ -132,3 +132,25 @@ def test_link_uv_vis_to_eem():
     assert eem_sample.a254 is not None
     assert eem_sample.doc == 4.0
     assert logs[0]["IFE_Applied"] is True
+
+
+def test_corcondia_and_split_half_analysis():
+    """Тест расчета Core Consistency Diagnostic (CORCONDIA) и Split-Half валидации PARAFAC."""
+    samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=6)
+    tensor, ref_em, ref_ex, names = eem_core.build_eem_tensor(samples)
+
+    # 1. PARAFAC и CORCONDIA
+    res = eem_core.fit_parafac(tensor, n_components=3, random_state=42)
+    assert "corcondia" in res
+    assert isinstance(res["corcondia"], float)
+    assert 0.0 <= res["corcondia"] <= 100.0
+
+    # 2. Split-Half валидация
+    split_res = eem_core.split_half_analysis(tensor, n_components=3, random_state=42)
+    assert split_res["can_split"] is True
+    assert "tcc_em" in split_res
+    assert "tcc_ex" in split_res
+    assert len(split_res["tcc_em"]) == 3
+    assert len(split_res["tcc_ex"]) == 3
+    assert isinstance(split_res["mean_tcc"], float)
+    assert 0.0 <= split_res["mean_tcc"] <= 1.0

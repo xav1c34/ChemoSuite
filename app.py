@@ -247,6 +247,21 @@ T = {
         "kmd_hetero_mode": "Классы гетероатомов",
         "kmd_x_axis": "Номинальная масса Кендрика NKM ({base})",
         "kmd_y_axis": "Дефект массы Кендрика KMD [0, 1) ({base})",
+        "vk_show_bioclasses": "Отображать биогеохимические полигоны (Липиды, Белки, Лигнин, Таннины, CAS)",
+        "vk_bioclass_dist_title": "Распределение по биогеохимическим классам (%)",
+        "vk_bioclass_col": "Биогеохимический класс",
+        "vk_bioclass_pct": "Доля (%)",
+        "batch_zip_expander": "📦 Пакетная обработка спектров (ZIP-архив)",
+        "batch_zip_uploader": "Загрузите ZIP-архив со спектрами:",
+        "batch_ion_mode": "Режим ионизации:",
+        "batch_ppm_tol": "Допуск погрешности (ppm):",
+        "batch_min_int": "Порог шума (мин. интенсивность):",
+        "batch_run_btn": "🚀 Запустить пакетную обработку архива",
+        "batch_success": "Успешно обработано спектров: {n}",
+        "batch_table_title": "Сводная матрица дескрипторов (20 ячеек, индексы, пулы):",
+        "batch_dl_csv": "📥 Скачать матрицу дескрипторов (chemo_fticr_block.csv)",
+        "batch_transfer_ml_btn": "🧬 Передать дескрипторы в Модуль 3 (ChemoSuite ML)",
+        "batch_transfer_success": "Дескрипторы переданы в сессию Модуля 3! Теперь вы можете собрать датасет в Модуле 3.",
         "vk20_basis": "Базис расчета заселенности:",
         "vk20_opt_count": "Относительное число формул (%)",
         "vk20_opt_weight": "Взвешенная интенсивность (%)",
@@ -349,6 +364,13 @@ T = {
         "eem_parafac_orig": "Исходная EEM",
         "eem_parafac_model": "Модель PARAFAC",
         "eem_parafac_res": "Карта остатков (Невязки)",
+        "eem_splithalf_expander": "🔬 Сплит-хаф валидация (Split-Half Validation)",
+        "eem_splithalf_btn": "🚀 Запустить Split-Half анализ",
+        "eem_splithalf_need_samples": "Для сплит-хаф анализа необходимо минимум 4 образца.",
+        "eem_splithalf_spinner": "Выполняется сплит-хаф разбиение выборки и расчет коэффициентов конгруэнтности Такера (TCC)...",
+        "eem_splithalf_success": "✅ Модель PARAFAC стабильна и валидирована (Mean TCC = {tcc:.3f} ≥ 0.90)",
+        "eem_splithalf_fail": "⚠️ Модель PARAFAC нестабильна (Mean TCC = {tcc:.3f} < 0.90). Возможно перефакторизована.",
+        "eem_splithalf_tcc_title": "Коэффициенты конгруэнтности Такера (TCC) по компонентам:",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -570,6 +592,21 @@ T = {
         "kmd_hetero_mode": "Heteroatom classes",
         "kmd_x_axis": "Nominal Kendrick Mass NKM ({base})",
         "kmd_y_axis": "Kendrick Mass Defect KMD [0, 1) ({base})",
+        "vk_show_bioclasses": "Display Biogeochemical Polygons (Lipids, Proteins, Lignin, Tannins, CAS)",
+        "vk_bioclass_dist_title": "Biogeochemical Class Distribution (%)",
+        "vk_bioclass_col": "Biogeochemical Class",
+        "vk_bioclass_pct": "Share (%)",
+        "batch_zip_expander": "📦 Batch Spectrum Processing (ZIP Archive)",
+        "batch_zip_uploader": "Upload ZIP archive with spectra:",
+        "batch_ion_mode": "Ionization mode:",
+        "batch_ppm_tol": "PPM tolerance:",
+        "batch_min_int": "Noise cutoff (min intensity):",
+        "batch_run_btn": "🚀 Run Batch Archive Processing",
+        "batch_success": "Successfully processed spectra: {n}",
+        "batch_table_title": "Summary Descriptor Matrix (20 cells, indices, pools):",
+        "batch_dl_csv": "📥 Download Descriptor Matrix (chemo_fticr_block.csv)",
+        "batch_transfer_ml_btn": "🧬 Transfer Descriptors to Module 3 (ChemoSuite ML)",
+        "batch_transfer_success": "Descriptors transferred to Module 3 session! You can now assemble the dataset in Module 3.",
         "vk20_basis": "Density metric basis:",
         "vk20_opt_count": "Relative formula count (%)",
         "vk20_opt_weight": "Intensity-weighted abundance (%)",
@@ -672,6 +709,13 @@ T = {
         "eem_parafac_orig": "Original EEM",
         "eem_parafac_model": "PARAFAC Model",
         "eem_parafac_res": "Residual Map",
+        "eem_splithalf_expander": "🔬 Split-Half Model Validation",
+        "eem_splithalf_btn": "🚀 Run Split-Half Analysis",
+        "eem_splithalf_need_samples": "At least 4 samples required for split-half analysis.",
+        "eem_splithalf_spinner": "Performing split-half split and computing Tucker Congruence Coefficients (TCC)...",
+        "eem_splithalf_success": "✅ PARAFAC model is stable and validated (Mean TCC = {tcc:.3f} ≥ 0.90)",
+        "eem_splithalf_fail": "⚠️ PARAFAC model unstable (Mean TCC = {tcc:.3f} < 0.90). May be overfactored.",
+        "eem_splithalf_tcc_title": "Tucker Congruence Coefficients (TCC) per component:",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -779,6 +823,9 @@ from fticr_core import (
     H_ION_MASS,
     KMD_BASES,
     TMDS_LIBRARY,
+    VAN_KREVELEN_REGIONS,
+    get_biomolecular_distribution,
+    batch_process_fticr_spectra,
     calculate_descriptors,
     parse_uploaded_file,
     fast_formula_assigner,
@@ -1011,6 +1058,63 @@ if active_module == T[lang]["mod1_name"]:
                     st.rerun()
                 else:
                     st.error(T[lang]["folder_err"])
+
+        with st.expander(T[lang]["batch_zip_expander"], expanded=False):
+            batch_zip_file = st.file_uploader(
+                T[lang]["batch_zip_uploader"],
+                type=["zip"],
+                key="batch_zip_uploader_key",
+            )
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                b_ion = st.selectbox(T[lang]["batch_ion_mode"], ["ESI(-)", "ESI(+)"], index=0, key="batch_ion_mode_key")
+                b_ppm = st.number_input(T[lang]["batch_ppm_tol"], min_value=0.1, max_value=20.0, value=2.0, step=0.5, key="batch_ppm_key")
+            with col_b2:
+                b_min_int = st.number_input(T[lang]["batch_min_int"], min_value=0.0, value=0.0, format="%.2e", key="batch_min_int_key")
+                b_mz_min = st.number_input("m/z min:", min_value=50.0, max_value=2000.0, value=150.0, step=50.0, key="batch_mz_min_key")
+            b_mz_max = st.number_input("m/z max:", min_value=200.0, max_value=3000.0, value=1000.0, step=50.0, key="batch_mz_max_key")
+
+            if batch_zip_file is not None:
+                if st.button(T[lang]["batch_run_btn"], type="primary", key="btn_run_batch_zip"):
+                    with st.spinner("Выполняется пакетная обработка спектров..." if lang == "ru" else "Batch processing spectra..."):
+                        summary_df, processed_dict = batch_process_fticr_spectra(
+                            batch_zip_file.getvalue(),
+                            ion_mode=b_ion,
+                            ppm_tolerance=b_ppm,
+                            min_intensity=b_min_int,
+                            mz_range=(b_mz_min, b_mz_max),
+                            lang=lang,
+                        )
+                        if not summary_df.empty:
+                            for s_name, s_data in processed_dict.items():
+                                save_path = os.path.join(STORAGE_DIR, s_name)
+                                try:
+                                    with open(save_path, "wb") as f_out:
+                                        f_out.write(s_data["file_bytes"])
+                                except Exception:
+                                    pass
+                                s_data["raw_path"] = save_path
+                                st.session_state["spectra_db"][s_name] = s_data
+
+                            st.session_state["fticr_batch_summary"] = summary_df
+                            st.success(T[lang]["batch_success"].format(n=len(summary_df)))
+                        else:
+                            st.warning("В архиве не найдено подходящих спектральных файлов или не удалось приписать формулы." if lang == "ru" else "No valid spectra found in archive or formula assignment failed.")
+
+            if "fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty:
+                b_sum = st.session_state["fticr_batch_summary"]
+                st.markdown(f"**{T[lang]['batch_table_title']}**")
+                st_df(b_sum.head(5))
+                st.download_button(
+                    label=T[lang]["batch_dl_csv"],
+                    data=b_sum.to_csv(index=False).encode("utf-8"),
+                    file_name="chemo_fticr_block.csv",
+                    mime="text/csv",
+                    key="dl_batch_fticr_summary_btn",
+                )
+                if st.button(T[lang]["batch_transfer_ml_btn"], key="btn_transfer_batch_to_ml"):
+                    st.session_state["fticr_ml_descriptors"] = b_sum
+                    st.success(T[lang]["batch_transfer_success"])
 
         all_spectra = list(st.session_state["spectra_db"].keys())
         if all_spectra:
@@ -1261,7 +1365,30 @@ if active_module == T[lang]["mod1_name"]:
             palette = {"CHO": "#0020C2", "CHON": "#FF7F0E", "CHOS": "#2CA02C", "CHONS": "#D62728"}
 
             if proj_type == T[lang]["proj_vk"]:
+                show_bioclasses = st.checkbox(T[lang]["vk_show_bioclasses"], value=True, key=f"vk_bio_{active_spectrum_name}")
                 fig_vk = go.Figure()
+                if show_bioclasses:
+                    for reg_key, reg_info in VAN_KREVELEN_REGIONS.items():
+                        oc_min, oc_max = reg_info["oc_range"]
+                        hc_min, hc_max = reg_info["hc_range"]
+                        fig_vk.add_shape(
+                            type="rect",
+                            x0=oc_min, x1=min(oc_max, 1.0),
+                            y0=hc_min, y1=min(hc_max, 2.2),
+                            fillcolor=reg_info["color"],
+                            line=dict(color=reg_info["border"], width=1.5, dash="dot"),
+                            layer="below",
+                        )
+                        label_name = reg_info[lang]
+                        fig_vk.add_annotation(
+                            x=(oc_min + min(oc_max, 1.0)) / 2.0,
+                            y=(hc_min + min(hc_max, 2.2)) / 2.0,
+                            text=f"<b>{label_name}</b>",
+                            showarrow=False,
+                            font=dict(size=10, color=reg_info["border"]),
+                            opacity=0.75,
+                        )
+
                 for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
                     sub = assigned_data[assigned_data["Hetero_Class"] == cls]
                     if sub.empty: continue
@@ -1272,6 +1399,28 @@ if active_module == T[lang]["mod1_name"]:
                     ))
                 fig_vk.update_layout(xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5"), yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5"), plot_bgcolor="white", height=560)
                 st_plotly(fig_vk)
+
+                bio_dist = get_biomolecular_distribution(assigned_data, lang=lang)
+                if bio_dist:
+                    st.markdown(f"##### {T[lang]['vk_bioclass_dist_title']}")
+                    b_col1, b_col2 = st.columns([1, 2])
+                    with b_col1:
+                        df_bio = pd.DataFrame([
+                            {T[lang]["vk_bioclass_col"]: k, T[lang]["vk_bioclass_pct"]: v}
+                            for k, v in bio_dist.items()
+                        ])
+                        st_df(df_bio)
+                    with b_col2:
+                        fig_bio = px.bar(
+                            df_bio, x=T[lang]["vk_bioclass_col"], y=T[lang]["vk_bioclass_pct"],
+                            color=T[lang]["vk_bioclass_col"],
+                            text=T[lang]["vk_bioclass_pct"],
+                            template="plotly_white",
+                            height=280,
+                        )
+                        fig_bio.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                        fig_bio.update_layout(showlegend=False, yaxis_title="%", xaxis_title="", margin=dict(l=10, r=10, t=10, b=10))
+                        st_plotly(fig_bio)
             elif proj_type == T[lang]["proj_dbe_c"]:
                 fig_dbe = go.Figure()
                 for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
@@ -1566,6 +1715,40 @@ elif active_module == T[lang]["mod2_name"]:
                     )
                     m_c3.metric(T[lang]["eem_m_components"], f"{n_components_sel} флуорофора" if lang == "ru" else f"{n_components_sel} Components")
 
+                    if results["corcondia"] >= 80.0:
+                        st.success("✅ **CORCONDIA ≥ 80%**: Трилинейная модель валидирована (высокая степень однозначности разложения)." if lang == "ru" else "✅ **CORCONDIA ≥ 80%**: Trilinear model validated (high degree of uniqueness).")
+                    elif results["corcondia"] >= 50.0:
+                        st.warning("⚠️ **CORCONDIA 50–80%**: Умеренная адекватность трилинейной структуры. Рекомендуется сплит-хаф анализ." if lang == "ru" else "⚠️ **CORCONDIA 50–80%**: Moderate trilinearity. Split-half validation recommended.")
+                    else:
+                        st.error("❌ **CORCONDIA < 50%**: Низкая согласованность ядра. Высокий риск перефакторизации (overfitting)." if lang == "ru" else "❌ **CORCONDIA < 50%**: Low core consistency. Risk of overfactoring.")
+
+                    with st.expander(T[lang]["eem_splithalf_expander"], expanded=False):
+                        if len(active_parafac_samples) < 4:
+                            st.info(T[lang]["eem_splithalf_need_samples"])
+                        else:
+                            if st.button(T[lang]["eem_splithalf_btn"], key="btn_run_split_half"):
+                                with st.spinner(T[lang]["eem_splithalf_spinner"]):
+                                    sh_res = eem_core.split_half_analysis(tensor_x, n_components=n_components_sel, random_state=42)
+                                if sh_res.get("can_split", False):
+                                    mean_tcc = sh_res["mean_tcc"]
+                                    if sh_res["is_validated"]:
+                                        st.success(T[lang]["eem_splithalf_success"].format(tcc=mean_tcc))
+                                    else:
+                                        st.warning(T[lang]["eem_splithalf_fail"].format(tcc=mean_tcc))
+
+                                    st.markdown(f"**{T[lang]['eem_splithalf_tcc_title']}**")
+                                    tcc_rows = []
+                                    comp_names_sh = [T[lang]["eem_comp_c1"], T[lang]["eem_comp_c2"], T[lang]["eem_comp_c3"]] if n_components_sel == 3 else [f"C{r+1}" for r in range(n_components_sel)]
+                                    for idx_c in range(n_components_sel):
+                                        c_name = comp_names_sh[idx_c] if idx_c < len(comp_names_sh) else f"C{idx_c+1}"
+                                        tcc_rows.append({
+                                            "Component": c_name,
+                                            "TCC Em": sh_res["tcc_em"][idx_c],
+                                            "TCC Ex": sh_res["tcc_ex"][idx_c],
+                                            "Status": "✅ OK (≥0.90)" if (sh_res["tcc_em"][idx_c] >= 0.90 and sh_res["tcc_ex"][idx_c] >= 0.90) else "⚠️ Low (<0.90)",
+                                        })
+                                    st_df(pd.DataFrame(tcc_rows))
+
                     st.markdown("---")
                     col_p1, col_p2 = st.columns(2)
                     comp_names = [f"C{r+1}" for r in range(n_components_sel)]
@@ -1717,22 +1900,26 @@ elif active_module == T[lang]["mod3_name"]:
         eem_df = st.session_state.get("eem_ml_descriptors", None)
         uv_df = st.session_state.get("uv_ml_descriptors", None)
 
+        n_fticr_samples = len(st.session_state["fticr_batch_summary"]) if ("fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty) else len(assigned_spectra)
         st.info(T[lang]["ml_session_status"].format(
-            n_ms=len(assigned_spectra),
+            n_ms=n_fticr_samples,
             n_eem=len(eem_df) if eem_df is not None else 0,
             n_uv=len(uv_df) if uv_df is not None else 0,
         ))
 
         if st.button(T[lang]["ml_btn_assemble_session"], type="primary", key="btn_assemble_session"):
-            if not assigned_spectra and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty):
+            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty):
                 st.warning(T[lang]["ml_session_need_more"])
             else:
-                fticr_rows = []
-                for s_name, a_df in assigned_spectra.items():
-                    desc = chemo_ml.extract_fticr_descriptors(a_df, s_name)
-                    if desc:
-                        fticr_rows.append(desc)
-                df_ms_assembled = pd.DataFrame(fticr_rows) if fticr_rows else pd.DataFrame()
+                if "fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty:
+                    df_ms_assembled = st.session_state["fticr_batch_summary"]
+                else:
+                    fticr_rows = []
+                    for s_name, a_df in assigned_spectra.items():
+                        desc = chemo_ml.extract_fticr_descriptors(a_df, s_name)
+                        if desc:
+                            fticr_rows.append(desc)
+                    df_ms_assembled = pd.DataFrame(fticr_rows) if fticr_rows else pd.DataFrame()
 
                 merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df)
                 if not merged_df.empty:
