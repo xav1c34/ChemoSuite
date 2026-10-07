@@ -2,7 +2,7 @@
 chemo_ml.py — Вычислительное ядро хемометрики (Data Fusion, PLS-DA, VIP, Permutation Test).
 Методология кафедры аналитической химии и лаборатории природных гуминовых систем химфака МГУ.
 """
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from scipy.stats import f
