@@ -1484,18 +1484,154 @@ if active_module == T[lang]["mod1_name"]:
     # 5. KMD
     with tabs[4]:
         st.subheader(f"{T[lang]['tab_kmd']}: {active_spectrum_name if active_spectrum_name else ''}")
-        work_df = current_sample.get("assigned_df") if current_sample and current_sample.get("assigned_df") is not None and not current_sample["assigned_df"].empty else (current_sample.get("parsed_peaks") if current_sample else None)
-        if work_df is not None and not work_df.empty:
-            c1, c2 = st.columns(2)
-            with c1: base_choice = st.selectbox(T[lang]["kmd_base_group"], list(KMD_BASES.keys()), index=0, key=f"kmd_base_{active_spectrum_name}")
-            with c2: point_sz = st.slider(T[lang]["kmd_pt_size"], 1, 8, 3, key=f"kmd_pt_{active_spectrum_name}")
-            km, nkm, kmd = compute_kmd(work_df["mass"].values, base_choice)
-            fig_kmd = go.Figure()
-            even_mask = (nkm % 2 == 0)
-            fig_kmd.add_trace(go.Scattergl(x=nkm[even_mask], y=kmd[even_mask], mode="markers", name=T[lang]["kmd_even"], marker=dict(color="#0020C2", size=point_sz, opacity=0.6)))
-            fig_kmd.add_trace(go.Scattergl(x=nkm[~even_mask], y=kmd[~even_mask], mode="markers", name=T[lang]["kmd_odd"], marker=dict(color="#FF7F0E", size=point_sz, opacity=0.7)))
-            fig_kmd.update_layout(xaxis=dict(title=T[lang]["kmd_x_axis"].format(base=base_choice), gridcolor="#f1f3f5"), yaxis=dict(title=T[lang]["kmd_y_axis"].format(base=base_choice), range=[-0.02, 1.02]), height=540, plot_bgcolor="white")
-            st_plotly(fig_kmd)
+        assigned_df = current_sample.get("assigned_df") if current_sample else None
+        peaks_df = current_sample.get("parsed_peaks") if current_sample else None
+
+        if assigned_df is not None and not assigned_df.empty:
+            work_df = assigned_df.copy()
+            has_formulas = True
+        elif peaks_df is not None and not peaks_df.empty:
+            work_df = peaks_df.copy()
+            has_formulas = False
+        else:
+            st.info(T[lang]["no_spectra_info"])
+            work_df = None
+
+        if work_df is not None:
+            col_b1, col_b2, col_b3 = st.columns([2, 2, 1])
+            with col_b1:
+                base_choice = st.selectbox(T[lang]["kmd_base_group"], list(KMD_BASES.keys()), index=0, key=f"kmd_base_{active_spectrum_name}")
+            with col_b2:
+                color_options = [T[lang]["kmd_parity_mode"], T[lang]["kmd_int_mode"]]
+                if has_formulas:
+                    color_options.extend([T[lang]["kmd_o_mode"], T[lang]["kmd_dbe_mode"], T[lang]["kmd_hetero_mode"]])
+                color_mode = st.selectbox(T[lang]["kmd_color_mode"], color_options, index=0, key=f"kmd_color_{active_spectrum_name}")
+            with col_b3:
+                point_sz = st.slider(T[lang]["kmd_pt_size"], 1, 8, 3, key=f"kmd_pt_{active_spectrum_name}")
+
+            # compute_kmd возвращает (km, kmd, nkm)
+            km, kmd, nkm = compute_kmd(work_df["mass"].values, base_choice)
+            work_df["KM"] = km
+            work_df["KMD"] = kmd
+            work_df["NKM"] = nkm
+            base_label = KMD_BASES[base_choice]["label"]
+
+            hover_text = [
+                f"<b>{r.get('Formula', 'N/A')}</b><br>m/z: {r['mass']:.4f}<br>NKM: {int(n)}<br>KMD: {d:.4f}"
+                for r, n, d in zip(work_df.to_dict("records"), work_df["NKM"], work_df["KMD"])
+            ]
+
+            fig_kmd_inter = go.Figure()
+            if color_mode == T[lang]["kmd_parity_mode"]:
+                even_mask = (work_df["NKM"] % 2 == 0)
+                even_idx = np.where(even_mask)[0]
+                odd_idx = np.where(~even_mask)[0]
+                fig_kmd_inter.add_trace(go.Scattergl(
+                    x=work_df.loc[even_mask, "NKM"],
+                    y=work_df.loc[even_mask, "KMD"],
+                    mode="markers",
+                    name=T[lang]["kmd_even"],
+                    text=[hover_text[i] for i in even_idx],
+                    hoverinfo="text",
+                    marker=dict(color="#0020C2", size=point_sz, opacity=0.6),
+                ))
+                fig_kmd_inter.add_trace(go.Scattergl(
+                    x=work_df.loc[~even_mask, "NKM"],
+                    y=work_df.loc[~even_mask, "KMD"],
+                    mode="markers",
+                    name=T[lang]["kmd_odd"],
+                    text=[hover_text[i] for i in odd_idx],
+                    hoverinfo="text",
+                    marker=dict(color="#FF7F0E", size=point_sz, opacity=0.7),
+                ))
+            elif color_mode == T[lang]["kmd_hetero_mode"] and has_formulas:
+                palette = {"CHO": "#0020C2", "CHON": "#FF7F0E", "CHOS": "#2CA02C", "CHONS": "#D62728"}
+                for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
+                    sub_mask = (work_df["Hetero_Class"] == cls)
+                    sub_idx = np.where(sub_mask)[0]
+                    if len(sub_idx) > 0:
+                        fig_kmd_inter.add_trace(go.Scattergl(
+                            x=work_df.loc[sub_mask, "NKM"],
+                            y=work_df.loc[sub_mask, "KMD"],
+                            mode="markers",
+                            name=f"{cls} ({len(sub_idx):,})",
+                            text=[hover_text[i] for i in sub_idx],
+                            hoverinfo="text",
+                            marker=dict(color=palette.get(cls, "#7F7F7F"), size=point_sz, opacity=0.65),
+                        ))
+            else:
+                if color_mode == T[lang]["kmd_o_mode"] and has_formulas:
+                    c_vals = work_df["O"]
+                    cbar_title = "O"
+                    c_scale = "Viridis"
+                elif color_mode == T[lang]["kmd_dbe_mode"] and has_formulas:
+                    c_vals = work_df["DBE"]
+                    cbar_title = "DBE"
+                    c_scale = "Plasma"
+                else:
+                    c_vals = work_df["norm_intensity"]
+                    cbar_title = T[lang]["kmd_int_mode"]
+                    c_scale = "Cividis"
+
+                fig_kmd_inter.add_trace(go.Scattergl(
+                    x=work_df["NKM"],
+                    y=work_df["KMD"],
+                    mode="markers",
+                    text=hover_text,
+                    hoverinfo="text",
+                    marker=dict(
+                        color=c_vals,
+                        colorscale=c_scale,
+                        size=point_sz,
+                        opacity=0.65,
+                        colorbar=dict(title=cbar_title),
+                    ),
+                ))
+
+            fig_kmd_inter.update_layout(
+                xaxis=dict(title=T[lang]["kmd_x_axis"].format(base=base_label), gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                yaxis=dict(title=T[lang]["kmd_y_axis"].format(base=base_label), range=[-0.02, 1.02], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                plot_bgcolor="white",
+                height=540,
+                margin=dict(l=45, r=30, t=30, b=40),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+
+            st.caption(T[lang]["nav_caption"])
+            st_plotly(fig_kmd_inter)
+
+            # Matplotlib экспорт
+            fig_kmd_mpl, ax_kmd_mpl = plt.subplots(figsize=(12, 6.5), dpi=150)
+            if color_mode == T[lang]["kmd_parity_mode"]:
+                even_mask = (work_df["NKM"] % 2 == 0)
+                ax_kmd_mpl.scatter(work_df.loc[even_mask, "NKM"], work_df.loc[even_mask, "KMD"],
+                                   c="#0020C2", label=T[lang]["kmd_even"], s=point_sz, alpha=0.6, edgecolors="none", rasterized=True)
+                ax_kmd_mpl.scatter(work_df.loc[~even_mask, "NKM"], work_df.loc[~even_mask, "KMD"],
+                                   c="#FF7F0E", label=T[lang]["kmd_odd"], s=point_sz, alpha=0.7, edgecolors="none", rasterized=True)
+                ax_kmd_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+            elif color_mode == T[lang]["kmd_hetero_mode"] and has_formulas:
+                palette = {"CHO": "#0020C2", "CHON": "#FF7F0E", "CHOS": "#2CA02C", "CHONS": "#D62728"}
+                for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
+                    sub = work_df[work_df["Hetero_Class"] == cls]
+                    if not sub.empty:
+                        ax_kmd_mpl.scatter(sub["NKM"], sub["KMD"], c=palette.get(cls, "#7F7F7F"), label=f"{cls} ({len(sub):,})",
+                                           s=point_sz, alpha=0.65, edgecolors="none", rasterized=True)
+                ax_kmd_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+            else:
+                sc = ax_kmd_mpl.scatter(work_df["NKM"], work_df["KMD"], c=c_vals, cmap=c_scale.lower(),
+                                        s=point_sz, alpha=0.65, edgecolors="none", rasterized=True)
+                cbar = plt.colorbar(sc, ax=ax_kmd_mpl, pad=0.015, aspect=25)
+                cbar.set_label(cbar_title, fontsize=10)
+
+            ax_kmd_mpl.set_ylim(-0.02, 1.02)
+            ax_kmd_mpl.set_xlabel(T[lang]["kmd_x_axis"].format(base=base_label), fontsize=11, fontweight="medium")
+            ax_kmd_mpl.set_ylabel(T[lang]["kmd_y_axis"].format(base=base_label), fontsize=11, fontweight="medium")
+            ax_kmd_mpl.set_title(f"Kendrick Mass Defect Plot ({base_label}) — {len(work_df):,} peaks", fontsize=12, pad=10)
+            ax_kmd_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+            plt.tight_layout()
+
+            get_plot_download_buttons(fig_kmd_mpl, f"{active_spectrum_name}_kmd_{base_label}", lang)
+            plt.close(fig_kmd_mpl)
 
     # 6. Хемотипирование 20 ячеек
     with tabs[5]:
@@ -1524,24 +1660,286 @@ if active_module == T[lang]["mod1_name"]:
             st_df(feat_df)
             st.download_button(label=T[lang]["vk20_dl_csv"], data=feat_df.to_csv(index=False).encode("utf-8"), file_name=f"{active_spectrum_name}_vk20.csv", mime="text/csv", key=f"dl_vk20_{active_spectrum_name}")
 
-    # 7. Сравнение
+    # 7. Сравнение и алгебра спектров
     with tabs[6]:
         st.subheader(T[lang]["tab_cmp"])
-        if len(all_spectra) < 2:
+        all_spectra_list = list(st.session_state.get("spectra_db", {}).keys())
+        if len(all_spectra_list) < 2:
             st.info(T[lang]["cmp_need_two"])
         else:
-            c1, c2, c3 = st.columns([2, 2, 1.5])
-            with c1: name_a = st.selectbox(T[lang]["cmp_spec_a"], all_spectra, index=0, key="cmp_spec_a")
-            with c2: name_b = st.selectbox(T[lang]["cmp_spec_b"], all_spectra, index=1 if len(all_spectra) > 1 else 0, key="cmp_spec_b")
-            with c3: tol_comp = st.number_input(T[lang]["cmp_tol"], min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
-            peaks_a = st.session_state["spectra_db"][name_a].get("parsed_peaks")
-            peaks_b = st.session_state["spectra_db"][name_b].get("parsed_peaks")
-            if peaks_a is not None and peaks_b is not None and not peaks_a.empty and not peaks_b.empty:
-                align_res = align_two_spectra_fast(peaks_a, peaks_b, ppm_tol=tol_comp)
-                m1, m2, m3 = st.columns(3)
-                m1.metric(f"Peaks {name_a}", f"{align_res['n_a']:,}")
-                m2.metric(f"Peaks {name_b}", f"{align_res['n_b']:,}")
-                m3.metric(T[lang]["cmp_common"], f"{align_res['n_common']:,}", delta=f"Jaccard: {align_res['jaccard']:.3f}")
+            cmp_tab_choice = st.radio(
+                "Раздел / Mode:",
+                [T[lang]["cmp_subtab_view"], T[lang]["cmp_subtab_sub"], T[lang]["cmp_subtab_algebra"]],
+                horizontal=True,
+                key="cmp_internal_mode",
+            )
+
+            col_s1, col_s2, col_s3 = st.columns([2, 2, 1.5])
+            with col_s1:
+                name_a = st.selectbox(T[lang]["cmp_spec_a"], all_spectra_list, index=0, key="cmp_spec_a")
+            with col_s2:
+                default_b_idx = 1 if len(all_spectra_list) > 1 else 0
+                name_b = st.selectbox(T[lang]["cmp_spec_b"], all_spectra_list, index=default_b_idx, key="cmp_spec_b")
+            with col_s3:
+                tol_comp = st.number_input(T[lang]["cmp_tol"], min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
+
+            sample_a = st.session_state["spectra_db"][name_a]
+            sample_b = st.session_state["spectra_db"][name_b]
+
+            peaks_a = sample_a.get("parsed_peaks")
+            peaks_b = sample_b.get("parsed_peaks")
+
+            if peaks_a is None or peaks_a.empty or peaks_b is None or peaks_b.empty:
+                st.warning("One of the selected samples is empty or not filtered." if lang == "en" else "Один из выбранных образцов еще не отфильтрован или пуст.")
+            elif name_a == name_b:
+                st.warning("Same sample selected for comparison!" if lang == "en" else "Выбран один и тот же образец для сравнения!")
+            else:
+                m_a, m_b = align_two_spectra_fast(peaks_a, peaks_b, ppm_tol=tol_comp)
+                n_a = len(peaks_a)
+                n_b = len(peaks_b)
+                n_common = len(m_a)
+                jaccard = n_common / (n_a + n_b - n_common) if (n_a + n_b - n_common) > 0 else 0.0
+
+                if n_common > 0:
+                    ia_sub = peaks_a.iloc[m_a]["intensity"].values
+                    ib_sub = peaks_b.iloc[m_b]["intensity"].values
+                    dot_prod = float(np.dot(ia_sub, ib_sub))
+                    norm_a = float(np.linalg.norm(peaks_a["intensity"].values))
+                    norm_b = float(np.linalg.norm(peaks_b["intensity"].values))
+                    cos_sim = dot_prod / (norm_a * norm_b) if (norm_a * norm_b) > 0 else 0.0
+                else:
+                    cos_sim = 0.0
+
+                # 1. Обычное сравнение (A vs B)
+                if cmp_tab_choice == T[lang]["cmp_subtab_view"]:
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric(f"Peaks in {name_a}" if lang == "en" else f"Пиков в {name_a}", f"{n_a:,}")
+                    m2.metric(f"Peaks in {name_b}" if lang == "en" else f"Пиков в {name_b}", f"{n_b:,}")
+                    m3.metric(T[lang]["cmp_common"], f"{n_common:,}", delta=T[lang]["cmp_jaccard"].format(val=jaccard))
+                    m4.metric(T[lang]["cmp_cosine"], f"{cos_sim:.4f}")
+
+                    assigned_a = sample_a.get("assigned_df")
+                    assigned_b = sample_b.get("assigned_df")
+
+                    if assigned_a is not None and not assigned_a.empty:
+                        st.markdown("##### " + (f"Comparative Van Krevelen: {name_a} vs {name_b}" if lang == "en" else f"Сравнительная диаграмма Ван-Кревелена: {name_a} vs {name_b}"))
+                        common_masses = set(peaks_a.iloc[m_a]["mass"].round(4))
+
+                        assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
+                        assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
+
+                        fig_cmp_inter = go.Figure()
+                        if not assigned_a_common.empty:
+                            fig_cmp_inter.add_trace(go.Scattergl(
+                                x=assigned_a_common["O/C"],
+                                y=assigned_a_common["H/C"],
+                                mode="markers",
+                                name=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)),
+                                marker=dict(color="#7F7F7F", size=3.0, opacity=0.45),
+                            ))
+
+                        if not assigned_a_unique.empty:
+                            fig_cmp_inter.add_trace(go.Scattergl(
+                                x=assigned_a_unique["O/C"],
+                                y=assigned_a_unique["H/C"],
+                                mode="markers",
+                                name=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)),
+                                marker=dict(color="#0020C2", size=3.5, opacity=0.75),
+                            ))
+
+                        if assigned_b is not None and not assigned_b.empty:
+                            assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
+                            if not assigned_b_unique.empty:
+                                fig_cmp_inter.add_trace(go.Scattergl(
+                                    x=assigned_b_unique["O/C"],
+                                    y=assigned_b_unique["H/C"],
+                                    mode="markers",
+                                    name=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)),
+                                    marker=dict(color="#2CA02C", size=3.5, opacity=0.75),
+                                ))
+
+                        fig_cmp_inter.update_layout(
+                            xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                            yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                            plot_bgcolor="white",
+                            height=580,
+                            margin=dict(l=45, r=30, t=30, b=40),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        )
+                        st.caption(T[lang]["nav_caption"])
+                        st_plotly(fig_cmp_inter)
+
+                        fig_cmp_mpl, ax_cmp_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
+                        if not assigned_a_common.empty:
+                            ax_cmp_mpl.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
+                                               label=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)), s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
+                        if not assigned_a_unique.empty:
+                            ax_cmp_mpl.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
+                                               label=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                        if assigned_b is not None and not assigned_b.empty:
+                            assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
+                            if not assigned_b_unique.empty:
+                                ax_cmp_mpl.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
+                                                   label=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+
+                        ax_cmp_mpl.set_xlim(0.0, 1.0)
+                        ax_cmp_mpl.set_ylim(0.2, 2.2)
+                        ax_cmp_mpl.set_xlabel(T[lang]["oc_axis"], fontsize=11, fontweight="medium")
+                        ax_cmp_mpl.set_ylabel(T[lang]["hc_axis"], fontsize=11, fontweight="medium")
+                        ax_cmp_mpl.set_title(f"Comparative Analysis: {name_a} vs {name_b}", fontsize=11)
+                        ax_cmp_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+                        ax_cmp_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+                        plt.tight_layout()
+
+                        get_plot_download_buttons(fig_cmp_mpl, f"compare_{name_a}_vs_{name_b}_vk", lang)
+                        plt.close(fig_cmp_mpl)
+
+                    st.markdown("##### " + T[lang]["cmp_mirror_title"])
+                    ia_norm = (peaks_a["intensity"] / max(1e-12, float(peaks_a["intensity"].max()))) * 100.0
+                    ib_norm = (peaks_b["intensity"] / max(1e-12, float(peaks_b["intensity"].max()))) * 100.0
+
+                    ma = peaks_a["mass"].values
+                    mb = peaks_b["mass"].values
+
+                    x_a = np.empty(len(ma) * 3)
+                    y_a = np.empty(len(ma) * 3)
+                    x_a[0::3] = ma
+                    x_a[1::3] = ma
+                    x_a[2::3] = None
+                    y_a[0::3] = 0
+                    y_a[1::3] = ia_norm
+                    y_a[2::3] = None
+
+                    x_b = np.empty(len(mb) * 3)
+                    y_b = np.empty(len(mb) * 3)
+                    x_b[0::3] = mb
+                    x_b[1::3] = mb
+                    x_b[2::3] = None
+                    y_b[0::3] = 0
+                    y_b[1::3] = -ib_norm
+                    y_b[2::3] = None
+
+                    fig_mir_inter = go.Figure()
+                    fig_mir_inter.add_trace(go.Scattergl(x=x_a, y=y_a, mode="lines", line=dict(color="#0020C2", width=1.1), name=f"{name_a} (+)"))
+                    fig_mir_inter.add_trace(go.Scattergl(x=x_b, y=y_b, mode="lines", line=dict(color="#2CA02C", width=1.1), name=f"{name_b} (-)"))
+                    fig_mir_inter.update_layout(
+                        xaxis=dict(title=T[lang]["mz_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        yaxis=dict(title=T[lang]["rel_int_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        plot_bgcolor="white",
+                        height=480,
+                        margin=dict(l=45, r=30, t=30, b=40),
+                    )
+                    st.caption(T[lang]["nav_caption"])
+                    st_plotly(fig_mir_inter)
+
+                    fig_mir_mpl, ax_mir_mpl = plt.subplots(figsize=(12, 5), dpi=150)
+                    ax_mir_mpl.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
+                    ax_mir_mpl.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
+                    ax_mir_mpl.axhline(0, color="black", linewidth=0.8)
+                    ax_mir_mpl.set_xlabel(T[lang]["mz_axis"], fontsize=11)
+                    ax_mir_mpl.set_ylabel(T[lang]["rel_int_axis"], fontsize=10)
+                    ax_mir_mpl.legend(loc="upper right")
+                    plt.tight_layout()
+
+                    get_plot_download_buttons(fig_mir_mpl, f"head_to_tail_{name_a}_vs_{name_b}", lang)
+                    plt.close(fig_mir_mpl)
+
+                # 2. Вычитание бланка (int_sub)
+                elif cmp_tab_choice == T[lang]["cmp_subtab_sub"]:
+                    st.markdown(f"#### {T[lang]['cmp_subtab_sub']}")
+                    st.write(f"Образец: **{name_a}** | Холостая проба (Бланк): **{name_b}**" if lang == "ru" else f"Sample: **{name_a}** | Blank: **{name_b}**")
+                    sub_factor = st.slider(T[lang]["sub_factor_label"], min_value=0.1, max_value=3.0, value=1.0, step=0.05)
+
+                    if st.button(T[lang]["sub_btn"], type="primary"):
+                        sub_peaks = peaks_a.copy().reset_index(drop=True)
+                        matched_dict = dict(zip(m_a, m_b))
+
+                        new_ints = []
+                        for idx_a_row in range(len(sub_peaks)):
+                            orig_int = sub_peaks.loc[idx_a_row, "intensity"]
+                            if idx_a_row in matched_dict:
+                                idx_b_row = matched_dict[idx_a_row]
+                                blank_int = peaks_b.iloc[idx_b_row]["intensity"]
+                                res_int = max(0.0, float(orig_int - sub_factor * blank_int))
+                            else:
+                                res_int = float(orig_int)
+                            new_ints.append(res_int)
+
+                        sub_peaks["intensity"] = new_ints
+                        clean_sub_df = sub_peaks[sub_peaks["intensity"] > 0].copy().reset_index(drop=True)
+                        if not clean_sub_df.empty:
+                            clean_sub_df["norm_intensity"] = (clean_sub_df["intensity"] / clean_sub_df["intensity"].max()) * 100.0
+
+                        new_sample_name = f"{name_a}_sub_{name_b}.csv"
+                        fpath_sub = os.path.join(STORAGE_DIR, new_sample_name)
+                        clean_sub_df.to_csv(fpath_sub, sep="\t", index=False)
+
+                        st.session_state["spectra_db"][new_sample_name] = {
+                            "raw_path": fpath_sub,
+                            "file_bytes": clean_sub_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                            "parsed_peaks": clean_sub_df,
+                            "assigned_df": None,
+                            "raw_df": clean_sub_df,
+                        }
+                        st.success(T[lang]["sub_success"].format(name=new_sample_name, n=len(clean_sub_df)))
+                        st.rerun()
+
+                # 3. Алгебра спектров и диаграмма Венна
+                else:
+                    st.markdown(f"#### {T[lang]['cmp_subtab_algebra']}")
+                    op_choice = st.selectbox(
+                        T[lang]["alg_op_label"],
+                        [
+                            ("and", T[lang]["alg_and"]),
+                            ("or", T[lang]["alg_or"]),
+                            ("sub_a_b", T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_a_b"] else f"{T[lang]['alg_sub_a_b']} ({name_a} \\ {name_b})"),
+                            ("sub_b_a", T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_b_a"] else f"{T[lang]['alg_sub_b_a']} ({name_b} \\ {name_a})"),
+                            ("xor", T[lang]["alg_xor"]),
+                        ],
+                        format_func=lambda x: x[1],
+                    )
+
+                    # Построение диаграммы Венна (Matplotlib Circles)
+                    fig_v, ax_v = plt.subplots(figsize=(8, 4.5), dpi=150)
+                    c_a = patches.Circle((0.35, 0.5), 0.3, facecolor="#0020C2", alpha=0.4, edgecolor="black", linewidth=1.5)
+                    c_b = patches.Circle((0.65, 0.5), 0.3, facecolor="#2CA02C", alpha=0.4, edgecolor="black", linewidth=1.5)
+                    ax_v.add_patch(c_a)
+                    ax_v.add_patch(c_b)
+
+                    n_uniq_a = n_a - n_common
+                    n_uniq_b = n_b - n_common
+
+                    ax_v.text(0.22, 0.5, f"{name_a[:15]}\n\n{n_uniq_a:,}", ha="center", va="center", fontsize=11, fontweight="bold")
+                    ax_v.text(0.78, 0.5, f"{name_b[:15]}\n\n{n_uniq_b:,}", ha="center", va="center", fontsize=11, fontweight="bold")
+                    ax_v.text(0.50, 0.5, f"A ∩ B\n\n{n_common:,}", ha="center", va="center", fontsize=11, fontweight="bold", color="#800000")
+
+                    ax_v.set_xlim(0, 1)
+                    ax_v.set_ylim(0.1, 0.9)
+                    ax_v.axis("off")
+                    ax_v.set_title(T[lang]["venn_title"].format(tol=tol_comp), fontsize=12, pad=10)
+                    plt.tight_layout()
+                    st.pyplot(fig_v)
+                    get_plot_download_buttons(fig_v, f"venn_{name_a}_vs_{name_b}", lang)
+                    plt.close(fig_v)
+
+                    if st.button(T[lang]["alg_btn"], type="primary"):
+                        alg_df = perform_spectral_algebra(peaks_a, peaks_b, operation=op_choice[0], ppm_tol=tol_comp)
+                        if not alg_df.empty:
+                            alg_df["norm_intensity"] = (alg_df["intensity"] / alg_df["intensity"].max()) * 100.0
+
+                        new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
+                        fpath_alg = os.path.join(STORAGE_DIR, new_alg_name)
+                        alg_df.to_csv(fpath_alg, sep="\t", index=False)
+
+                        st.session_state["spectra_db"][new_alg_name] = {
+                            "raw_path": fpath_alg,
+                            "file_bytes": alg_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                            "parsed_peaks": alg_df,
+                            "assigned_df": None,
+                            "raw_df": alg_df,
+                        }
+                        st.success(T[lang]["alg_success"].format(name=new_alg_name, n=len(alg_df)))
+                        st.rerun()
 
     # 8. TMDS
     with tabs[7]:

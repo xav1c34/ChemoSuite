@@ -534,22 +534,28 @@ def align_two_spectra_fast(df_a: pd.DataFrame, df_b: pd.DataFrame, ppm_tol: floa
 
 
 def perform_spectral_algebra(df_a: pd.DataFrame, df_b: pd.DataFrame, operation: str, ppm_tol: float = 1.5) -> pd.DataFrame:
-    """Спектральная алгебра (A-B, B-A, A+B, A ∩ B)."""
+    """Спектральная алгебра (A-B, B-A, A+B, A ∩ B, A ⊕ B)."""
     a = df_a.sort_values("mass").reset_index(drop=True)
     b = df_b.sort_values("mass").reset_index(drop=True)
 
     m_a, m_b = align_two_spectra_fast(a, b, ppm_tol=ppm_tol)
     m_a_set, m_b_set = set(m_a), set(m_b)
 
-    if operation == "A - B":
+    op_norm = str(operation).strip().lower()
+
+    if op_norm in ["a - b", "sub_a_b", "difference a \\ b", "diff_a_b"]:
         return a[[i not in m_a_set for i in range(len(a))]].reset_index(drop=True)
-    elif operation == "B - A":
+    elif op_norm in ["b - a", "sub_b_a", "difference b \\ a", "diff_b_a"]:
         return b[[j not in m_b_set for j in range(len(b))]].reset_index(drop=True)
-    elif operation in ["A ∩ B", "A and B", "Intersection"]:
+    elif op_norm in ["a ∩ b", "a and b", "intersection", "and"]:
         return a.iloc[m_a].reset_index(drop=True)
-    elif operation in ["A + B", "A or B", "Union"]:
-        return pd.concat([a,
-                          b[[j not in m_b_set for j in range(len(b))]][["mass", "intensity"]]], ignore_index=True).sort_values("mass").reset_index(drop=True)
+    elif op_norm in ["a + b", "a or b", "union", "or"]:
+        b_uniq = b[[j not in m_b_set for j in range(len(b))]][["mass", "intensity"]]
+        return pd.concat([a, b_uniq], ignore_index=True).sort_values("mass").reset_index(drop=True)
+    elif op_norm in ["a ⊕ b", "xor", "symmetric difference", "sym_diff"]:
+        part_a = a[[i not in m_a_set for i in range(len(a))]]
+        part_b = b[[j not in m_b_set for j in range(len(b))]][["mass", "intensity"]]
+        return pd.concat([part_a, part_b], ignore_index=True).sort_values("mass").reset_index(drop=True)
     return pd.DataFrame()
 
 
