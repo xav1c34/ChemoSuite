@@ -1485,28 +1485,32 @@ if active_module == T[lang]["mod1_name"]:
                         target_f = cust_f.strip() if cust_f.strip() else sel_f
                         if st.button(T[lang]["pubchem_search_btn"], key=f"btn_pc_search_{active_spectrum_name}"):
                             with st.spinner(T[lang]["pubchem_searching"]):
-                                pc_res = chemo_pubchem.lookup_formula_in_pubchem(target_f, timeout_sec=3.5, fetch_image=True)
-                                st.session_state[f"pc_res_{active_spectrum_name}"] = pc_res
+                                pc_matches = chemo_pubchem.lookup_formula_in_pubchem(target_f, max_records=1, timeout=4.0)
+                                st.session_state[f"pc_res_{active_spectrum_name}"] = pc_matches[0] if (pc_matches and len(pc_matches) > 0) else None
 
                         pc_active_res = st.session_state.get(f"pc_res_{active_spectrum_name}")
                         if pc_active_res:
                             pc_col_img, pc_col_meta = st.columns([1, 2])
                             with pc_col_img:
-                                if pc_active_res.get("image_bytes"):
-                                    st.image(pc_active_res["image_bytes"], caption=f"2D: {pc_active_res.get('name')}", use_container_width=True)
-                                elif pc_active_res.get("image_url"):
-                                    st.image(pc_active_res["image_url"], caption=f"2D: {pc_active_res.get('name')}", use_container_width=True)
+                                img_url = pc_active_res.get("Image_URL") or pc_active_res.get("image_url")
+                                if img_url:
+                                    st.image(img_url, caption=f"2D: {pc_active_res.get('Title', pc_active_res.get('name', ''))}", use_container_width=True)
                                 else:
                                     st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
                             with pc_col_meta:
-                                st.markdown(f"**{T[lang]['pubchem_res_name']}** `{pc_active_res.get('name', 'N/A')}`")
-                                st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {pc_active_res.get('iupac_name', 'N/A')}")
-                                st.markdown(f"**{T[lang]['pubchem_res_class']}** `{pc_active_res.get('class', 'Unknown')}` — *{pc_active_res.get('subclass', '')}*")
-                                st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{pc_active_res.get('smiles', 'N/A')}`")
-                                if pc_active_res.get("cid"):
-                                    cid_val = pc_active_res["cid"]
-                                    st.markdown(f"**{T[lang]['pubchem_res_cid']}** [{cid_val}](https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val})")
-                                    st.link_button(T[lang]["pubchem_link_btn"], f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val}")
+                                c_name = pc_active_res.get("Title") or pc_active_res.get("name", "N/A")
+                                c_iupac = pc_active_res.get("IUPACName") or pc_active_res.get("iupac_name", "N/A")
+                                c_class = pc_active_res.get("Class") or pc_active_res.get("class", "Unknown")
+                                c_smiles = pc_active_res.get("SMILES") or pc_active_res.get("smiles", "N/A")
+                                c_cid = pc_active_res.get("CID") or pc_active_res.get("cid")
+
+                                st.markdown(f"**{T[lang]['pubchem_res_name']}** `{c_name}`")
+                                st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {c_iupac}")
+                                st.markdown(f"**{T[lang]['pubchem_res_class']}** `{c_class}`")
+                                st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{c_smiles}`")
+                                if c_cid:
+                                    st.markdown(f"**{T[lang]['pubchem_res_cid']}** [{c_cid}](https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid})")
+                                    st.link_button(T[lang]["pubchem_link_btn"], f"https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid}")
             elif assigned_data is not None:
                 st.warning(T[lang]["no_formulas_warn"])
 
@@ -3100,7 +3104,8 @@ elif active_module == T[lang]["mod3_name"]:
                         if st.button(T[lang]["ml_pubchem_btn"], key="btn_annot_biomarkers_pubchem"):
                             with st.spinner(T[lang]["ml_pubchem_spinner"]):
                                 desc_col = "Descriptor" if "Descriptor" in target_bm.columns else target_bm.columns[0]
-                                annotated_bm = chemo_pubchem.annotate_formula_table(target_bm, formula_col=desc_col, max_rows=15)
+                                raw_formulas = target_bm[desc_col].dropna().astype(str).tolist()
+                                annotated_bm = chemo_pubchem.annotate_formula_table(raw_formulas, max_top=15)
                                 st.session_state["annotated_biomarkers"] = annotated_bm
 
                         annot_saved = st.session_state.get("annotated_biomarkers")
