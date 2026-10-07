@@ -1296,6 +1296,8 @@ if active_module == T[lang]["mod1_name"]:
                         st.error("Error: No valid numeric data found." if lang == "en" else "Ошибка: Нет корректных числовых данных.")
                         st.stop()
 
+                    min_m_data = float(valid_df["mass"].min())
+                    max_m_data = float(valid_df["mass"].max())
                     min_m_bound = max(50.0, float(np.floor(min_m_data)))
                     max_m_bound = max(min_m_bound + 10.0, min(2500.0, float(np.ceil(max_m_data))))
                     def_low = max(min_m_bound, min(100.0, max_m_bound - 1.0))
