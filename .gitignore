@@ -9,6 +9,8 @@ share/
 pyvenv.cfg
 user_spectra/
 .cache_pubchem.json
+*.chemo
+*.xlsx
 
 __pycache__/
 *.py[cod]
@@ -30,6 +32,7 @@ __pycache__/
 *.png
 *.svg
 *.pdf
+!assets/**
 temp/
 downloads/
 
