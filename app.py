@@ -1233,10 +1233,18 @@ if active_module == T[lang]["mod1_name"]:
             for uf in uploaded_files:
                 save_path = os.path.join(STORAGE_DIR, uf.name)
                 b_content = uf.getvalue()
-                with open(save_path, "wb") as f: f.write(b_content)
+                existing = st.session_state["spectra_db"].get(uf.name)
+                if existing is not None and existing.get("file_bytes") == b_content:
+                    continue
+
+                with open(save_path, "wb") as f:
+                    f.write(b_content)
                 s_new = {
-                    "raw_path": save_path, "file_bytes": b_content,
-                    "parsed_peaks": None, "assigned_df": None, "raw_df": None,
+                    "raw_path": save_path,
+                    "file_bytes": b_content,
+                    "parsed_peaks": None,
+                    "assigned_df": None,
+                    "raw_df": None,
                 }
                 ensure_sample_peaks(s_new)
                 st.session_state["spectra_db"][uf.name] = s_new
@@ -1752,22 +1760,68 @@ if active_module == T[lang]["mod1_name"]:
                         st_plotly(fig_bio)
             elif proj_type == T[lang]["proj_dbe_c"]:
                 fig_dbe = go.Figure()
-                for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
-                    sub = assigned_data[assigned_data["Hetero_Class"] == cls]
-                    if sub.empty: continue
-                    fig_dbe.add_trace(go.Scattergl(x=sub["C"], y=sub["DBE"], mode="markers", name=f"{cls} ({len(sub):,})",
-                                                   marker=dict(color=palette[cls], size=2.0 + 5.0 * (sub["norm_intensity"] / 100.0) ** pow_exp, opacity=0.65)))
-                c_line = np.linspace(4, 60, 100)
+                known_classes = ["CHO", "CHON", "CHOS", "CHONS"]
+                has_hc = "Hetero_Class" in assigned_data.columns
+                all_classes = [c for c in known_classes if has_hc and c in assigned_data["Hetero_Class"].values]
+                if has_hc:
+                    other_cls = [c for c in assigned_data["Hetero_Class"].dropna().unique() if c not in known_classes]
+                    all_classes.extend(other_cls)
+                if not all_classes:
+                    all_classes = ["All"]
+
+                for cls in all_classes:
+                    if has_hc and cls != "All":
+                        sub = assigned_data[assigned_data["Hetero_Class"] == cls]
+                    else:
+                        sub = assigned_data
+                    if sub.empty or "C" not in sub.columns or "DBE" not in sub.columns:
+                        continue
+                    color = palette.get(cls, "#636EFA" if cls == "All" else "#8c564b")
+                    if "norm_intensity" in sub.columns:
+                        norm_vals = sub["norm_intensity"]
+                    elif "intensity" in sub.columns and sub["intensity"].max() > 0:
+                        norm_vals = (sub["intensity"] / sub["intensity"].max()) * 100.0
+                    else:
+                        norm_vals = pd.Series(50.0, index=sub.index)
+
+                    hover_txt = [
+                        f"<b>{r.get('Formula', '')}</b><br>C: {r.get('C', '')}<br>DBE: {r.get('DBE', '')}<br>m/z: {r.get('mass', 0):.4f}<br>AI: {r.get('AI', 0):.2f}"
+                        for _, r in sub.iterrows()
+                    ]
+                    fig_dbe.add_trace(go.Scattergl(
+                        x=sub["C"], y=sub["DBE"], mode="markers", name=f"{cls} ({len(sub):,})",
+                        marker=dict(color=color, size=2.0 + 5.0 * (norm_vals / 100.0) ** pow_exp, opacity=0.65),
+                        text=hover_txt, hoverinfo="text"
+                    ))
+
+                max_c = float(assigned_data["C"].max()) if "C" in assigned_data.columns and not assigned_data["C"].isna().all() else 60.0
+                c_line = np.linspace(4, max(60.0, max_c), 100)
                 fig_dbe.add_trace(go.Scatter(x=c_line, y=c_line * 0.9, mode="lines", name="Planar limit", line=dict(color="red", dash="dot")))
-                fig_dbe.update_layout(xaxis=dict(title="Carbon (C)"), yaxis=dict(title="DBE"), plot_bgcolor="white", height=560)
+                fig_dbe.update_layout(xaxis=dict(title="Carbon (C)", gridcolor="#f1f3f5"), yaxis=dict(title="DBE", gridcolor="#f1f3f5"), plot_bgcolor="white", height=560)
                 st_plotly(fig_dbe)
             else:
-                avail_cols = ["mass", "intensity", "norm_intensity", "C", "H", "O", "N", "S", "H/C", "O/C", "DBE", "AI", "NOSC", "error_ppm"]
+                candidate_cols = ["mass", "intensity", "norm_intensity", "C", "H", "O", "N", "S", "H/C", "O/C", "DBE", "AI", "NOSC", "error_ppm"]
+                avail_cols = [c for c in candidate_cols if c in assigned_data.columns]
+                if not avail_cols:
+                    avail_cols = [c for c in assigned_data.columns if pd.api.types.is_numeric_dtype(assigned_data[c])]
+                if not avail_cols:
+                    avail_cols = list(assigned_data.columns)
+
+                x_idx = avail_cols.index("mass") if "mass" in avail_cols else 0
+                y_idx = avail_cols.index("DBE") if "DBE" in avail_cols else (1 if len(avail_cols) > 1 else 0)
+                c_idx = avail_cols.index("AI") if "AI" in avail_cols else (2 if len(avail_cols) > 2 else 0)
+
                 c1, c2, c3 = st.columns(3)
-                with c1: cx = st.selectbox("X:", avail_cols, index=avail_cols.index("mass"))
-                with c2: cy = st.selectbox("Y:", avail_cols, index=avail_cols.index("DBE"))
-                with c3: cc = st.selectbox("Color:", avail_cols, index=avail_cols.index("AI"))
-                fig_cust = px.scatter(assigned_data, x=cx, y=cy, color=cc, color_continuous_scale="Viridis", opacity=0.7, render_mode="webgl")
+                with c1: cx = st.selectbox("X:", avail_cols, index=x_idx, key=f"cust_x_{active_spectrum_name}")
+                with c2: cy = st.selectbox("Y:", avail_cols, index=y_idx, key=f"cust_y_{active_spectrum_name}")
+                with c3: cc = st.selectbox("Color:", avail_cols, index=c_idx, key=f"cust_c_{active_spectrum_name}")
+
+                hover_cols = ["Formula"] if "Formula" in assigned_data.columns else None
+                fig_cust = px.scatter(
+                    assigned_data, x=cx, y=cy, color=cc,
+                    color_continuous_scale="Viridis", opacity=0.7, render_mode="webgl",
+                    hover_data=hover_cols
+                )
                 fig_cust.update_layout(height=560, plot_bgcolor="white")
                 st_plotly(fig_cust)
 

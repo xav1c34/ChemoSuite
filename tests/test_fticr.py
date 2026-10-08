@@ -283,4 +283,31 @@ def test_find_transformation_pathways():
     assert no_path == []
 
 
+def test_projections_data_compatibility():
+    """Тест совместимости полей присвоенных формул с вкладкой 4 (DBE vs C, кастомные проекции)."""
+    df = pd.DataFrame({
+        "Formula": ["C10H12O4", "C12H15NO3", "C15H20O5S"],
+        "mass": [196.073, 237.100, 312.103],
+        "intensity": [1000.0, 5000.0, 3000.0],
+        "C": [10, 12, 15],
+        "H": [12, 15, 20],
+        "O": [4, 3, 5],
+        "N": [0, 1, 0],
+        "S": [0, 0, 1],
+    })
+    desc_df = fticr_core.calculate_descriptors(df, lang="ru")
+
+    # Проверяем обязательные колонки для всех режимов проекций (VK, DBE vs C, кастомные)
+    required_cols = ["mass", "intensity", "C", "H", "O", "DBE", "AI", "H/C", "O/C", "Hetero_Class"]
+    for col in required_cols:
+        assert col in desc_df.columns, f"Колонка {col} отсутствует в результатах формул"
+
+    # Проверяем фильтрацию по гетероклассам для графика DBE vs C
+    cho_sub = desc_df[desc_df["Hetero_Class"] == "CHO"]
+    assert len(cho_sub) == 1
+    assert cho_sub.iloc[0]["Formula"] == "C10H12O4"
+    assert cho_sub.iloc[0]["DBE"] == 5.0
+
+
+
 
