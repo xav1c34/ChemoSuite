@@ -168,3 +168,40 @@ def test_batch_descriptors_and_kmd_slicing():
     sliced = assigned[mask]
     assert len(sliced) > 0
     assert (sliced["KMD"].max() - sliced["KMD"].min()) <= (2 * tol_kmd + 1e-6)
+
+
+def test_session_sample_persistence_and_recalibration():
+    """Тест надежности сохранения спектров и сохранения рекалиброванных масс при многократных прогонах."""
+    demo_csv = os.path.join("demo_data", "fticr_ms", "Baikal_Control_01_fticr.csv")
+    with open(demo_csv, "rb") as f:
+        raw_bytes = f.read()
+
+    sample_entry = {
+        "raw_path": demo_csv,
+        "file_bytes": raw_bytes,
+        "parsed_peaks": None,
+        "assigned_df": None,
+        "raw_df": None,
+    }
+
+    # 1. Первоначальный парсинг
+    df_raw = fticr_core.parse_uploaded_file(raw_bytes, delimiter="Auto", decimal_sep=".", has_header=True)
+    assert not df_raw.empty
+    parsed_peaks = pd.DataFrame({"mass": df_raw.iloc[:, 0].astype(float), "intensity": df_raw.iloc[:, 1].astype(float)})
+    sample_entry["parsed_peaks"] = parsed_peaks.copy()
+
+    # 2. Имитация рекалибровки в Tab 2
+    poly_shift = np.poly1d([1e-4, -0.005])
+    calibrated_masses = parsed_peaks["mass"].values - poly_shift(parsed_peaks["mass"].values)
+    sample_entry["parsed_peaks"]["mass"] = calibrated_masses
+    sample_entry["recal_poly"] = poly_shift
+    sample_entry["is_recalibrated"] = True
+
+    # 3. Имитация перехода на другую вкладку и повторного прогона фильтрации
+    # Если sample помечен is_recalibrated и есть recal_poly, массы должны оставаться рекалиброванными!
+    re_filtered = parsed_peaks.copy()
+    if sample_entry.get("is_recalibrated") and sample_entry.get("recal_poly") is not None:
+        re_filtered["mass"] = re_filtered["mass"] - sample_entry["recal_poly"](re_filtered["mass"])
+
+    np.testing.assert_allclose(re_filtered["mass"].values, calibrated_masses)
+

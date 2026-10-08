@@ -1229,17 +1229,52 @@ if active_module == T[lang]["mod1_name"]:
             key="fticr_uploader_files"
         )
         if uploaded_files:
+            latest_uploaded_name = None
             for uf in uploaded_files:
-                if uf.name not in st.session_state["spectra_db"]:
-                    save_path = os.path.join(STORAGE_DIR, uf.name)
-                    b_content = uf.getvalue()
-                    with open(save_path, "wb") as f: f.write(b_content)
-                    s_new = {
-                        "raw_path": save_path, "file_bytes": b_content,
-                        "parsed_peaks": None, "assigned_df": None, "raw_df": None,
-                    }
-                    ensure_sample_peaks(s_new)
-                    st.session_state["spectra_db"][uf.name] = s_new
+                save_path = os.path.join(STORAGE_DIR, uf.name)
+                b_content = uf.getvalue()
+                with open(save_path, "wb") as f: f.write(b_content)
+                s_new = {
+                    "raw_path": save_path, "file_bytes": b_content,
+                    "parsed_peaks": None, "assigned_df": None, "raw_df": None,
+                }
+                ensure_sample_peaks(s_new)
+                st.session_state["spectra_db"][uf.name] = s_new
+                latest_uploaded_name = uf.name
+
+            if latest_uploaded_name and st.session_state.get("_last_selected_upload") != latest_uploaded_name:
+                st.session_state["active_spectrum_selector"] = latest_uploaded_name
+                st.session_state["_last_selected_upload"] = latest_uploaded_name
+
+        # Карточка постоянного реестра спектров в текущей сессии
+        total_in_db = len(st.session_state.get("spectra_db", {}))
+        if total_in_db > 0:
+            with st.expander(
+                f"💾 {'Спектры в памяти сессии' if lang == 'ru' else 'Spectra in Session'}: **{total_in_db}**",
+                expanded=True
+            ):
+                st.caption(
+                    "Файлы сохраняются в сессии и доступны во всех вкладках платформы, даже если поле загрузчика выше очистилось."
+                    if lang == "ru" else
+                    "Files are permanently stored in session and accessible across all tabs even if the uploader above resets."
+                )
+                for s_name, s_obj in list(st.session_state["spectra_db"].items()):
+                    c_col1, c_col2 = st.columns([3, 1])
+                    with c_col1:
+                        p_len = len(s_obj["parsed_peaks"]) if (s_obj.get("parsed_peaks") is not None and not s_obj["parsed_peaks"].empty) else "—"
+                        has_form = "🧪" if (s_obj.get("assigned_df") is not None and not s_obj["assigned_df"].empty) else ""
+                        is_cur = "👉 " if s_name == st.session_state.get("active_spectrum_selector") else ""
+                        st.markdown(f"**{is_cur}`{s_name}`** ({p_len} {has_form})")
+                    with c_col2:
+                        if st.button("🗑️", key=f"del_quick_{s_name}", help="Удалить" if lang == "ru" else "Delete"):
+                            if os.path.exists(s_obj.get("raw_path", "")):
+                                try: os.remove(s_obj["raw_path"])
+                                except Exception: pass
+                            del st.session_state["spectra_db"][s_name]
+                            if st.session_state.get("active_spectrum_selector") == s_name:
+                                remaining = list(st.session_state["spectra_db"].keys())
+                                st.session_state["active_spectrum_selector"] = remaining[0] if remaining else None
+                            st.rerun()
 
         with st.expander(T[lang]["folder_expander"], expanded=False):
             local_folder = st.text_input(
@@ -1258,10 +1293,12 @@ if active_module == T[lang]["mod1_name"]:
                                 try:
                                     with open(src_path, "rb") as sf: content = sf.read()
                                     with open(dst_path, "wb") as df: df.write(content)
-                                    st.session_state["spectra_db"][file] = {
+                                    s_dir_new = {
                                         "raw_path": dst_path, "file_bytes": content,
                                         "parsed_peaks": None, "assigned_df": None, "raw_df": None,
                                     }
+                                    ensure_sample_peaks(s_dir_new)
+                                    st.session_state["spectra_db"][file] = s_dir_new
                                     added_count += 1
                                 except Exception:
                                     pass
@@ -1337,7 +1374,14 @@ if active_module == T[lang]["mod1_name"]:
                 st.warning(T[lang]["search_empty"])
                 active_spectrum_name, current_sample = None, None
             else:
-                active_spectrum_name = st.selectbox(T[lang]["active_sample"], options=available_spectra, index=0, key="active_spectrum_selector")
+                curr_sel = st.session_state.get("active_spectrum_selector")
+                sel_idx = available_spectra.index(curr_sel) if (curr_sel and curr_sel in available_spectra) else 0
+                active_spectrum_name = st.selectbox(
+                    T[lang]["active_sample"],
+                    options=available_spectra,
+                    index=sel_idx,
+                    key="active_spectrum_selector"
+                )
                 current_sample = st.session_state["spectra_db"][active_spectrum_name]
 
                 if st.button(T[lang]["del_sample"], type="secondary"):
@@ -1345,6 +1389,8 @@ if active_module == T[lang]["mod1_name"]:
                         try: os.remove(current_sample["raw_path"])
                         except Exception: pass
                     del st.session_state["spectra_db"][active_spectrum_name]
+                    remaining = list(st.session_state["spectra_db"].keys())
+                    st.session_state["active_spectrum_selector"] = remaining[0] if remaining else None
                     st.rerun()
 
                 with st.expander(T[lang]["parse_expander"], expanded=False):
@@ -1358,70 +1404,76 @@ if active_module == T[lang]["mod1_name"]:
                 try:
                     raw_df = parse_uploaded_file(current_sample["file_bytes"], delimiter, decimal_sep, has_header)
                     current_sample["raw_df"] = raw_df
-                    if raw_df.empty:
-                        st.error("Error: File is empty or failed to parse." if lang == "en" else "Ошибка: Файл пуст или не распознан.")
-                        st.stop()
-
-                    st.write(T[lang]["preview_caption"])
-                    st_df(raw_df.head(5))
-
-                    col_names = list(raw_df.columns)
-                    def_mz_idx = 0
-                    def_int_idx = 1 if len(col_names) > 1 else 0
-                    for idx, cname in enumerate(col_names):
-                        cn_low = str(cname).lower()
-                        if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]): def_mz_idx = idx
-                        elif any(k in cn_low for k in ["int", "i", "count", "abund"]): def_int_idx = idx
-
-                    col_mz = st.selectbox(T[lang]["col_mz"], col_names, index=def_mz_idx, key=f"mzcol_{active_spectrum_name}")
-                    col_int = st.selectbox(T[lang]["col_int"], col_names, index=def_int_idx, key=f"intcol_{active_spectrum_name}")
-                    if col_mz == col_int: st.warning(T[lang]["same_col_warn"])
-
-                    st.markdown("---")
-                    st.subheader(T[lang]["filtering_header"])
-
-                    norm_choice = st.selectbox(T[lang]["norm_mode_label"], [T[lang]["norm_base"], T[lang]["norm_tic"], T[lang]["norm_raw"]], index=0, key=f"norm_mode_{active_spectrum_name}")
-                    clean_mass = pd.to_numeric(raw_df[col_mz], errors="coerce")
-                    clean_int = pd.to_numeric(raw_df[col_int], errors="coerce")
-                    valid_mask = clean_mass.notna() & clean_int.notna()
-
-                    valid_df = pd.DataFrame({"mass": clean_mass[valid_mask].astype(float), "intensity": clean_int[valid_mask].astype(float)})
-                    valid_df = valid_df[valid_df["mass"] > 0]
-                    if valid_df.empty:
-                        st.error("Error: No valid numeric data found." if lang == "en" else "Ошибка: Нет корректных числовых данных.")
-                        st.stop()
-
-                    min_m_data = float(valid_df["mass"].min())
-                    max_m_data = float(valid_df["mass"].max())
-                    min_m_bound = max(50.0, float(np.floor(min_m_data)))
-                    max_m_bound = max(min_m_bound + 10.0, min(2500.0, float(np.ceil(max_m_data))))
-                    def_low = max(min_m_bound, min(100.0, max_m_bound - 1.0))
-                    def_high = min(max_m_bound, max(def_low + 1.0, min(max_m_bound, 1200.0)))
-                    mz_range = st.slider(T[lang]["mz_range"], min_value=min_m_bound,
-                                         max_value=max_m_bound,
-                                         value=(def_low, def_high),
-                                         step=10.0, key=f"mzrange_{active_spectrum_name}")
-
-                    max_int_data = float(valid_df["intensity"].max())
-                    cutoff_intensity = st.number_input(T[lang]["cutoff_int"], min_value=0.0, max_value=max(1.0, max_int_data), value=0.0,
-                                                       step=max(1e-4, max_int_data * 0.001), format="%.2e", key=f"cutoff_{active_spectrum_name}")
-
-                    filtered_df = valid_df[(valid_df["mass"] >= mz_range[0]) & (valid_df["mass"] <= mz_range[1]) & (valid_df["intensity"] >= cutoff_intensity)].sort_values("mass").reset_index(drop=True)
-                    if not filtered_df.empty:
-                        if norm_choice == T[lang]["norm_base"]:
-                            filtered_df["norm_intensity"] = (filtered_df["intensity"] / filtered_df["intensity"].max()) * 100.0
-                        elif norm_choice == T[lang]["norm_tic"]:
-                            filtered_df["norm_intensity"] = (filtered_df["intensity"] / filtered_df["intensity"].sum()) * 100.0
-                        else:
-                            filtered_df["norm_intensity"] = filtered_df["intensity"]
+                    if raw_df is None or raw_df.empty:
+                        st.warning("Внимание: Файл пуст или формат не распознан. Проверьте параметры разделителя." if lang == "ru" else "Warning: File is empty or failed to parse. Check delimiter settings.")
+                        current_sample["parsed_peaks"] = None
                     else:
-                        filtered_df["norm_intensity"] = []
+                        st.write(T[lang]["preview_caption"])
+                        st_df(raw_df.head(5))
 
-                    current_sample["parsed_peaks"] = filtered_df
-                    st.success(T[lang]["loaded_peaks_success"].format(n=len(filtered_df)))
+                        col_names = list(raw_df.columns)
+                        def_mz_idx = 0
+                        def_int_idx = 1 if len(col_names) > 1 else 0
+                        for idx, cname in enumerate(col_names):
+                            cn_low = str(cname).lower()
+                            if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]): def_mz_idx = idx
+                            elif any(k in cn_low for k in ["int", "i", "count", "abund"]): def_int_idx = idx
+
+                        col_mz = st.selectbox(T[lang]["col_mz"], col_names, index=def_mz_idx, key=f"mzcol_{active_spectrum_name}")
+                        col_int = st.selectbox(T[lang]["col_int"], col_names, index=def_int_idx, key=f"intcol_{active_spectrum_name}")
+                        if col_mz == col_int: st.warning(T[lang]["same_col_warn"])
+
+                        st.markdown("---")
+                        st.subheader(T[lang]["filtering_header"])
+
+                        norm_choice = st.selectbox(T[lang]["norm_mode_label"], [T[lang]["norm_base"], T[lang]["norm_tic"], T[lang]["norm_raw"]], index=0, key=f"norm_mode_{active_spectrum_name}")
+                        clean_mass = pd.to_numeric(raw_df[col_mz], errors="coerce")
+                        clean_int = pd.to_numeric(raw_df[col_int], errors="coerce")
+                        valid_mask = clean_mass.notna() & clean_int.notna()
+
+                        valid_df = pd.DataFrame({"mass": clean_mass[valid_mask].astype(float), "intensity": clean_int[valid_mask].astype(float)})
+                        valid_df = valid_df[valid_df["mass"] > 0]
+                        if valid_df.empty:
+                            st.warning("Внимание: В выбранных колонках не найдено положительных числовых данных." if lang == "ru" else "Warning: No valid numeric data found in selected columns.")
+                            current_sample["parsed_peaks"] = None
+                        else:
+                            min_m_data = float(valid_df["mass"].min())
+                            max_m_data = float(valid_df["mass"].max())
+                            min_m_bound = max(50.0, float(np.floor(min_m_data)))
+                            max_m_bound = max(min_m_bound + 10.0, min(2500.0, float(np.ceil(max_m_data))))
+                            def_low = max(min_m_bound, min(100.0, max_m_bound - 1.0))
+                            def_high = min(max_m_bound, max(def_low + 1.0, min(max_m_bound, 1200.0)))
+                            mz_range = st.slider(T[lang]["mz_range"], min_value=min_m_bound,
+                                                 max_value=max_m_bound,
+                                                 value=(def_low, def_high),
+                                                 step=10.0, key=f"mzrange_{active_spectrum_name}")
+
+                            max_int_data = float(valid_df["intensity"].max())
+                            cutoff_intensity = st.number_input(T[lang]["cutoff_int"], min_value=0.0, max_value=max(1.0, max_int_data), value=0.0,
+                                                               step=max(1e-4, max_int_data * 0.001), format="%.2e", key=f"cutoff_{active_spectrum_name}")
+
+                            filtered_df = valid_df[(valid_df["mass"] >= mz_range[0]) & (valid_df["mass"] <= mz_range[1]) & (valid_df["intensity"] >= cutoff_intensity)].sort_values("mass").reset_index(drop=True)
+                            if not filtered_df.empty:
+                                if norm_choice == T[lang]["norm_base"]:
+                                    filtered_df["norm_intensity"] = (filtered_df["intensity"] / filtered_df["intensity"].max()) * 100.0
+                                elif norm_choice == T[lang]["norm_tic"]:
+                                    filtered_df["norm_intensity"] = (filtered_df["intensity"] / filtered_df["intensity"].sum()) * 100.0
+                                else:
+                                    filtered_df["norm_intensity"] = filtered_df["intensity"]
+                            else:
+                                filtered_df["norm_intensity"] = []
+
+                            # Сохраняем полиномиальную калибровку если она активна
+                            if current_sample.get("is_recalibrated") and current_sample.get("recal_poly") is not None:
+                                filtered_df["mass"] = filtered_df["mass"] - current_sample["recal_poly"](filtered_df["mass"])
+                            elif current_sample.get("is_recalibrated") and current_sample.get("parsed_peaks") is not None and len(current_sample["parsed_peaks"]) == len(filtered_df):
+                                filtered_df["mass"] = current_sample["parsed_peaks"]["mass"]
+
+                            current_sample["parsed_peaks"] = filtered_df
+                            st.success(T[lang]["loaded_peaks_success"].format(n=len(filtered_df)))
                 except Exception as err:
-                    st.error(f"Error parsing file: {err}")
-                    st.stop()
+                    st.warning(f"Ошибка при разборе файла ({err}). Проверьте настройки разделителя." if lang == "ru" else f"File parse error ({err}). Check delimiter.")
+                    current_sample["parsed_peaks"] = None
         else:
             active_spectrum_name, current_sample = None, None
             st.info(T[lang]["no_spectra_info"])
@@ -1512,10 +1564,24 @@ if active_module == T[lang]["mod1_name"]:
                 st.pyplot(fig_rec)
                 plt.close(fig_rec)
 
-                if st.button(T[lang]["recal_btn"], type="primary", key=f"btn_recal_{active_spectrum_name}"):
-                    current_sample["parsed_peaks"]["mass"] = peaks_df["mass"].values - poly_fn(peaks_df["mass"].values)
-                    current_sample["assigned_df"] = None
-                    st.success(T[lang]["recal_success"].format(n=len(peaks_df), before=calib_df["error_ppm"].abs().mean(), after=residual_ppm.abs().mean()))
+                c_btn_r1, c_btn_r2 = st.columns([2, 1])
+                with c_btn_r1:
+                    if st.button(T[lang]["recal_btn"], type="primary", key=f"btn_recal_{active_spectrum_name}"):
+                        current_sample["parsed_peaks"]["mass"] = peaks_df["mass"].values - poly_fn(peaks_df["mass"].values)
+                        current_sample["recal_poly"] = poly_fn
+                        current_sample["is_recalibrated"] = True
+                        current_sample["assigned_df"] = None
+                        st.success(T[lang]["recal_success"].format(n=len(peaks_df), before=calib_df["error_ppm"].abs().mean(), after=residual_ppm.abs().mean()))
+                with c_btn_r2:
+                    if current_sample.get("is_recalibrated"):
+                        if st.button("Сбросить калибровку" if lang == "ru" else "Reset Calibration", key=f"btn_reset_recal_{active_spectrum_name}"):
+                            current_sample["is_recalibrated"] = False
+                            current_sample["recal_poly"] = None
+                            current_sample["assigned_df"] = None
+                            st.rerun()
+
+                if current_sample.get("is_recalibrated"):
+                    st.info("ℹ️ Для данного спектра активна полиномиальная рекалибровка (сохраняется при смене любых вкладок)." if lang == "ru" else "ℹ️ Polynomial recalibration is active for this spectrum (preserved across all tabs).")
 
     # 3. Приписывание формул
     with tabs[2]:
@@ -2534,6 +2600,40 @@ elif active_module == T[lang]["mod2_name"]:
                 key="uv_files_uploader",
             )
 
+            # Карточка постоянного хранения EEM и UV образцов в текущей сессии
+            n_eem = len(st.session_state.get("eem_stored_dict", {}))
+            n_uv = len(st.session_state.get("uv_stored_dict", {}))
+            if n_eem > 0 or n_uv > 0:
+                with st.expander(
+                    f"💾 {'Образцы в памяти сессии' if lang == 'ru' else 'Session Samples'}: {n_eem} EEM / {n_uv} UV",
+                    expanded=True
+                ):
+                    st.caption(
+                        "Файлы сохраняются в сессии при переключении любых вкладок."
+                        if lang == "ru" else
+                        "Files are stored in session and retained across tab switches."
+                    )
+                    if n_eem > 0:
+                        st.markdown("**EEM матрицы:**")
+                        for ename in list(st.session_state["eem_stored_dict"].keys()):
+                            ce1, ce2 = st.columns([3, 1])
+                            with ce1: st.markdown(f"• `{ename}`")
+                            with ce2:
+                                if st.button("🗑️", key=f"del_eem_m2_{ename}", help="Удалить" if lang == "ru" else "Delete"):
+                                    del st.session_state["eem_stored_dict"][ename]
+                                    st.session_state["eem_stored_samples"] = list(st.session_state["eem_stored_dict"].values())
+                                    st.rerun()
+                    if n_uv > 0:
+                        st.markdown("**UV-Vis спектры:**")
+                        for uname in list(st.session_state["uv_stored_dict"].keys()):
+                            cu1, cu2 = st.columns([3, 1])
+                            with cu1: st.markdown(f"• `{uname}`")
+                            with cu2:
+                                if st.button("🗑️", key=f"del_uv_m2_{uname}", help="Удалить" if lang == "ru" else "Delete"):
+                                    del st.session_state["uv_stored_dict"][uname]
+                                    st.session_state["uv_stored_samples"] = list(st.session_state["uv_stored_dict"].values())
+                                    st.rerun()
+
         with st.expander(T[lang]["eem_doc_expander"], expanded=False):
             default_doc_val = st.number_input(
                 T[lang]["eem_default_doc"],
@@ -2550,14 +2650,13 @@ elif active_module == T[lang]["mod2_name"]:
         norm_raman = st.checkbox(T[lang]["eem_norm_raman"], value=False, key="eem_norm_raman")
         palette = st.selectbox(T[lang]["eem_palette_label"], ["Viridis", "Plasma", "Inferno", "Turbo"], key="eem_palette_select")
 
-    if "eem_stored_samples" not in st.session_state:
-        st.session_state["eem_stored_samples"] = []
-    if "uv_stored_samples" not in st.session_state:
-        st.session_state["uv_stored_samples"] = []
+    if "eem_stored_dict" not in st.session_state:
+        st.session_state["eem_stored_dict"] = {}
+    if "uv_stored_dict" not in st.session_state:
+        st.session_state["uv_stored_dict"] = {}
 
     # Чтение EEM
     if eem_files:
-        new_eem_list = []
         for f in eem_files:
             try:
                 sample_name = f.name.rsplit(".", 1)[0]
@@ -2571,25 +2670,24 @@ elif active_module == T[lang]["mod2_name"]:
                     parsed.data = eem_core.remove_scatter_bands(parsed.data, parsed.ex, parsed.em)
                 if norm_raman:
                     parsed.data, _ = eem_core.normalize_to_raman_units(parsed.data, parsed.ex, parsed.em)
-                new_eem_list.append(parsed)
+                st.session_state["eem_stored_dict"][sample_name] = parsed
             except Exception as e:
                 st.error(f"Error reading EEM {f.name}: {e}")
-        if new_eem_list:
-            st.session_state["eem_stored_samples"] = new_eem_list
 
     # Чтение 1D УФ-Вид спектров
     if uv_files:
-        new_uv_list = []
         for uf in uv_files:
             try:
                 u_name = uf.name.rsplit(".", 1)[0]
                 parsed_uv = eem_core.parse_uv_vis_spectrum(uf, sample_id=u_name)
                 parsed_uv.doc = default_doc_val if default_doc_val > 0 else None
-                new_uv_list.append(parsed_uv)
+                st.session_state["uv_stored_dict"][u_name] = parsed_uv
             except Exception as e:
                 st.error(f"Error reading UV-Vis {uf.name}: {e}")
-        if new_uv_list:
-            st.session_state["uv_stored_samples"] = new_uv_list
+
+    # Синхронизация списков образцов
+    st.session_state["eem_stored_samples"] = list(st.session_state.get("eem_stored_dict", {}).values())
+    st.session_state["uv_stored_samples"] = list(st.session_state.get("uv_stored_dict", {}).values())
 
     if eem_data_src == T[lang]["eem_src_synth"]:
         samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
