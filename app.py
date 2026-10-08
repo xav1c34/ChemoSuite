@@ -983,10 +983,76 @@ from fticr_core import (
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЯДРО FT-ICR MS
 # ==============================================================================
 def st_df(data, **kwargs):
+    if isinstance(data, pd.DataFrame):
+        col_cfg = kwargs.get("column_config")
+        if col_cfg is None:
+            col_cfg = {}
+        else:
+            col_cfg = dict(col_cfg)
+        for col in data.columns:
+            if col not in col_cfg:
+                col_s = str(col).lower()
+                if any(k in col_s for k in ["origin", "генезис", "эколог", "desc", "описан", "status", "статус", "name", "назван", "smiles", "pathway", "trans"]):
+                    col_cfg[col] = st.column_config.TextColumn(width="large")
+                elif pd.api.types.is_string_dtype(data[col]) or pd.api.types.is_object_dtype(data[col]):
+                    max_len = data[col].astype(str).str.len().max() if len(data) > 0 else 0
+                    if max_len > 35:
+                        col_cfg[col] = st.column_config.TextColumn(width="large")
+                    elif max_len > 15:
+                        col_cfg[col] = st.column_config.TextColumn(width="medium")
+        if col_cfg:
+            kwargs["column_config"] = col_cfg
     try:
         return st.dataframe(data, width="stretch", **kwargs)
     except TypeError:
         return st.dataframe(data, use_container_width=True, **kwargs)
+
+
+def ensure_sample_peaks(sample: Optional[Dict[str, Any]]) -> Optional[pd.DataFrame]:
+    """Гарантирует наличие валидного DataFrame пиков (parsed_peaks) у образца."""
+    if sample is None:
+        return None
+    if sample.get("parsed_peaks") is not None and not sample["parsed_peaks"].empty:
+        return sample["parsed_peaks"]
+
+    b_content = sample.get("file_bytes")
+    if not b_content and sample.get("raw_path") and os.path.exists(sample["raw_path"]):
+        try:
+            with open(sample["raw_path"], "rb") as f:
+                b_content = f.read()
+                sample["file_bytes"] = b_content
+        except Exception:
+            pass
+
+    if not b_content:
+        return None
+
+    try:
+        raw_df = parse_uploaded_file(b_content, delimiter="Auto", decimal_sep=".", has_header=True)
+        if raw_df is None or raw_df.empty:
+            return None
+        sample["raw_df"] = raw_df
+        col_names = list(raw_df.columns)
+        mz_col = col_names[0]
+        int_col = col_names[1] if len(col_names) > 1 else col_names[0]
+        for idx, cname in enumerate(col_names):
+            cn_low = str(cname).lower()
+            if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]):
+                mz_col = cname
+            elif any(k in cn_low for k in ["int", "i", "count", "abund"]):
+                int_col = cname
+        clean_m = pd.to_numeric(raw_df[mz_col], errors="coerce")
+        clean_i = pd.to_numeric(raw_df[int_col], errors="coerce")
+        valid_mask = clean_m.notna() & clean_i.notna()
+        v_df = pd.DataFrame({"mass": clean_m[valid_mask].astype(float), "intensity": clean_i[valid_mask].astype(float)})
+        v_df = v_df[v_df["mass"] > 0].sort_values("mass").reset_index(drop=True)
+        if not v_df.empty:
+            v_df["norm_intensity"] = (v_df["intensity"] / max(1e-12, float(v_df["intensity"].max()))) * 100.0
+            sample["parsed_peaks"] = v_df
+            return v_df
+    except Exception:
+        pass
+    return sample.get("parsed_peaks")
 
 
 def st_plotly(fig, **kwargs):
@@ -1036,10 +1102,12 @@ if "spectra_db" not in st.session_state:
             fpath = os.path.join(STORAGE_DIR, fname)
             try:
                 with open(fpath, "rb") as f: content = f.read()
-                st.session_state["spectra_db"][fname] = {
+                s_obj = {
                     "raw_path": fpath, "file_bytes": content,
                     "parsed_peaks": None, "assigned_df": None, "raw_df": None,
                 }
+                ensure_sample_peaks(s_obj)
+                st.session_state["spectra_db"][fname] = s_obj
             except Exception:
                 pass
 
@@ -1157,7 +1225,8 @@ if active_module == T[lang]["mod1_name"]:
             st.info(T[lang]["nomspectra_missing"])
 
         uploaded_files = st.file_uploader(
-            T[lang]["uploader_label"], type=["csv", "txt", "tsv", "xy"], accept_multiple_files=True
+            T[lang]["uploader_label"], type=["csv", "txt", "tsv", "xy"], accept_multiple_files=True,
+            key="fticr_uploader_files"
         )
         if uploaded_files:
             for uf in uploaded_files:
@@ -1165,10 +1234,12 @@ if active_module == T[lang]["mod1_name"]:
                     save_path = os.path.join(STORAGE_DIR, uf.name)
                     b_content = uf.getvalue()
                     with open(save_path, "wb") as f: f.write(b_content)
-                    st.session_state["spectra_db"][uf.name] = {
+                    s_new = {
                         "raw_path": save_path, "file_bytes": b_content,
                         "parsed_peaks": None, "assigned_df": None, "raw_df": None,
                     }
+                    ensure_sample_peaks(s_new)
+                    st.session_state["spectra_db"][uf.name] = s_new
 
         with st.expander(T[lang]["folder_expander"], expanded=False):
             local_folder = st.text_input(
@@ -1401,7 +1472,7 @@ if active_module == T[lang]["mod1_name"]:
             peaks_df = current_sample["parsed_peaks"]
             st.subheader(f"{T[lang]['tab_recal']}: {active_spectrum_name}")
             cal_opts = ["Fatty Acids (C12–C33 saturated FA)" if lang == "en" else "Жирные кислоты (C12–C33 насыщенные ЖК)",
-                        "CHO Homologues (C_n H_{2n-8} O7)" if lang == "en" else "Гомологи CHO (C_n H_{2n-8} O7)"]
+                        "CHO Homologues (CₙH₂ₙ₋₈O₇)" if lang == "en" else "Гомологи CHO (CₙH₂ₙ₋₈O₇)"]
             c_r1, c_r2, c_r3 = st.columns([2, 1.5, 1.5])
             with c_r1: calib_type = st.selectbox(T[lang]["recal_cal_set"], cal_opts, index=0, key=f"calibtype_{active_spectrum_name}")
             with c_r2: search_tol = st.number_input(T[lang]["recal_tol"], min_value=2.0, max_value=25.0, value=8.0, step=0.5, key=f"stol_{active_spectrum_name}")
@@ -1863,6 +1934,60 @@ if active_module == T[lang]["mod1_name"]:
     # 7. Сравнение и алгебра спектров
     with tabs[6]:
         st.subheader(T[lang]["tab_cmp"])
+
+        with st.popover("ℹ️ " + ("Руководство: Зачем нужна Алгебра спектров и как её применять" if lang == "ru" else "Guide: Spectrum Algebra & Comparative Analysis"), use_container_width=True):
+            st.markdown(r"""
+### 🔬 Зачем нужна Алгебра спектров в экологическом анализе?
+
+В масс-спектрометрии ультравысокого разрешения (FT-ICR MS) природных вод (оз. Байкал, притоки) и техногенных загрязнений (шлам-лигнин БЦБК) спектры содержат тысячи индивидуальных пиков. Алгебра спектров позволяет строго математически разделить природный фон и антропогенные маркеры:
+
+---
+
+#### 1. Вычитание бланка / разность ($A \setminus B$)
+* **Физический смысл:** Удаление фонового матричного шума (чистая байкальская вода или бланк растворителя) из загрязненной пробы.
+* **Результат:** Остаются **только уникальные компоненты**, характерные для источника воздействия (сульфатный шлам-лигнин, техногенные серосодержащие соединения).
+
+#### 2. Консервативное ядро / пересечение ($A \cap B$)
+* **Физический смысл:** Поиск соединений, присутствующих **одновременно** в обоих образцах в пределах заданного допуска $ppm$.
+* **Результат:** Выделение устойчивого природного гуминового скелета (NOM), инвариантного к внешним факторам.
+
+#### 3. Симметрическая разность ($A \oplus B$) и объединение ($A \cup B$)
+* **$A \oplus B$:** Компоненты, уникальные либо для $A$, либо для $B$ (химическая дивергенция составов).
+* **$A \cup B$:** Полная композитная карта молекулярного разнообразия экосистемы.
+
+---
+
+#### 📐 Параметры и метрики:
+* **Допуск сопоставления ($\text{ppm}$):** Окно поиска по $m/z$ ($\Delta m = m \cdot \text{ppm} \cdot 10^{-6}$). Для FT-ICR MS стандартно $1.0 - 2.0\text{ ppm}$.
+* **Индекс Жаккара ($J$):** Степень совпадения компонентного состава ($J = \frac{|A \cap B|}{|A \cup B|}$, от 0 до 1).
+* **Косинусное сходство ($\cos \theta$):** Сходство профилей относительных интенсивностей общих пиков.
+""" if lang == "ru" else r"""
+### 🔬 Why Spectrum Algebra Matters in Environmental Analysis?
+
+In high-resolution mass spectrometry of natural waters (Lake Baikal) and industrial impacts (kraft pulp mill sludge lignin), spectra contain thousands of peaks. Spectrum algebra provides rigorous set-theoretic operations to isolate background NOM from anthropogenic tracers:
+
+---
+
+#### 1. Blank Subtraction & Difference ($A \setminus B$)
+* **Physical Meaning:** Removing baseline solvent/background water signals from an impacted sample.
+* **Result:** Yields **only unique tracers** specific to lignin contamination.
+
+#### 2. Conservative Core / Intersection ($A \cap B$)
+* **Physical Meaning:** Identifies compounds shared by both samples within the specified $ppm$ tolerance.
+* **Result:** Isolates resilient natural organic matter (NOM) background.
+
+#### 3. Symmetric Difference ($A \oplus B$) & Union ($A \cup B$)
+* **$A \oplus B$:** Components unique to either sample (chemical divergence).
+* **$A \cup B$:** Composite molecular map of the aquatic system.
+
+---
+
+#### 📐 Metrics & Parameters:
+* **Matching Tolerance ($\text{ppm}$):** $m/z$ alignment window (typically $1.0 - 2.0\text{ ppm}$).
+* **Jaccard Similarity ($J$):** Compositional overlap ($J = \frac{|A \cap B|}{|A \cup B|}$).
+* **Cosine Similarity ($\cos \theta$):** Spectral profile intensity vector similarity.
+""")
+
         all_spectra_list = list(st.session_state.get("spectra_db", {}).keys())
         if len(all_spectra_list) < 2:
             st.info(T[lang]["cmp_need_two"])
@@ -1886,11 +2011,11 @@ if active_module == T[lang]["mod1_name"]:
             sample_a = st.session_state["spectra_db"][name_a]
             sample_b = st.session_state["spectra_db"][name_b]
 
-            peaks_a = sample_a.get("parsed_peaks")
-            peaks_b = sample_b.get("parsed_peaks")
+            peaks_a = ensure_sample_peaks(sample_a)
+            peaks_b = ensure_sample_peaks(sample_b)
 
             if peaks_a is None or peaks_a.empty or peaks_b is None or peaks_b.empty:
-                st.warning("One of the selected samples is empty or not filtered." if lang == "en" else "Один из выбранных образцов еще не отфильтрован или пуст.")
+                st.warning("One of the selected samples is empty or could not be parsed." if lang == "en" else "Один из выбранных образцов пуст или не содержит числовых данных пиков.")
             elif name_a == name_b:
                 st.warning("Same sample selected for comparison!" if lang == "en" else "Выбран один и тот же образец для сравнения!")
             else:
@@ -2425,11 +2550,14 @@ elif active_module == T[lang]["mod2_name"]:
         norm_raman = st.checkbox(T[lang]["eem_norm_raman"], value=False, key="eem_norm_raman")
         palette = st.selectbox(T[lang]["eem_palette_label"], ["Viridis", "Plasma", "Inferno", "Turbo"], key="eem_palette_select")
 
+    if "eem_stored_samples" not in st.session_state:
+        st.session_state["eem_stored_samples"] = []
+    if "uv_stored_samples" not in st.session_state:
+        st.session_state["uv_stored_samples"] = []
+
     # Чтение EEM
-    samples = []
-    if eem_data_src == T[lang]["eem_src_synth"]:
-        samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
-    elif eem_files:
+    if eem_files:
+        new_eem_list = []
         for f in eem_files:
             try:
                 sample_name = f.name.rsplit(".", 1)[0]
@@ -2443,21 +2571,32 @@ elif active_module == T[lang]["mod2_name"]:
                     parsed.data = eem_core.remove_scatter_bands(parsed.data, parsed.ex, parsed.em)
                 if norm_raman:
                     parsed.data, _ = eem_core.normalize_to_raman_units(parsed.data, parsed.ex, parsed.em)
-                samples.append(parsed)
+                new_eem_list.append(parsed)
             except Exception as e:
                 st.error(f"Error reading EEM {f.name}: {e}")
+        if new_eem_list:
+            st.session_state["eem_stored_samples"] = new_eem_list
 
     # Чтение 1D УФ-Вид спектров
-    uv_samples = []
     if uv_files:
+        new_uv_list = []
         for uf in uv_files:
             try:
                 u_name = uf.name.rsplit(".", 1)[0]
                 parsed_uv = eem_core.parse_uv_vis_spectrum(uf, sample_id=u_name)
                 parsed_uv.doc = default_doc_val if default_doc_val > 0 else None
-                uv_samples.append(parsed_uv)
+                new_uv_list.append(parsed_uv)
             except Exception as e:
                 st.error(f"Error reading UV-Vis {uf.name}: {e}")
+        if new_uv_list:
+            st.session_state["uv_stored_samples"] = new_uv_list
+
+    if eem_data_src == T[lang]["eem_src_synth"]:
+        samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
+    else:
+        samples = st.session_state.get("eem_stored_samples", [])
+
+    uv_samples = st.session_state.get("uv_stored_samples", [])
 
     # Автоматическая связка УФ-Вид спектров с EEM образцами
     if samples and uv_samples:
@@ -2505,12 +2644,11 @@ elif active_module == T[lang]["mod2_name"]:
 
                 c_idx1, c_idx2 = st.columns([3, 1])
                 with c_idx1:
-                    st.dataframe(
+                    st_df(
                         df_indices.style.format(
                             {"FI": "{:.2f}", "HIX": "{:.2f}", "A254": "{:.4f}", "DOC": "{:.2f}", "SUVA254": "{:.2f}"},
                             na_rep="—"
-                        ),
-                        use_container_width=True
+                        )
                     )
                 with c_idx2:
                     st.download_button(
@@ -2620,7 +2758,24 @@ elif active_module == T[lang]["mod2_name"]:
                             results["em_profiles"], results["ex_profiles"], em_ax, ex_ax, threshold_tcc=0.85, lang=lang
                         )
                         st.markdown(f"**{T[lang]['eem_openfluor_tbl_title']}**")
-                        st_df(of_matches)
+                        st_df(
+                            of_matches,
+                            column_config={
+                                "Component": st.column_config.TextColumn("Компонент" if lang == "ru" else "Component", width="small"),
+                                "Best_Match_ID": st.column_config.TextColumn("ID OpenFluor", width="small"),
+                                "Fluorophore_Name": st.column_config.TextColumn("Флуорофор" if lang == "ru" else "Fluorophore", width="medium"),
+                                "Category": st.column_config.TextColumn("Категория" if lang == "ru" else "Category", width="small"),
+                                "TCC_Mean": st.column_config.NumberColumn("TCC Средний" if lang == "ru" else "TCC Mean", format="%.3f", width="small"),
+                                "Confidence_Status": st.column_config.TextColumn("Статус сходства" if lang == "ru" else "Confidence Status", width="medium"),
+                                "Ecological_Origin": st.column_config.TextColumn("Экологический генезис" if lang == "ru" else "Ecological Origin", width="large"),
+                            }
+                        )
+                        st.markdown("##### " + ("Экологический генезис идентифицированных флуорофоров:" if lang == "ru" else "Ecological Origin of Identified Fluorophores:"))
+                        for _, m_row in of_matches.iterrows():
+                            st.markdown(
+                                f"- **{m_row.get('Component')}** ({m_row.get('Fluorophore_Name')} | TCC = {m_row.get('TCC_Mean')}): "
+                                f"*{m_row.get('Confidence_Status')}* — {m_row.get('Ecological_Origin')}"
+                            )
                         st.download_button(
                             label=T[lang]["eem_openfluor_dl_btn"],
                             data=of_matches.to_csv(index=False).encode("utf-8"),
@@ -2712,14 +2867,13 @@ elif active_module == T[lang]["mod2_name"]:
                 st.markdown(f"##### {T[lang]['eem_uv_tbl_title']}")
                 c_tbl1, c_tbl2 = st.columns([3, 1])
                 with c_tbl1:
-                    st.dataframe(
+                    st_df(
                         df_uv_indices.style.format({
                             "A254": "{:.4f}", "A280": "{:.4f}", "A365": "{:.4f}",
                             "E2_E3": "{:.2f}", "E4_E6": "{:.2f}",
                             "S_275_295": "{:.4f}", "S_350_400": "{:.4f}", "S_R": "{:.2f}",
                             "DOC": "{:.2f}", "SUVA254": "{:.2f}"
-                        }, na_rep="—"),
-                        use_container_width=True
+                        }, na_rep="—")
                     )
                 with c_tbl2:
                     st.download_button(
@@ -2736,6 +2890,59 @@ elif active_module == T[lang]["mod2_name"]:
 elif active_module == T[lang]["mod3_name"]:
     st.title(T[lang]["ml_title"])
     st.caption(T[lang]["ml_subtitle"])
+
+    with st.popover("ℹ️ " + ("Руководство: Что такое Data Fusion (Слияние данных) и зачем это нужно?" if lang == "ru" else "Guide: Multiblock Data Fusion & Chemometrics"), use_container_width=True):
+        st.markdown(r"""
+### 🧬 Концепция Data Fusion (Многоблочная хемометрика)
+
+При анализе природных водных объектов (Байкал, притоки) и антропогенных отходов (сульфатный шлам-лигнин БЦБК) ни один спектральный метод в отдельности не дает исчерпывающей картины:
+
+| Аналитический метод | Преимущества | Ограничения |
+| :--- | :--- | :--- |
+| **3D EEM Флуоресценция** | Экспрессный анализ, селективность к флуорофорам (гуминовые и белковые пулы) | Низкое спектральное разрешение, широкие перекрывающиеся полосы |
+| **УФ-Вид (UV-Vis)** | Интегральные оптические индексы ($SUVA_{254}$, $E_2/E_3$, наклон $S_{275-295}$) | Интегральный отклик, не разделяет индивидуальные химические компоненты |
+| **FT-ICR MS** | Ультравысокое разрешение ($R > 400\,000$), тысячи индивидуальных брутто-формул | Высокая стоимость, трудоемкость, селективность ионизации |
+
+---
+
+### 🔀 Стратегии слияния блоков (Data Fusion):
+
+1. **Low-Level Fusion (Низкоуровневое слияние):**
+   * Все таблицы дескрипторов склеиваются по строкам (образцам) в единую широкую матрицу.
+   * **Масштабирование $1/\sqrt{P}$ (Block Scaling):** Чтобы блок FT-ICR (сотни ячеек/формул) математически не заглушил оптический блок (несколько индексов), каждый блок делится на корень из числа его переменных. Все аналитические платформы получают равный начальный вес.
+
+2. **Mid-Level Fusion (Среднеуровневое слияние):**
+   * Из каждого блока сначала независимо извлекаются скрытые латентные факторы (главные компоненты PCA или PARAFAC-оценки $C_1, C_2, C_3$).
+   * Затем полученные сжатые векторы объединяются для финальной классификации.
+
+---
+
+### 🎯 Результат моделирования:
+* **PLS-DA / OPLS-DA:** Разделение образцов на классы (например, *Фоновый Байкал* vs *Шлам-лигнин*).
+* **VIP-биомаркеры (Variable Importance in Projection):** Выявление конкретных формул и оптических параметров с $VIP > 1.0$, вносящих определяющий вклад в экологическое состояние водоема.
+""" if lang == "ru" else r"""
+### 🧬 Multiblock Data Fusion Concept in Environmental Science
+
+In monitoring aquatic ecosystems (Lake Baikal) and industrial pulp waste (kraft sludge lignin), no single analytical technique provides the complete picture:
+
+| Analytical Method | Strengths | Limitations |
+| :--- | :--- | :--- |
+| **3D EEM Fluorescence** | Rapid screening, selective for aromatic & protein fluorophores | Low spectral resolution, broad overlapping peaks |
+| **UV-Vis Spectrophotometry** | Bulk optical indices ($SUVA_{254}$, $E_2/E_3$, slope $S_{275-295}$) | Non-specific, cannot distinguish individual molecules |
+| **FT-ICR Mass Spectrometry** | Ultra-high resolution ($R > 400\,000$), thousands of elemental formulas | High instrument cost, ionization selectivity |
+
+---
+
+### 🔀 Data Fusion Strategies:
+
+1. **Low-Level Fusion:** Concatenation of feature blocks with $1/\sqrt{P}$ block scaling to prevent high-dimensional mass spectra from dominating optical metrics.
+2. **Mid-Level Fusion:** Independent extraction of latent factors (PCA / PARAFAC components) followed by unified classification.
+
+---
+
+### 🎯 Objective:
+Accurate discrimination of pristine vs contaminated waters and non-target identification of high-VIP environmental markers ($VIP > 1.0$).
+""")
 
     if not CHEMO_ML_AVAILABLE or chemo_ml is None:
         st.error(T[lang]["ml_err_missing"])
@@ -3202,7 +3409,7 @@ elif active_module == T[lang]["mod3_name"]:
                     st_plotly(fig_sp)
 
                     st.markdown(f"**{T[lang]['ml_spls_table_title']} ({len(sel_only)} {T[lang]['ml_spls_selected_count']}):**")
-                    st.dataframe(sparse_df, use_container_width=True)
+                    st_df(sparse_df)
                     st.download_button(
                         label=T[lang]["ml_spls_dl_btn"],
                         data=sparse_df.to_csv(index=False).encode("utf-8"),
@@ -3222,7 +3429,7 @@ elif active_module == T[lang]["mod3_name"]:
                     fig_vip.update_layout(yaxis=dict(autorange="reversed", title="Descriptor"), xaxis=dict(title="VIP Score"), plot_bgcolor="white", height=520)
                     st_plotly(fig_vip)
 
-                    st.dataframe(vip_df, use_container_width=True)
+                    st_df(vip_df)
 
                 if CHEMO_PUBCHEM_AVAILABLE:
                     st.markdown("---")
@@ -3269,7 +3476,7 @@ elif active_module == T[lang]["mod3_name"]:
                         fig_s.update_layout(plot_bgcolor="white", height=520)
                         st_plotly(fig_s)
 
-                        st.dataframe(s_df, use_container_width=True)
+                        st_df(s_df)
 
             # Таб 3: Валидация (Confusion Matrix + Permutation Test)
             with tab_ml3:
