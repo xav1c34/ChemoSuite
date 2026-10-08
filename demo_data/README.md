@@ -22,8 +22,10 @@ demo_data/
 │   └── Baikal_Control_01_uv.csv .. 06_uv.csv
 │
 ├── fticr_ms/                          # Пик-листы масс-спектров сверхвысокого разрешения (m/z, intensity)
-│   ├── Lignin_Impact_01_fticr.csv .. 02_fticr.csv
+│   ├── Baikal_Control_Full_DOM.csv    # Полноразмерный спектр природного РОВ Байкала (3800+ пиков, высокий H/C)
+│   ├── Lignin_Impact_Full_Sludge.csv  # Полноразмерный спектр шлам-лигнина (2900+ пиков, высокий AI, полифенолы)
 │   ├── Baikal_Control_01_fticr.csv .. 02_fticr.csv
+│   ├── Lignin_Impact_01_fticr.csv .. 02_fticr.csv
 │   └── sample_A_full.csv              # Реальный экспериментальный спектр FT-ICR MS (5700+ пиков)
 │
 └── multimodal_ml/                     # Таблицы дескрипторов для Модуля 3 (Data Fusion & PLS-DA)
