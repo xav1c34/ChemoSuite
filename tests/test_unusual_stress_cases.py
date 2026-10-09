@@ -14,6 +14,7 @@ import chemo_ml
 import chemo_pubchem
 import report_generator
 import project_io
+import nmr_core
 
 
 # ==============================================================================
@@ -212,3 +213,150 @@ def test_adversarial_excel_passport_missing_modalities():
     excel_bytes_en = report_generator.generate_excel_passport(df, model_results=None, lang="en")
     assert isinstance(excel_bytes_en, bytes)
     assert len(excel_bytes_en) > 1000
+
+
+# ==============================================================================
+# 6. СТРЕСС-ТЕСТЫ ЯМР-СПЕКТРОСКОПИИ (ADVERSARIAL 13C / 1H NMR)
+# ==============================================================================
+
+def test_adversarial_nmr_descending_ppm_integration():
+    """
+    Проверка интегрирования и нормализации при передаче шкалы ppm в убывающем порядке (220 -> 0 ppm).
+    В ЯМР-спектроскопии убывающий порядок является стандартом приборов (Bruker, Varian).
+    Интегралы и дескрипторы не должны обнуляться или становиться отрицательными.
+    """
+    # Шкала в убывающем порядке
+    ppm_desc = np.linspace(220.0, 0.0, 1101)
+    intensity = 50.0 * np.exp(-((ppm_desc - 130.0) ** 2) / 50.0)  # пик на 130 ppm
+
+    int_aromatic = nmr_core.integrate_nmr_region(ppm_desc, intensity, 108.0, 165.0)
+    assert int_aromatic > 0.0
+
+    # Нормализация спектра с убывающей шкалой ppm
+    y_norm = nmr_core.normalize_nmr_spectrum(intensity, method="area", chemical_shifts=ppm_desc)
+    assert np.max(y_norm) > 0.0
+    tot_area = nmr_core.integrate_nmr_region(ppm_desc, y_norm, 0.0, 220.0)
+    assert pytest.approx(tot_area, rel=0.05) == 100.0
+
+    # Расчет дескрипторов
+    desc = nmr_core.calculate_13c_nmr_descriptors(ppm_desc, intensity, sample_id="Descending_NMR")
+    assert desc["NMR_fa_aromaticity"] > 90.0
+    assert desc["NMR_C_aromatic_pct"] > 90.0
+    assert not np.isnan(desc["NMR_hb_hi_index"])
+    assert not np.isinf(desc["NMR_hb_hi_index"])
+
+
+def test_adversarial_nmr_inverted_columns_parsing():
+    """
+    Проверка парсинга файла, где колонка 0 — интенсивность (0..100), а колонка 1 — химсдвиг (0..200).
+    Эвристика монотонности должна безошибочно определить химсдвиг ppm.
+    """
+    ppm = np.linspace(0.0, 200.0, 50)
+    intensity = np.random.uniform(10.0, 90.0, size=50)
+
+    # Инвертированный порядок колонок: Intensity ; Chemical_Shift
+    lines = ["Intensity,Shift"]
+    for i in range(50):
+        lines.append(f"{intensity[i]:.2f},{ppm[i]:.2f}")
+    csv_text = "\n".join(lines)
+
+    sample = nmr_core.parse_nmr_file(csv_text, sample_id="Inverted_Col_Sample")
+    # Химический сдвиг должен быть монотонным и лежать в [0, 200]
+    assert len(sample.chemical_shifts) == 50
+    assert np.all(np.diff(sample.chemical_shifts) > 0)
+    assert pytest.approx(sample.chemical_shifts[0], 0.1) == 0.0
+    assert pytest.approx(sample.chemical_shifts[-1], 0.1) == 200.0
+
+
+def test_adversarial_nmr_auto_recalibration():
+    """
+    Проверка автоматической калибровки шкалы химсдвигов по DMSO-d6 (39.5 ppm) и TMS (0.0 ppm).
+    """
+    # Спектр с пиком DMSO, сдвинутым на +0.5 ppm (пик на 40.0 ppm вместо 39.5 ppm)
+    ppm = np.linspace(0.0, 100.0, 501)
+    y = np.exp(-((ppm - 40.0) ** 2) / 0.5)
+
+    ppm_cal, delta = nmr_core.auto_recalibrate_nmr_shifts(ppm, y, mode="dmso")
+    # Должен быть сдвиг на -0.5 ppm
+    assert pytest.approx(delta, abs=0.05) == -0.5
+    # После калибровки пик должен оказаться на 39.5 ppm
+    pk_idx = np.argmax(y)
+    assert pytest.approx(ppm_cal[pk_idx], abs=0.05) == 39.5
+
+    # Проверка TMS (пик на 0.3 ppm вместо 0.0)
+    ppm_tms = np.linspace(-5.0, 50.0, 551)
+    y_tms = np.exp(-((ppm_tms - 0.3) ** 2) / 0.2)
+    ppm_tms_cal, delta_tms = nmr_core.auto_recalibrate_nmr_shifts(ppm_tms, y_tms, mode="tms")
+    assert pytest.approx(delta_tms, abs=0.05) == -0.3
+    assert pytest.approx(ppm_tms_cal[np.argmax(y_tms)], abs=0.05) == 0.0
+
+    # Проверка отклонения ложного пика (слишком далеко > 2.5 ppm)
+    y_fake = np.exp(-((ppm - 44.0) ** 2) / 0.5)  # 44 ppm слишком далеко от 39.5
+    _, delta_fake = nmr_core.auto_recalibrate_nmr_shifts(ppm, y_fake, mode="dmso")
+    assert delta_fake == 0.0
+
+
+def test_adversarial_nmr_all_zeros_and_flat_noise():
+    """
+    Проверка расчета дескрипторов и аннотаций при нулевом сигнале или чистом аппаратном шуме.
+    Не должно быть деления на 0, переполнения math.exp или падений find_peaks.
+    """
+    ppm = np.linspace(0.0, 220.0, 441)
+    y_zeros = np.zeros_like(ppm)
+
+    desc_zero = nmr_core.calculate_13c_nmr_descriptors(ppm, y_zeros, sample_id="Zero_Spectrum")
+    assert desc_zero["NMR_fa_aromaticity"] == 0.0
+    assert not np.isnan(desc_zero["NMR_hb_hi_index"])
+    assert not np.isinf(desc_zero["NMR_hb_hi_index"])
+    assert desc_zero["NMR_estimated_mw"] == 1250.0
+
+    df_peaks_zero = nmr_core.find_and_annotate_nmr_peaks(ppm, y_zeros)
+    assert df_peaks_zero.empty
+
+    # Спектр со случайным слабым шумом
+    np.random.seed(42)
+    y_noise = np.random.uniform(0.0, 0.001, size=len(ppm))
+    desc_noise = nmr_core.calculate_13c_nmr_descriptors(ppm, y_noise, sample_id="Noise_Spectrum")
+    assert not np.isnan(desc_noise["NMR_fa_aromaticity"])
+    assert not np.isnan(desc_noise["NMR_lignin_signature"])
+
+
+def test_adversarial_nmr_deconvolution_degraded_data():
+    """
+    Проверка деконволюции ароматико-фенольной зоны при недостаточном числе точек (<15) или нулевом сигнале.
+    """
+    # 5 точек — заведомо недостаточно
+    ppm_short = np.array([110.0, 120.0, 130.0, 140.0, 150.0])
+    y_short = np.array([1.0, 2.0, 3.0, 2.0, 1.0])
+    res_short = nmr_core.deconvolve_aromatic_region(ppm_short, y_short)
+    assert res_short["success"] is False
+    assert "Недостаточно" in res_short["message"]
+
+    # 100 точек, но в зоне 108-165 ppm сигнал строго нулевой
+    ppm_full = np.linspace(0.0, 220.0, 221)
+    y_zero_arom = np.zeros_like(ppm_full)
+    res_zero = nmr_core.deconvolve_aromatic_region(ppm_full, y_zero_arom)
+    assert res_zero["success"] is False
+
+
+def test_adversarial_nmr_jcamp_multiline_pairs():
+    """
+    Проверка парсинга сложного JCAMP-DX файла с несколькими парами (X, Y) на строку.
+    """
+    jcamp_multi = """##TITLE=Multi-pair 13C NMR Test
+##JCAMP-DX=5.01
+##DATA TYPE=NMR SPECTRUM
+##XUNITS=PPM
+##YUNITS=ARBITRARY
+##NPOINTS=6
+##PEAK TABLE=(XY..XY)
+200.0, 15.2, 175.0, 44.8, 130.0, 92.1
+60.0, 31.0, 30.0, 88.5, 15.0, 22.0
+##END=
+"""
+    sample = nmr_core.parse_nmr_file(jcamp_multi, sample_id="JCAMP_Multi")
+    assert len(sample.chemical_shifts) == 6
+    assert np.all(np.diff(sample.chemical_shifts) > 0)
+    assert pytest.approx(sample.chemical_shifts[0], 0.1) == 15.0
+    assert pytest.approx(sample.chemical_shifts[-1], 0.1) == 200.0
+

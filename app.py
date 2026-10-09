@@ -4837,6 +4837,11 @@ elif active_module == T[lang]["mod5_name"]:
             index=0,
             key="nmr_recal_select"
         )
+        recal_mode = "none"
+        if "dmso" in recal_choice.lower():
+            recal_mode = "dmso"
+        elif "tms" in recal_choice.lower() or "dss" in recal_choice.lower():
+            recal_mode = "tms"
 
     current_nmr_samples: Dict[str, nmr_core.NMRSample] = st.session_state["nmr_samples"]
     if not current_nmr_samples:
@@ -4867,12 +4872,22 @@ elif active_module == T[lang]["mod5_name"]:
             show_regions = st.checkbox(T[lang]["nmr_show_regions"], value=True, key="nmr_regions_checkbox")
 
         active_s = current_nmr_samples[active_name]
-        active_s, base_curve = nmr_core.subtract_baseline(active_s, method=base_method)
-        active_y = active_s.corrected_intensity if base_method != "none" else active_s.intensity
+        active_shifts = active_s.chemical_shifts.copy()
+        if recal_mode != "none":
+            active_shifts, recal_delta = nmr_core.auto_recalibrate_nmr_shifts(
+                active_shifts, active_s.intensity, mode=recal_mode
+            )
+            if abs(recal_delta) > 1e-4:
+                st.info(
+                    f"🎯 " + (f"Автокалибровка по {recal_mode.upper()}: сдвиг шкалы Δ = {recal_delta:+.2f} ppm" if lang == "ru" else f"Autorecalibration via {recal_mode.upper()}: scale shift Δ = {recal_delta:+.2f} ppm")
+                )
+
+        active_s_c, base_curve = nmr_core.subtract_baseline(active_s, method=base_method)
+        active_y = active_s_c.corrected_intensity if base_method != "none" else active_s.intensity
 
         if apply_sg_smoothing:
             active_y = nmr_core.smooth_nmr_spectrum(active_y, window_length=9, polyorder=2)
-        active_y_disp = nmr_core.normalize_nmr_spectrum(active_y, method=norm_method, chemical_shifts=active_s.chemical_shifts)
+        active_y_disp = nmr_core.normalize_nmr_spectrum(active_y, method=norm_method, chemical_shifts=active_shifts)
 
         # Выдвижная панель: Автопоиск пиков
         with st.expander(T[lang]["nmr_peaks_expander"], expanded=False):
@@ -4886,7 +4901,7 @@ elif active_module == T[lang]["mod5_name"]:
                 show_peak_markers = st.checkbox(T[lang]["nmr_peaks_show_markers"], value=True, key="nmr_show_peak_markers_chk")
 
             df_peaks = nmr_core.find_and_annotate_nmr_peaks(
-                active_s.chemical_shifts, active_y_disp,
+                active_shifts, active_y_disp,
                 prominence=pk_prom, distance_ppm=pk_dist, lang=lang
             )
             if not df_peaks.empty:
@@ -4905,14 +4920,17 @@ elif active_module == T[lang]["mod5_name"]:
 
         if show_overlay:
             for s_name, s_item in current_nmr_samples.items():
+                s_shifts = s_item.chemical_shifts.copy()
+                if recal_mode != "none":
+                    s_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(s_shifts, s_item.intensity, mode=recal_mode)
                 s_item_c, _ = nmr_core.subtract_baseline(s_item, method=base_method)
                 y_disp = s_item_c.corrected_intensity if base_method != "none" else s_item.intensity
                 if apply_sg_smoothing:
                     y_disp = nmr_core.smooth_nmr_spectrum(y_disp, window_length=9, polyorder=2)
-                y_disp = nmr_core.normalize_nmr_spectrum(y_disp, method=norm_method, chemical_shifts=s_item.chemical_shifts)
+                y_disp = nmr_core.normalize_nmr_spectrum(y_disp, method=norm_method, chemical_shifts=s_shifts)
 
                 fig_nmr.add_trace(go.Scatter(
-                    x=s_item.chemical_shifts,
+                    x=s_shifts,
                     y=y_disp,
                     mode="lines",
                     name=s_name,
@@ -4924,7 +4942,7 @@ elif active_module == T[lang]["mod5_name"]:
             )
         else:
             fig_nmr.add_trace(go.Scatter(
-                x=active_s.chemical_shifts,
+                x=active_shifts,
                 y=active_y_disp,
                 mode="lines",
                 name=active_name,
@@ -4933,9 +4951,9 @@ elif active_module == T[lang]["mod5_name"]:
 
             # Отображение базовой линии
             if base_method != "none" and len(base_curve) > 0:
-                base_disp = nmr_core.normalize_nmr_spectrum(base_curve, method=norm_method, chemical_shifts=active_s.chemical_shifts)
+                base_disp = nmr_core.normalize_nmr_spectrum(base_curve, method=norm_method, chemical_shifts=active_shifts)
                 fig_nmr.add_trace(go.Scatter(
-                    x=active_s.chemical_shifts,
+                    x=active_shifts,
                     y=base_disp,
                     mode="lines",
                     name="AsLS Baseline" if lang == "en" else "Базовая линия",
@@ -5001,7 +5019,7 @@ elif active_module == T[lang]["mod5_name"]:
         st_plotly(fig_nmr)
 
         # Расчет и вывод фундаментальных метрик активного образца
-        ind_single = nmr_core.calculate_13c_nmr_descriptors(active_s.chemical_shifts, active_y, sample_id=active_name)
+        ind_single = nmr_core.calculate_13c_nmr_descriptors(active_shifts, active_y, sample_id=active_name)
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Aromaticity fa (%)", f"{ind_single['NMR_fa_aromaticity']:.1f}%")
         m2.metric("Hydrophobicity (HB/HI)", f"{ind_single['NMR_hb_hi_index']:.2f}")
@@ -5017,7 +5035,7 @@ elif active_module == T[lang]["mod5_name"]:
             "##### " + ("Carbon Skeleton Distribution and Structural Fingerprint" if lang == "en" else "Распределение углеродного скелета и структурный отпечаток")
         )
 
-        ind_current = nmr_core.calculate_13c_nmr_descriptors(active_s.chemical_shifts, active_y, sample_id=active_name)
+        ind_current = nmr_core.calculate_13c_nmr_descriptors(active_shifts, active_y, sample_id=active_name)
 
         col_g1, col_g2 = st.columns([1.2, 1.0])
         with col_g1:
@@ -5065,14 +5083,14 @@ elif active_module == T[lang]["mod5_name"]:
         st.markdown("###### " + ("Structural Radar Fingerprint vs Analytical Standards" if lang == "en" else "Радарный структурный отпечаток в сравнении со стандартами"))
         categories = ["Aromaticity fa", "Hydrophobicity (HB/HI*10)", "Alkyl/O-Alkyl (*10)", "Phenolic C (%)", "Carboxyl C (%)", "Aliphatic C (%)"]
 
-        # Значения активного образца
+        # Значения активного образца с защитой от NaN / inf
         val_active = [
-            ind_current["NMR_fa_aromaticity"],
-            min(80.0, ind_current["NMR_hb_hi_index"] * 10.0),
-            min(80.0, ind_current["NMR_alkyl_o_alkyl"] * 10.0),
-            ind_current["NMR_C_phenolic_pct"],
-            ind_current["NMR_C_carboxyl_pct"],
-            ind_current["NMR_C_aliph_pct"],
+            float(np.nan_to_num(ind_current.get("NMR_fa_aromaticity", 0.0), nan=0.0)),
+            float(np.nan_to_num(min(80.0, ind_current.get("NMR_hb_hi_index", 1.0) * 10.0), nan=10.0)),
+            float(np.nan_to_num(min(80.0, ind_current.get("NMR_alkyl_o_alkyl", 1.0) * 10.0), nan=10.0)),
+            float(np.nan_to_num(ind_current.get("NMR_C_phenolic_pct", 0.0), nan=0.0)),
+            float(np.nan_to_num(ind_current.get("NMR_C_carboxyl_pct", 0.0), nan=0.0)),
+            float(np.nan_to_num(ind_current.get("NMR_C_aliph_pct", 0.0), nan=0.0)),
         ]
         val_active.append(val_active[0])
 
@@ -5121,11 +5139,14 @@ elif active_module == T[lang]["mod5_name"]:
                 deconv_run_btn = st.button(T[lang]["nmr_deconv_btn"], type="primary", key="btn_run_nmr_deconv")
 
             target_dec_s = current_nmr_samples[deconv_target_name]
-            target_dec_s, _ = nmr_core.subtract_baseline(target_dec_s, method=base_method)
-            y_dec_target = target_dec_s.corrected_intensity if base_method != "none" else target_dec_s.intensity
+            target_dec_shifts = target_dec_s.chemical_shifts.copy()
+            if recal_mode != "none":
+                target_dec_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(target_dec_shifts, target_dec_s.intensity, mode=recal_mode)
+            target_dec_s_c, _ = nmr_core.subtract_baseline(target_dec_s, method=base_method)
+            y_dec_target = target_dec_s_c.corrected_intensity if base_method != "none" else target_dec_s.intensity
 
             deconv_res = nmr_core.deconvolve_aromatic_region(
-                target_dec_s.chemical_shifts, y_dec_target, n_peaks=n_gaussians
+                target_dec_shifts, y_dec_target, n_peaks=n_gaussians
             )
 
             if deconv_res.get("success"):
@@ -5192,10 +5213,13 @@ elif active_module == T[lang]["mod5_name"]:
                 lib_run_btn = st.button(T[lang]["nmr_lib_btn"], type="primary", key="btn_run_nmr_lib_match")
 
             target_lib_s = current_nmr_samples[lib_target_name]
+            target_lib_shifts = target_lib_s.chemical_shifts.copy()
+            if recal_mode != "none":
+                target_lib_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(target_lib_shifts, target_lib_s.intensity, mode=recal_mode)
             target_lib_s_c, _ = nmr_core.subtract_baseline(target_lib_s, method=base_method)
             y_lib_target = target_lib_s_c.corrected_intensity if base_method != "none" else target_lib_s.intensity
 
-            match_df = nmr_core.match_spectrum_against_library(target_lib_s.chemical_shifts, y_lib_target, top_n=lib_top_n, lang=lang)
+            match_df = nmr_core.match_spectrum_against_library(target_lib_shifts, y_lib_target, top_n=lib_top_n, lang=lang)
 
             if not match_df.empty:
                 top_match = match_df.iloc[0]
@@ -5217,18 +5241,18 @@ elif active_module == T[lang]["mod5_name"]:
                     )
 
                 # Наложение: образец vs эталон
-                ref_curve = nmr_core.synthesize_reference_13c_curve(top_std_id, target_lib_s.chemical_shifts)
+                ref_curve = nmr_core.synthesize_reference_13c_curve(top_std_id, target_lib_shifts)
                 s_norm = nmr_core.normalize_nmr_spectrum(y_lib_target, method="minmax")
                 r_norm = nmr_core.normalize_nmr_spectrum(ref_curve, method="minmax")
 
                 fig_lib = go.Figure()
                 fig_lib.add_trace(go.Scatter(
-                    x=target_lib_s.chemical_shifts, y=s_norm,
+                    x=target_lib_shifts, y=s_norm,
                     mode="lines", name=f"{lib_target_name} ({T[lang]['nmr_lib_sample_trace']})",
                     line=dict(color="#1A365D", width=2.2)
                 ))
                 fig_lib.add_trace(go.Scatter(
-                    x=target_lib_s.chemical_shifts, y=r_norm,
+                    x=target_lib_shifts, y=r_norm,
                     mode="lines", name=f"{top_name} ({T[lang]['nmr_lib_ref_trace']})",
                     line=dict(color="#E53E3E", width=1.8, dash="dash")
                 ))
@@ -5248,8 +5272,23 @@ elif active_module == T[lang]["mod5_name"]:
     # ВКЛАДКА 4: 🧬 ХЕМОМЕТРИЧЕСКИЕ ИНДЕКСЫ И ЭКСПОРТ В ML
     # =========================================================================
     with tab_nmr4:
+        processed_samples = []
+        for s in current_nmr_samples.values():
+            s_copy = nmr_core.NMRSample(
+                sample_id=s.sample_id,
+                nucleus=s.nucleus,
+                chemical_shifts=s.chemical_shifts.copy(),
+                intensity=s.intensity.copy(),
+                metadata=dict(s.metadata)
+            )
+            if recal_mode != "none":
+                s_copy.chemical_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(
+                    s_copy.chemical_shifts, s_copy.intensity, mode=recal_mode
+                )
+            processed_samples.append(s_copy)
+
         df_nmr_desc = nmr_core.batch_process_nmr_samples(
-            list(current_nmr_samples.values()),
+            processed_samples,
             baseline_method=base_method
         )
 
@@ -5277,15 +5316,21 @@ elif active_module == T[lang]["mod5_name"]:
             hide_index=True
         )
 
-        # Диаграмма рассеяния: Ароматичность fa vs Лигниновый индекс
+        # Диаграмма рассеяния: Ароматичность fa vs Лигниновый индекс с защитой размера пузырьков
+        df_scatter = df_nmr_desc.copy()
+        df_scatter["_bubble_size"] = np.clip(
+            df_scatter["NMR_hb_hi_index"].fillna(1.0).astype(float),
+            0.5, 15.0
+        )
         fig_scatter = px.scatter(
-            df_nmr_desc,
+            df_scatter,
             x="NMR_fa_aromaticity",
             y="NMR_lignin_signature",
             hover_name="Sample_ID",
-            size="NMR_hb_hi_index",
+            size="_bubble_size",
             color="NMR_fa_aromaticity",
             color_continuous_scale="Viridis",
+            hover_data={"_bubble_size": False, "NMR_hb_hi_index": ":.2f"},
             title="Aromaticity (fa %) vs Lignin Signature (%) Across Samples" if lang == "en" else "Степень ароматичности fa (%) vs Лигниновый индекс (%) по всем пробам",
             labels={"NMR_fa_aromaticity": "Aromaticity fa (%)", "NMR_lignin_signature": "Lignin Signature (%)"}
         )

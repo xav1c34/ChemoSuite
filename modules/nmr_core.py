@@ -118,17 +118,31 @@ def parse_jcamp_dx(text: str, sample_id: str = "NMR_Sample") -> Tuple[np.ndarray
                 continue
                 
             try:
-                # Первое число — текущий X (химический сдвиг)
-                cur_x = float(tokens[0]) * x_factor
-                remaining = tokens[1:]
-                if remaining:
-                    for y_tok in remaining:
-                        try:
-                            y_v = float(y_tok) * y_factor
-                            x_vals.append(cur_x)
-                            y_vals.append(y_v)
-                        except ValueError:
-                            continue
+                # Чтение точек данных: форматы (XY..XY) и (X++(Y..Y))
+                if len(tokens) == 2:
+                    cur_x = float(tokens[0]) * x_factor
+                    cur_y = float(tokens[1]) * y_factor
+                    x_vals.append(cur_x)
+                    y_vals.append(cur_y)
+                elif len(tokens) > 2:
+                    if "XY" in data_format or len(tokens) % 2 == 0:
+                        # Парные значения X1 Y1 X2 Y2 ...
+                        for i in range(0, len(tokens) - 1, 2):
+                            cx = float(tokens[i]) * x_factor
+                            cy = float(tokens[i + 1]) * y_factor
+                            x_vals.append(cx)
+                            y_vals.append(cy)
+                    else:
+                        # Формат X++(Y..Y): первый токен X, далее Y с шагом dx
+                        cur_x = float(tokens[0]) * x_factor
+                        dx = 1.0
+                        if first_x is not None and last_x is not None and n_points and n_points > 1:
+                            dx = ((last_x - first_x) / (n_points - 1)) * x_factor
+                        for i, y_tok in enumerate(tokens[1:]):
+                            cx = cur_x + i * dx
+                            cy = float(y_tok) * y_factor
+                            x_vals.append(cx)
+                            y_vals.append(cy)
             except ValueError:
                 continue
                 
@@ -231,13 +245,25 @@ def parse_nmr_file(
     arr = np.array(data_rows, dtype=np.float64)
     
     # Определение, какая колонка является химсдвигом ppm, а какая интенсивностью
-    # Обычно ppm лежит в диапазоне [-50, 300] для 13C или [-5, 20] для 1H
-    col0_range = (arr[:, 0].min(), arr[:, 0].max())
-    col1_range = (arr[:, 1].min(), arr[:, 1].max())
+    # Обычно ppm лежит в диапазоне [-50, 300] и строго монотонна (возрастает или убывает)
+    col0_range = (float(arr[:, 0].min()), float(arr[:, 0].max()))
+    col1_range = (float(arr[:, 1].min()), float(arr[:, 1].max()))
     
-    if -50 <= col0_range[0] and col0_range[1] <= 300:
+    diff0 = np.diff(arr[:, 0]) if len(arr) > 1 else np.array([1.0])
+    diff1 = np.diff(arr[:, 1]) if len(arr) > 1 else np.array([1.0])
+    is_mono0 = bool(np.all(diff0 > 0) or np.all(diff0 < 0))
+    is_mono1 = bool(np.all(diff1 > 0) or np.all(diff1 < 0))
+    
+    in_range0 = (-50.0 <= col0_range[0] and col0_range[1] <= 300.0)
+    in_range1 = (-50.0 <= col1_range[0] and col1_range[1] <= 300.0)
+    
+    if is_mono0 and not is_mono1 and in_range0:
         ppm_idx, int_idx = 0, 1
-    elif -50 <= col1_range[0] and col1_range[1] <= 300:
+    elif is_mono1 and not is_mono0 and in_range1:
+        ppm_idx, int_idx = 1, 0
+    elif in_range0 and not in_range1:
+        ppm_idx, int_idx = 0, 1
+    elif in_range1 and not in_range0:
         ppm_idx, int_idx = 1, 0
     else:
         ppm_idx, int_idx = 0, 1
@@ -306,6 +332,56 @@ def recalibrate_chemical_shifts(
     """
     delta = target_ref_ppm - current_ref_ppm
     return chemical_shifts + delta
+
+
+def auto_recalibrate_nmr_shifts(
+    chemical_shifts: np.ndarray,
+    intensity: np.ndarray,
+    mode: str = "none"
+) -> Tuple[np.ndarray, float]:
+    """
+    Автоматическая калибровка шкалы химических сдвигов ppm по внутреннему стандарту:
+    - 'dmso': поиск максимума DMSO-d6 (~39.5 ppm в окне 38.0–41.0 ppm)
+    - 'tms': поиск пика TMS / DSS (~0.0 ppm в окне -1.5–1.5 ppm)
+    - 'none': без калибровки
+
+    Returns
+    -------
+    Tuple[np.ndarray, float]
+        (откалиброванные сдвиги chemical_shifts, величина примененного сдвига delta в ppm)
+    """
+    if mode == "none" or len(chemical_shifts) == 0:
+        return chemical_shifts.copy(), 0.0
+
+    target_ppm = 39.5 if mode == "dmso" else 0.0
+    win_min = 38.0 if mode == "dmso" else -1.5
+    win_max = 41.0 if mode == "dmso" else 1.5
+
+    mask = (chemical_shifts >= win_min) & (chemical_shifts <= win_max)
+    if np.sum(mask) < 2:
+        return chemical_shifts.copy(), 0.0
+
+    x_sub = chemical_shifts[mask]
+    y_sub = intensity[mask]
+    pk_idx = int(np.argmax(y_sub))
+
+    # Пик должен быть локальным максимумом внутри окна, а не монотонным хвостом на границе окна
+    if pk_idx == 0 or pk_idx == len(x_sub) - 1:
+        return chemical_shifts.copy(), 0.0
+
+    # Интенсивность пика должна быть заметной относительно спектра (не шум базовой линии)
+    max_spec = float(np.max(intensity)) if len(intensity) > 0 else 0.0
+    if max_spec > 1e-4 and y_sub[pk_idx] < 0.05 * max_spec:
+        return chemical_shifts.copy(), 0.0
+
+    found_ppm = float(x_sub[pk_idx])
+    delta = target_ppm - found_ppm
+
+    # Защита от ошибочной калибровки: если пик слишком далеко (> 2.5 ppm), считаем стандарт отсутствующим
+    if abs(delta) > 2.5:
+        return chemical_shifts.copy(), 0.0
+
+    return chemical_shifts + delta, float(delta)
 
 
 def subtract_baseline(
@@ -386,7 +462,12 @@ def normalize_nmr_spectrum(
         if chemical_shifts is not None and len(chemical_shifts) == len(y):
             mask = (chemical_shifts >= ppm_range[0]) & (chemical_shifts <= ppm_range[1])
             if np.sum(mask) > 3:
-                tot_int = simpson(y[mask], x=chemical_shifts[mask])
+                x_sub = chemical_shifts[mask]
+                y_sub = y[mask]
+                if len(x_sub) >= 2 and x_sub[0] > x_sub[-1]:
+                    x_sub = x_sub[::-1]
+                    y_sub = y_sub[::-1]
+                tot_int = simpson(y_sub, x=x_sub)
                 if tot_int > 1e-9:
                     return (y / tot_int) * 100.0
         tot_sum = np.sum(y)
@@ -440,6 +521,9 @@ def integrate_nmr_region(
         return 0.0
     x_sub = chemical_shifts[mask]
     y_sub = intensity[mask]
+    if len(x_sub) >= 2 and x_sub[0] > x_sub[-1]:
+        x_sub = x_sub[::-1]
+        y_sub = y_sub[::-1]
     val = simpson(y_sub, x=x_sub)
     return float(max(0.0, val))
 
@@ -510,19 +594,21 @@ def calculate_13c_nmr_descriptors(
     # 2. Индекс гидрофобности HB/HI
     hydrophobic = pct_aliph + pct_aromatic
     hydrophilic = pct_o_alkyl + pct_carboxyl + pct_carbonyl
-    hb_hi = hydrophobic / max(hydrophilic, 1e-4)
+    hb_hi = hydrophobic / max(hydrophilic, 1e-4) if hydrophilic > 0 else (hydrophobic if hydrophobic > 0 else 1.0)
     
     # 3. Отношение алкил / O-алкил (A/OA ratio)
-    alkyl_o_alkyl = pct_aliph / max(pct_o_alkyl, 1e-4)
+    alkyl_o_alkyl = pct_aliph / max(pct_o_alkyl, 1e-4) if pct_o_alkyl > 0 else (pct_aliph if pct_aliph > 0 else 1.0)
     
     # 4. Комплексный лигниновый маркер (Lignin Signature)
     lignin_sig = pct_phenolic + pct_methoxy
     
     # 5. Отношение Карбоксил / Ароматика
-    coo_ar = pct_carboxyl / max(pct_aromatic, 1e-4)
+    coo_ar = pct_carboxyl / max(pct_aromatic, 1e-4) if pct_aromatic > 0 else 0.0
     
     # 6. Оценка молекулярной массы Mw (Да) по регрессии Перминовой: Mw ~ 1250 * exp(0.023 * fa)
-    mw_est = 1250.0 * math.exp(0.023 * fa)
+    # Защита от переполнения exp при аномальных значениях fa
+    fa_clipped = min(100.0, max(0.0, float(fa)))
+    mw_est = 1250.0 * math.exp(0.023 * fa_clipped)
     
     res.update({
         "NMR_C_aliph_pct": round(pct_aliph, 2),
@@ -535,11 +621,11 @@ def calculate_13c_nmr_descriptors(
         "NMR_C_carboxyl_pct": round(pct_carboxyl, 2),
         "NMR_C_carbonyl_pct": round(pct_carbonyl, 2),
         "NMR_fa_aromaticity": round(fa, 2),
-        "NMR_hb_hi_index": round(hb_hi, 3),
-        "NMR_alkyl_o_alkyl": round(alkyl_o_alkyl, 3),
+        "NMR_hb_hi_index": round(float(np.nan_to_num(hb_hi, nan=1.0)), 3),
+        "NMR_alkyl_o_alkyl": round(float(np.nan_to_num(alkyl_o_alkyl, nan=1.0)), 3),
         "NMR_lignin_signature": round(lignin_sig, 2),
-        "NMR_coo_ar_ratio": round(coo_ar, 3),
-        "NMR_estimated_mw": round(mw_est, 0),
+        "NMR_coo_ar_ratio": round(float(np.nan_to_num(coo_ar, nan=0.0)), 3),
+        "NMR_estimated_mw": round(float(np.nan_to_num(mw_est, nan=1250.0)), 0),
     })
     return res
 
@@ -690,6 +776,11 @@ def deconvolve_aromatic_region(
             "r2": 0.0,
             "rmse": 0.0,
         }
+
+    # Гарантируем строгий возрастающий порядок по ppm для корректного интегрирования simpson и curve_fit
+    if len(x_sub) >= 2 and x_sub[0] > x_sub[-1]:
+        x_sub = x_sub[::-1]
+        y_sub = y_sub[::-1]
         
     y_norm = y_sub / np.max(y_sub)
     
