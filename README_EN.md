@@ -250,7 +250,7 @@ The algorithms and computational modules of the platform were developed as part 
 * **Lomonosov Moscow State University, Faculty of Chemistry**
 * Department of Analytical Chemistry | Laboratory of Natural Humic Systems
 * NOM chemotyping methodology based on the 20-cell grid and $M_w$ estimation: Prof. I. V. Perminova, Dr. Sci. (Chem.)
-* EEM-PARAFAC, UV-Vis, and multiblock modeling module: K. V. Petrov (2026)
+* EEM-PARAFAC, UV-Vis, and multiblock modeling module: T. O. Bay (2026)
 
 ---
 
@@ -260,7 +260,7 @@ If you use **ChemoSuite** in your academic research or environmental monitoring 
 
 ```bibtex
 @software{chemosuite2026,
-  author       = {Petrov, K. V. and Perminova, I. V.},
+  author       = {Bay, T. O. and Perminova, I. V.},
   title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
   year         = {2026},
   publisher    = {Lomonosov Moscow State University},

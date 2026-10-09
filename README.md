@@ -249,7 +249,7 @@ streamlit run app.py
 * **Московский государственный университет имени М.В. Ломоносова, Химический факультет**
 * Кафедра аналитической химии | Лаборатория природных гуминовых систем
 * Методология хемотипирования РОВ по 20 ячейкам и оценка $M_w$: проф., д.х.н. И. В. Перминова
-* Модуль EEM-PARAFAC, UV-Vis и мультиблочного моделирования: К. В. Петров (2026 г.)
+* Модуль EEM-PARAFAC, UV-Vis и мультиблочного моделирования: Т. О. Бай (2026 г.)
 
 ---
 
@@ -259,7 +259,7 @@ streamlit run app.py
 
 ```bibtex
 @software{chemosuite2026,
-  author       = {Petrov, K. V. and Perminova, I. V.},
+  author       = {Bay, T. O. and Perminova, I. V.},
   title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
   year         = {2026},
   publisher    = {Lomonosov Moscow State University},
