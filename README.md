@@ -1,14 +1,14 @@
 # ⚗️ ChemoSuite: Multimodal Chemometrics Platform
 
 <p align="right">
-  <b>Русский</b> | <a href="README_EN.md">English</a>
+  <b>English</b> | <a href="README_RU.md">Русский</a>
 </p>
 
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-63%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-86%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -16,11 +16,11 @@
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://nom-spectra.streamlit.app/)
 
-**🌐 Онлайн-демо веб-приложения:** [https://nom-spectra.streamlit.app/](https://nom-spectra.streamlit.app/)
+**🌐 Online Web Application:** [https://nom-spectra.streamlit.app/](https://nom-spectra.streamlit.app/)
 
 <br />
 
-**Комплексная веб-платформа для глубокого хемометрического анализа природного органического вещества (РОВ/NOM) и техногенного шлам-лигнина.**
+**A comprehensive web platform for in-depth chemometric analysis of natural organic matter (NOM/DOM) and technogenic sludge lignin.**
 
 <br />
 
@@ -30,155 +30,163 @@
 
 ---
 
-## 📖 О платформе
+## 📖 About the Platform
 
-Исследование сложных полидисперсных природных систем требует параллельного применения ортогональных физико-химических методов. **ChemoSuite** объединяет масс-спектрометрию сверхвысокого разрешения (**FT-ICR MS**), спектрофлуориметрию матриц возбуждения-испускания (**EEM-PARAFAC**), электронную спектрофотометрию поглощения (**UV-Vis**) и алгоритмы мультиблочной интеграции данных (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) в единый интерактивный веб-интерфейс.
+Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), Fourier-transform infrared spectroscopy (**FTIR**), and nuclear magnetic resonance spectroscopy (**13C/1H NMR**), coupled with multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) in a single interactive web interface.
 
-Платформа решает ключевую задачу экологического мониторинга: надежное отделение фонового автохтонного органического вещества природных вод от техногенных отходов переработки древесины (на примере шлам-лигнина БЦБК в экосистеме оз. Байкал).
+The platform addresses a key task in environmental monitoring: reliably distinguishing the background autochthonous organic matter of natural waters from technogenic wood-processing waste (using BPPM sludge lignin in the Lake Baikal ecosystem as a case study).
 
 ---
 
-## 🔬 Аналитические модули
+## 🔬 Analytical Modules
 
-| Модуль | Входные данные | Ключевые методы и алгоритмы | Выходные аналитические дескрипторы |
+| Module | Input Data | Key Methods and Algorithms | Output Analytical Descriptors |
 | :--- | :--- | :--- | :--- |
-| **🧪 1. FT-ICR MS Studio** | Пик-листы масс-спектров (`.csv`, `.tsv`, `.txt`, `.xy`) или **ZIP-архивы спектров** | Полиномиальная рекалибровка шкалы, векторный перебор брутто-формул с азотным правилом и изотопной $^{13}\text{C}$-фильтрацией, TMDS с **интерактивным молекулярным графом реакций** и топологическими хабами (Reaction Hubs), биогеохимические полигоны Ван-Кревелена, пакетная обработка архивов, спектральная алгебра | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, биомолекулярные пулы (Липиды, Белки, Лигнин/CRAM, Таннины, CAS), сетка 20 ячеек Перминовой, гомологические ряды KMD, топологические степени узлов $\text{Degree}$ |
-| **💡 2. Оптическая спектроскопия (EEM & UV-Vis)** | 2D матрицы EEM (`.csv`, `.dat`, `.txt`) и 1D спектры УФ-Вид (`.csv`, `.txt`) | Интерполяция Делоне для вырезания рэлеевского рассеяния, рамановская нормировка (R.U.), неотрицательный PARAFAC, **CORCONDIA диагностика**, **Сплит-хаф (Split-Half) валидация**, **идентификация по эталонной спектральной библиотеке OpenFluor ($TCC \ge 0.85/0.90$)**, коррекция внутреннего фильтра (IFE), фильтр Савицкого — Голея ($d^1A, d^2A$) | Индексы $FI$, $HIX$, профили и вклады флуорофоров $C_1–C_3$, совпадения OpenFluor ($C_1–C_6$), стабильность модели $TCC$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
-| **🧬 3. ChemoSuite ML** | Объединенные матрицы трех модальностей (сессия или CSV) | **Low-Level Fusion** (блочный скейлинг $1/\sqrt{P_k}$) и **Mid-Level Fusion** (PCA сжатие FT-ICR MS), **PLS-DA, OPLS-DA и Sparse PLS-DA (sPLS-DA с $L_1$-регуляризацией)**, 95% эллипс Хотеллинга ($T^2$), пермутационный тест ($H_0$), S-Plot | Классификация проб, проекции $LV_1/LV_2$, метрики $R^2X, R^2Y, Q^2$, матрица ошибок, $p$-value, ранжированный VIP-score, панель разреженных биомаркеров ($|W|$) и доли вклада блоков ($\text{VIP}^2$) |
+| **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) or **ZIP spectrum archives** | Polynomial mass-scale recalibration, vectorized molecular formula assignment with nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS with **interactive molecular reaction network graph** and topological reaction hubs, biogeochemical Van Krevelen polygons, batch archive processing, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, biomolecular pools (Lipids, Proteins, Lignin/CRAM, Tannins, CAS), Perminova 20-cell grid, KMD series, topological node degrees $\text{Degree}$ |
+| **💡 2. Optical Spectroscopy (EEM & UV-Vis)** | 2D EEM matrices (`.csv`, `.dat`, `.txt`) and 1D UV-Vis spectra (`.csv`, `.txt`) | Delaunay interpolation for Rayleigh scattering removal, Raman normalization (R.U.), non-negative PARAFAC, **CORCONDIA diagnostic**, **Split-Half model validation**, **OpenFluor spectral library matching ($TCC \ge 0.85/0.90$)**, inner filter effect (IFE) correction, Savitzky-Golay filter ($d^1A, d^2A$) | Indices $FI$, $HIX$, fluorophore profiles and contributions $C_1–C_3$, OpenFluor matches ($C_1–C_6$), model stability $TCC$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
+| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across 5 modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), **PLS-DA, OPLS-DA and Sparse PLS-DA (sPLS-DA with $L_1$-regularization)**, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$), S-Plot | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, sparse biomarker panel ($|W|$), and block contribution shares ($\text{VIP}^2$) |
+| **🔬 4. FTIR Spectroscopy Studio** | IR spectra (`.csv`, `.dpt`, `.txt`, `.xy`) | AsLS baseline correction, SNV / Vector normalization, Savitzky-Golay filtering ($d^2A$), **carbonyl and double-bond region deconvolution (1500–1800 cm⁻¹)** using Levenberg-Marquardt with Gaussian band profiles, spectral reference library for lignins and polysaccharides (Kraft, Organosolv, Soda, Cellulose, Xylan), lignin indices | Lignin indices $LI, AI, CI$, carbonyl band contributions $A_{1715}, A_{1650}, A_{1595}, A_{1510}$, aromaticity ratio, library match metrics ($r, \text{Score}$) |
+| **🧲 5. NMR Spectroscopy Studio** | 1D $^{13}\text{C}$ and $^1\text{H}$ NMR spectra (`.csv`, `.tsv`, JCAMP-DX `.jdx`, `.dx`) | AsLS / polynomial baseline correction, integral binning across 6 standardized IHSS biogeochemical chemical shift ranges ($0–220$ ppm), aromatic region deconvolution ($108–162$ ppm) into syringyl ($S$), guaiacyl ($G$), and $p$-hydroxyphenyl ($H$) lignin subunits, reference IHSS spectra library (Suwannee River, Elliott Soil, Nordic NOM), auto-recalibration via DMSO-d6 ($39.5$ ppm) and TMS ($0.0$ ppm) | Standardized IHSS fractions (Aliphatics, C-O Alkyls, Acetals, Aromatics, Phenolics, Carboxyls), $S/G, H/G$ subunit ratios, aromaticity degree $f_a$, hydrophobic/hydrophilic index $\text{HB/HI}$, IHSS similarity |
 
 ---
 
-## 📸 Скриншоты аналитических модулей и визуализации
+## 📸 Screenshots of Analytical Modules and Visualizations
 
-### Модуль 1: Спектрометрия сверхвысокого разрешения (FT-ICR MS)
+### Module 1: Ultra-High-Resolution Mass Spectrometry (FT-ICR MS)
 
-#### Диаграмма Ван-Кревелена (Van Krevelen Plot)
-<img src="assets/fticr_van_krevelen.png" width="100%" alt="Диаграмма Ван-Кревелена" />
+#### Van Krevelen Plot
+<img src="assets/fticr_van_krevelen.png" width="100%" alt="Van Krevelen Plot" />
 
-* Молекулярное картирование идентифицированных формул в координатах $H/C$ vs $O/C$ с дифференциацией по пулам гетероатомов ($CHO$, $CHON$, $CHOS$, $CHONS$) и стандартным биогеохимическим классам соединений (Липиды, Пептиды/Белки, Углеводы, Лигнины/Полифенолы/CRAM, Таннины, Конденсированная ароматика CAS, Ненасыщенные УВ) с процентным распределением.
+* Molecular mapping of assigned formulas in $H/C$ vs $O/C$ coordinates, differentiated by heteroatom pools ($CHO$, $CHON$, $CHOS$, $CHONS$) and standard biogeochemical classes of natural compounds (Lipids, Peptides/Proteins, Carbohydrates, Lignins/Polyphenols/CRAM, Tannins, Condensed Aromatics CAS, Unsaturated Hydrocarbons) with percentage distribution.
 
-#### Анализ дефекта массы Кендрика (KMD Plot)
-<img src="assets/fticr_kmd_plot.png" width="100%" alt="Анализ дефекта массы Кендрика" />
+#### Kendrick Mass Defect Analysis (KMD Plot)
+<img src="assets/fticr_kmd_plot.png" width="100%" alt="Kendrick Mass Defect Analysis" />
 
-* Выявление гомологических серий по базовой функциональной единице $CH_2$ с цветовой дифференциацией по четности номинальной массы (NKM Parity), разделяющей соединения по правилу азота.
+* Identification of homologous series based on the $CH_2$ functional base unit, with color coding by nominal Kendrick mass parity (NKM Parity), separating compounds according to the nitrogen rule.
 
-#### Хемотипирование по 20 ячейкам Перминовой (20-Grid Heatmap)
-<img src="assets/fticr_vk20_grid.png" width="85%" alt="Сетка 20 ячеек Перминовой" />
+#### Chemotyping by Perminova's 20-Cell Grid (20-Grid Heatmap)
+<img src="assets/fticr_vk20_grid.png" width="85%" alt="Perminova 20-Cell Grid" />
 
-* Оцифровка непрерывного молекулярного пространства диаграммы Ван-Кревелена в дискретный 20-мерный вектор признаков ($VK_1–VK_{20}$) по относительному числу формул и средневзвешенной интенсивности.
+* Digitization of the continuous molecular space of the Van Krevelen diagram into a discrete 20-dimensional feature vector ($VK_1–VK_{20}$) based on the relative number of formulas and intensity-weighted averages.
 
-#### Интерактивный молекулярный граф реакций (TMDS Network Graph)
-<img src="assets/fticr_tmds_network.png" width="100%" alt="Молекулярная сеть реакций TMDS" />
+#### Interactive Reaction Network Graph (TMDS Network Graph)
+<img src="assets/fticr_tmds_network.png" width="100%" alt="TMDS Reaction Network Graph" />
 
-* Топологический сетевой граф взаимопревращений природных и техногенных молекул по дискретным геохимическим векторам ($\text{CH}_2$, $\text{O}$, $\text{H}_2\text{O}$, $\text{CO}_2$, $\text{SO}_3$) с выделением ключевых реакционных хабов (Top Topological Hubs) и расчетом узловых степеней связности ($\text{Degree}$).
-
----
-
-### Модуль 2: Оптическая спектроскопия (EEM-PARAFAC & UV-Vis)
-
-#### Оптическая контурная карта флуоресценции (EEM Contour Map)
-<img src="assets/eem_contour_map.png" width="100%" alt="Контурная карта EEM" />
-
-* Интерактивная 2D-визуализация матрицы возбуждения-испускания ($Ex$ 240–450 нм, $Em$ 280–600 нм) в палитре Viridis после автоматического устранения рэлеевского рассеяния 1-го и 2-го порядков с интерполяцией по Делоне.
-
-#### Спектральные профили компонент PARAFAC (Loadings B & C)
-<img src="assets/eem_parafac_profiles.png" width="100%" alt="Профили PARAFAC" />
-
-* Декомпозиция трехмерного массива флуоресценции на спектры чистых компонентов: эмиссионные профили (Loading B) и профили возбуждения (Loading C) для фульвоподобного $C_1$, гуминового $C_2$ и белкового $C_3$ флуорофоров с оценкой адекватности по диагностике CORCONDIA.
-
-#### Распределение флуорофоров по сериям проб (Scores Matrix A)
-<img src="assets/eem_parafac_scores.png" width="100%" alt="Вклады флуорофоров" />
-
-* Сравнительный мониторинг относительных концентрационных вкладов флуорофоров в исследуемых сериях проб, наглядно демонстрирующий преобладание компонентов $C_1$ и $C_2$ в зонах техногенной нагрузки шлам-лигнина.
-
-#### УФ-Вид спектрофотометрия и коррекция эффекта внутреннего фильтра (Экран 4)
-* Интерактивный анализ спектров поглощения $A(\lambda)$ с реперными пиками ($A_{254}, A_{280}, A_{365}$).
-* Оценка средней молекулярной массы по уравнению Перминовой: $M_w = 3450 - 390 \cdot (E_2/E_3)$.
-* Определение лигнинового минимума 2-й производной $d^2A$ при $\sim 280$ нм методом Савицкого — Голея.
-* Коррекция эффекта внутреннего фильтра (IFE) матриц флуоресценции: $F_{\text{corr}} = F_{\text{obs}} \cdot 10^{0.5(A_{\text{ex}} + A_{\text{em}})d}$.
-* Расчет спектрального наклона $S_{275-295}, S_{350-400}, S_R$ и удельного показателя $\text{SUVA}_{254}$.
+* Topological reaction network mapping transformations between natural and anthropogenic organic molecules along discrete geochemical vectors ($\text{CH}_2$, $\text{O}$, $\text{H}_2\text{O}$, $\text{CO}_2$, $\text{SO}_3$) with identification of key topological reaction hubs and node connectivity degrees ($\text{Degree}$).
 
 ---
 
-### Модуль 3: Мультиблочная интеграция и машинное обучение (Data Fusion, PLS-DA & OPLS-DA)
+### Module 2: Optical Spectroscopy (EEM-PARAFAC & UV-Vis)
 
-#### Дискриминантный анализ и отбор маркеров (PLS-DA, OPLS-DA & VIP Scores)
-<img src="assets/ml_plsda_validation.png" width="100%" alt="Результаты PLS-DA" />
+#### Optical Fluorescence Contour Map (EEM Contour Map)
+<img src="assets/eem_contour_map.png" width="100%" alt="EEM Contour Map" />
 
-* Мультимодальная классификационная модель на объединенном пуле дескрипторов трех методов (**FT-ICR MS + EEM-PARAFAC + UV-Vis**).
-* **Модели PLS-DA и OPLS-DA:** стандартный PLS-DA и ортогональный OPLS-DA (Orthogonal PLS-DA) с разделением предиктивной вариации ($t_{\text{pred}}$) и систематического шума ($t_{\text{ortho}}$).
+* Interactive 2D visualization of the excitation-emission matrix ($Ex$ 240–450 nm, $Em$ 280–600 nm) in the Viridis palette, after automatic removal of 1st- and 2nd-order Rayleigh scattering with Delaunay interpolation.
 
-#### 3D проекция латентных переменных и 95% эллипсоид Хотеллинга (Scores Plot 3D)
-<img src="assets/ml_scores_3d_hotelling.png" width="100%" alt="3D Scores Plot с эллипсоидом Хотеллинга" />
+#### Spectral Profiles of PARAFAC Components (Loadings B & C)
+<img src="assets/eem_parafac_profiles.png" width="100%" alt="PARAFAC Profiles" />
 
-* Интерактивное трехмерное пространство латентных переменных ($LV_1 \times LV_2 \times LV_3$) с аппроксимацией доверительной области распределения многомерных нормальных откликов ($T^2$) и контрастной кластеризацией контрольных проб оз. Байкал и шлам-лигнина БЦБК.
+* Decomposition of the three-way fluorescence array into pure-component spectra: emission profiles (Loading B) and excitation profiles (Loading C) for the fulvic-like $C_1$, humic-like $C_2$, and protein-like $C_3$ fluorophores, with model adequacy assessed by CORCONDIA diagnostics.
 
-#### Ранжирование ключевых биомаркеров по блокам (VIP Scores Barplot)
-<img src="assets/ml_splot_biomarkers.png" width="100%" alt="Ранжированный профиль VIP-маркеров" />
+#### Fluorophore Distribution Across Sample Series (Scores Matrix A)
+<img src="assets/eem_parafac_scores.png" width="100%" alt="Fluorophore Contributions" />
 
-* Многофакторный отбор значимых предикторов с порогом $VIP > 1.0$ и автоматической цветовой дифференциацией по аналитическим источникам (синий — масс-спектрометрия сверхвысокого разрешения FT-ICR MS, оранжевый — флуоресценция EEM-PARAFAC, зеленый — спектрофотометрия UV-Vis).
+* Comparative monitoring of the relative concentration contributions of fluorophores across the studied sample series, clearly demonstrating the predominance of components $C_1$ and $C_2$ in zones affected by sludge lignin pollution.
 
-* **S-Plot диаграмма (OPLS-DA):** визуализация $p[1]$ (ковариация/вклад) vs $p(\text{corr})[1]$ (корреляция/надежность) с цветовой маркировкой аналитических блоков.
-* **Валидация и диагностика:** Leave-One-Out / K-Fold кросс-валидация ($Q^2$) и пермутационный тест (50 итераций) с эмпирическим $p$-value.
-* **Комплексный аналитический паспорт (.xlsx):** экспорт многостраничного форматированного Excel-отчета с отдельными листами метаданных, сводной матрицы, 20 ячеек FT-ICR MS, EEM-PARAFAC, UV-Vis дескрипторов, VIP-маркеров и S-Plot.
-* **Сохранение и восстановление проектов (.chemo):** полная упаковка аналитической сессии (масс-спектры, оптические дескрипторы, сводная матрица, обученные модели) в портативный сжатый файл проекта и восстановление рабочего пространства в один клик.
+#### UV-Vis Spectrophotometry & Inner Filter Effect Correction (Screen 4)
+* Interactive absorption spectra inspection $A(\lambda)$ with key reference markers ($A_{254}, A_{280}, A_{365}$).
+* Empirical molecular weight estimation via Perminova's equation: $M_w = 3450 - 390 \cdot (E_2/E_3)$.
+* Detection of the lignin minimum in the second derivative $d^2A$ at $\sim 280$ nm using Savitzky-Golay filtering.
+* Inner Filter Effect (IFE) correction for fluorescence matrices: $F_{\text{corr}} = F_{\text{obs}} \cdot 10^{0.5(A_{\text{ex}} + A_{\text{em}})d}$.
+* Computation of spectral slopes $S_{275-295}, S_{350-400}, S_R$ and specific absorbance $\text{SUVA}_{254}$.
 
 ---
 
-## 📂 Структура проекта
+### Module 3: Multiblock Integration and Machine Learning (Data Fusion, PLS-DA & OPLS-DA)
+
+#### Discriminant Analysis and Marker Selection (PLS-DA, OPLS-DA & VIP Scores)
+<img src="assets/ml_plsda_validation.png" width="100%" alt="PLS-DA Results" />
+
+* Multimodal classification model built on the merged descriptor pool of all analytical modalities (**FT-ICR MS + EEM-PARAFAC + UV-Vis + FTIR + NMR**).
+* **PLS-DA & OPLS-DA Architectures:** standard PLS-DA and orthogonal OPLS-DA (Orthogonal PLS-DA) separating predictive variation ($t_{\text{pred}}$) from orthogonal noise ($t_{\text{ortho}}$).
+
+#### 3D Latent Scores Space & 95% Hotelling's Ellipsoid (Scores Plot 3D)
+<img src="assets/ml_scores_3d_hotelling.png" width="100%" alt="3D Scores Plot with Hotelling Ellipsoid" />
+
+* Interactive three-dimensional latent score space ($LV_1 \times LV_2 \times LV_3$) featuring a parametric 95% Hotelling's $T^2$ confidence ellipsoid surface, cleanly segregating pristine Lake Baikal samples from industrial kraft sludge-lignin.
+
+#### Multiblock Biomarker Ranking (VIP Scores Barplot)
+<img src="assets/ml_splot_biomarkers.png" width="100%" alt="Ranked VIP Biomarkers" />
+
+* Multifactorial ranking of discriminative predictors ($VIP > 1.0$) with color-coded analytical source tagging (blue: FT-ICR MS, orange: EEM-PARAFAC, green: UV-Vis, red: FTIR, purple: NMR).
+
+* **S-Plot Diagram (OPLS-DA):** covariance $p[1]$ (magnitude) vs correlation $p(\text{corr})[1]$ (reliability) visualization for biomarker discovery with block color tags.
+* **Validation & Diagnostics:** Leave-One-Out / K-Fold cross-validation ($Q^2$) and permutation testing (50 iterations) with empirical $p$-value.
+* **Comprehensive Analytical Passport (.xlsx):** export multi-sheet styled Excel report containing metadata summary, fused feature matrix, all modality indices, VIP biomarkers, and S-Plot.
+* **Save & Restore Projects (.chemo):** package full analytical workspace session (spectra, optical descriptors, fused matrix, trained models) into a portable compressed project file and restore workspace state in one click.
+
+---
+
+## 📂 Project Structure
 
 ```text
 ChemoSuite/
 │
-├── app.py                            # Главный супер-апп: Streamlit UI-маршрутизация, дашборды трех модальностей и сборщик сессии
+├── app.py                            # Main super-app: Streamlit UI routing, 5-modal dashboards, and session assembler
 │
-├── modules/                          # 🧠 Вычислительные и хемометрические модули платформы
-│   ├── __init__.py                   # Пакетная инициализация и реэкспорт функций
-│   ├── fticr_core.py                 # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, 20 ячеек, TMDS сети, векторные потоки
-│   ├── eem_core.py                   # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
-│   ├── chemo_ml.py                   # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, пермутация
-│   ├── chemo_pubchem.py              # Хемоинформатика: PubChem PUG-REST API, ChEMBL, HMDB, 2D структуры, офлайн-библиотека
-│   ├── project_io.py                 # Модуль проектов .chemo: сериализация, ZIP-сжатие и восстановление сессии
-│   └── report_generator.py           # Генератор многостраничных Excel-паспортов (.xlsx) на русском и английском с openpyxl
+├── modules/                          # 🧠 Computational and chemometric engines
+│   ├── __init__.py                   # Package initialization and module exports
+│   ├── fticr_core.py                 # Mass spec core: formulas, 13C isotopes, KMD, 20 cells, TMDS networks, vector fluxes
+│   ├── eem_core.py                   # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
+│   ├── chemo_ml.py                   # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, permutation
+│   ├── chemo_pubchem.py              # Chemoinformatics: PubChem PUG-REST API, ChEMBL, HMDB, 2D structures, offline library
+│   ├── ftir_core.py                  # FTIR core: AsLS, C=O/C=C deconvolution, lignin library, spectral indices
+│   ├── nmr_core.py                   # NMR core: AsLS, IHSS integrals, S/G/H deconvolution, auto-recalibration
+│   ├── project_io.py                 # .chemo project manager: serialization, ZIP compression, session restore
+│   └── report_generator.py           # Analytical report generator (.xlsx) in Russian & English styled with openpyxl
 │
-├── demo_data/                        # Согласованные мультимодальные демо-данные (EEM, UV-Vis, FT-ICR MS, ML)
-│   ├── eem/                          # 12 матриц возбуждения-испускания флуоресценции
-│   ├── uv_vis/                       # 12 спектров поглощения УФ-Вид (200–700 нм)
-│   ├── fticr_ms/                     # 4 пик-листа масс-спектров высокого разрешения + sample_A_full.csv
-│   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
-│   └── README.md                     # Инструкция по использованию демо-файлов
+├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, FTIR, NMR, ML)
+│   ├── eem/                          # 12 excitation-emission fluorescence matrices
+│   ├── uv_vis/                       # 12 UV-Vis absorption spectra (200–700 nm)
+│   ├── fticr_ms/                     # 4 high-resolution mass spec peak lists + sample_A_full.csv
+│   ├── nmr/                          # 12 synthetic 13C NMR reference standards & descriptor matrix
+│   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
+│   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Набор модульных тестов pytest (63 unit-теста)
-│   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS сети, векторные потоки, пути реакций)
-│   ├── test_chemo_pubchem.py         # Тесты хемоинформатики PubChem (PUG-REST, очистка формул, аннотация биомаркеров)
-│   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
-│   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
-│   ├── test_demo_pipelines.py        # Сквозные интеграционные тесты реальных демо-данных (FT-ICR, EEM, UV-Vis, ML)
-│   ├── test_report_generator.py      # Тесты генерации многостраничных Excel-паспортов (.xlsx)
-│   ├── test_project_io.py            # Тесты сериализации и восстановления сессий (.chemo)
-│   └── test_unusual_stress_cases.py  # Стресс-тестирование граничных и сингулярных условий (сингулярный PLS, пустые спектры, шум)
+├── tests/                            # Automated test suite (86 unit and stress tests)
+│   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS networks, vector fluxes, pathways)
+│   ├── test_chemo_pubchem.py         # PubChem chemoinformatics tests (PUG-REST, formula cleaning, biomarker annotation)
+│   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
+│   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_ftir.py                  # FTIR tests (AsLS, deconvolution, lignin indices, library)
+│   ├── test_nmr.py                   # NMR tests (IHSS integrals, S/G/H deconvolution, auto-recalibration, JCAMP-DX)
+│   ├── test_demo_pipelines.py        # End-to-end integration tests for demo data (FT-ICR, EEM, UV-Vis, ML)
+│   ├── test_report_generator.py      # Multi-sheet Excel passport generation tests (.xlsx)
+│   ├── test_project_io.py            # Session serialization & restoration tests (.chemo)
+│   └── test_unusual_stress_cases.py  # Stress testing under adversarial and boundary conditions (singular PLS, noise, edge cases)
 │
-├── .github/workflows/ci.yml          # GitHub Actions CI пайплайн (Ubuntu/Windows, Python 3.10-3.12)
-├── pytest.ini                        # Конфигурация запуска тестов pytest
-├── assets/                           # Скриншоты и графические материалы для README
-├── user_spectra/                     # Локальное хранилище загруженных масс-спектров (в .gitignore)
-├── requirements.txt                  # Зависимости проекта (streamlit, tensorly, scikit-learn, openpyxl, pytest)
-├── .gitignore                        # Исключения системных и временных файлов
-├── README.md                         # Документация платформы (русский)
-└── README_EN.md                      # Документация платформы (английский)
+├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.12)
+├── pytest.ini                        # Pytest configuration file
+├── assets/                           # Screenshots and graphics for the README
+├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
+├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, openpyxl, pytest)
+├── .gitignore                        # System and temporary file exclusions
+├── README.md                         # Main repository documentation on GitHub (English default)
+├── README_RU.md                      # Platform documentation (Russian)
+└── README_EN.md                      # Platform documentation (English)
 ```
 
 ---
 
-## 🚀 Быстрый старт
+## 🚀 Quick Start
 
-### 1. Клонирование репозитория
+### 1. Clone Repository
 ```bash
 git clone https://github.com/xav1c34/ChemoSuite.git
 cd ChemoSuite
 ```
 
-### 2. Настройка виртуального окружения
+### 2. Configure Virtual Environment
 **Windows (PowerShell):**
 ```powershell
 python -m venv .venv
@@ -191,68 +199,75 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3. Установка библиотек
+### 3. Install Dependencies
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Запуск автоматических тестов
+### 4. Run Automated Test Suite
 ```bash
 pytest -v tests
 ```
 
-### 5. Запуск веб-приложения
+### 5. Launch Web Application
 ```bash
 streamlit run app.py
 ```
 
-После запуска интерфейс автоматически откроется в браузере по адресу: `http://localhost:8501`.
+Once launched, the interface will open automatically in your browser at `http://localhost:8501`.
 
 ---
 
-## 📦 Форматы входных данных
+## 📦 Input Data Formats
 
-* **Масс-спектрометрия (FT-ICR MS):** текстовые файлы списков пиков (`.csv`, `.tsv`, `.txt`, `.xy`). Требуется минимум две числовые колонки: экспериментальная масса ($m/z$) и интенсивность/высота пика.
-* **Флуориметрия (EEM):** 2D-таблицы матриц флуоресценции (`.csv`, `.dat`, `.txt`), где строки соответствуют длинам волн эмиссии ($Em$), а столбцы — возбуждения ($Ex$) (либо наоборот; парсер определяет ориентацию автоматически).
-* **Спектрофотометрия (UV-Vis):** 1D-таблицы спектров поглощения (`.csv`, `.txt`, `.tsv`) с колонками длины волны ($\lambda$, 200–800 нм) и оптической плотности ($A$).
+* **Mass spectrometry (FT-ICR MS):** text files containing peak lists (`.csv`, `.tsv`, `.txt`, `.xy`). At least two numeric columns are required: experimental mass ($m/z$) and peak intensity/height.
+* **Fluorometry (EEM):** 2D fluorescence matrix tables (`.csv`, `.dat`, `.txt`) in which rows correspond to emission wavelengths ($Em$) and columns to excitation wavelengths ($Ex$), or vice versa; the parser detects orientation automatically.
+* **Spectrophotometry (UV-Vis):** 1D absorption spectrum tables (`.csv`, `.txt`, `.tsv`) with wavelength ($\lambda$, 200–800 nm) and absorbance ($A$) columns.
+* **Infrared spectroscopy (FTIR):** 1D transmission or absorbance spectra (`.csv`, `.dpt`, `.txt`, `.xy`) spanning wavenumbers $400–4000\text{ cm}^{-1}$.
+* **NMR spectroscopy (NMR):** 1D $^{13}\text{C}$ and $^1\text{H}$ NMR spectra (`.csv`, `.tsv`, `.txt`, `.xy`, JCAMP-DX `.jdx`, `.dx`) across chemical shift ranges $\delta$ ($0–220$ ppm).
 
 ---
 
-## 🏷️ История версий
+## 🏷️ Version History
 
-* **`v1.0.0-fticr`**: Автономная версия студии масс-спектрометрии сверхвысокого разрешения NOM-SPECTRa.
-* **`v2.0.0`**: Интеграция 3D спектрофлуориметрии EEM-PARAFAC, модуля мультиблочного объединения дескрипторов (Data Fusion) и дискриминантного анализа PLS-DA.
+* **`v1.0.0-fticr`**: Standalone version of the NOM-SPECTRa ultra-high-resolution mass spectrometry studio.
+* **`v2.0.0`**: Integration of 3D EEM-PARAFAC spectrofluorometry, a multiblock descriptor fusion module (Data Fusion), and PLS-DA discriminant analysis.
 * **`v2.1.0` (ChemoSuite Trimodal)**:
-  * Полноценная трехмодальная интеграция: **FT-ICR MS + EEM-PARAFAC + UV-Vis**.
-  * Модуль УФ-Вид спектрофотометрии: расчет $A_{254}, A_{280}, E_2/E_3, S_R$, оценка $M_w$ по Перминовой, производная спектроскопия ($d^2A_{280}$), коррекция внутреннего фильтра (IFE).
-  * Продвинутые стратегии слияния: Low-Level (блочный скейлинг $1/\sqrt{P}$) и Mid-Level Fusion (PCA сжатие FT-ICR MS).
-  * Диагностика и валидация PLS-DA: пермутационный тест с $p$-value, матрица ошибок, чувствительность/специфичность, расчет процентного веса аналитических блоков ($\text{VIP}^2$).
-  * Сборщик сессии: автоматическое сведение дескрипторов из Модулей 1 и 2 в Модуль 3.
-  * Модульная архитектура: разделение вычислительных ядер (`fticr_core.py`, `eem_core.py`, `chemo_ml.py`) и UI (`app.py`).
-  * Полный набор из 18 unit-тестов (`pytest`) и автоматический CI/CD пайплайн GitHub Actions.
+  * Full trimodal integration: **FT-ICR MS + EEM-PARAFAC + UV-Vis**.
+  * UV-Vis spectrophotometry module: calculation of $A_{254}, A_{280}, E_2/E_3, S_R$, Perminova $M_w$ estimation, derivative spectroscopy ($d^2A_{280}$), and inner filter effect (IFE) correction.
+  * Advanced data fusion strategies: Low-Level (block scaling $1/\sqrt{P}$) and Mid-Level Fusion (PCA compression of FT-ICR MS).
+  * PLS-DA diagnostics & validation: permutation test with empirical $p$-value, confusion matrix, sensitivity/specificity, and analytical block contribution weights ($\text{VIP}^2$).
+  * Active session assembler: automatic merging of descriptors from Modules 1 and 2 into Module 3.
+  * Modular core architecture: separated computational engines (`fticr_core.py`, `eem_core.py`, `chemo_ml.py`) and UI (`app.py`).
+  * Comprehensive 18-unit test suite (`pytest`) and GitHub Actions automated CI/CD pipeline.
 * **`v2.2.0` (ChemoSuite LTS / Full Trimodal & Chemoinformatics Release)**:
-  * Алгоритмы ортогонального OPLS-DA и разреженного sPLS-DA ($L_1$-LASSO регуляризация с отбором ключевых биомаркеров).
-  * Расширенная хемоинформатика: прямое отображение 2D-структур и кросс-поиск в базах данных PubChem, ChEMBL и HMDB.
-  * Полная двуязычная локализация i18n (RU/EN) во всех модулях, вкладках, графиках и отчетах.
-  * Экспорт паспортов в многостраничный Excel (.xlsx) с форматированием openpyxl и двуязычной поддержкой.
-  * Управление проектами (`.chemo` архивы сессий) с полной сериализацией состояния и 1-кликовым восстановлением.
-  * Полный стресс-тестовый пакет из 63 unit/интеграционных тестов (включая проверку сингулярностей, нулевых дисперсий и поврежденных данных).
-  * Модернизация Streamlit API под актуальные стандарты (`width="stretch"`).
+  * Orthogonal OPLS-DA and sparse sPLS-DA algorithms ($L_1$-LASSO regularization with biomarker selection).
+  * Expanded chemoinformatics: direct 2D chemical structure rendering and cross-database queries for PubChem, ChEMBL, and HMDB.
+  * Complete bilingual localization i18n (RU/EN) across all modules, tabs, graphs, dialogs, and reports.
+  * Formatted multi-sheet Excel passport exports (.xlsx) styled with openpyxl and language switching.
+  * Project workspace manager (`.chemo` session archives) with complete state serialization and 1-click recovery.
+  * Full stress testing suite with 63 unit/integration tests.
+* **`v3.0.0-dev` (ChemoSuite 5-Modal / FTIR & NMR Spectroscopy Studio)**:
+  * Complete 5-modal integration: **FT-ICR MS + EEM-PARAFAC + UV-Vis + FTIR + 13C/1H NMR**.
+  * Module 4 (FTIR): carbonyl region deconvolution (1500–1800 cm⁻¹), lignin & cellulose spectral library, and lignin indices.
+  * Module 5 (NMR): 13C/1H NMR IHSS chemical shift binning, aromatic region deconvolution into S/G/H lignin subunits, IHSS reference library, auto-recalibration.
+  * 5-block Data Fusion in ChemoSuite ML and export of all 5 modalities to `.chemo` project files and multi-sheet Excel passports.
+  * Expanded test suite with 86 unit and adversarial stress tests (`pytest`).
 
 ---
 
-## 👥 Авторство и разработка
+## 👥 Authorship and Development
 
-Алгоритмы, расчетные ядра и программный комплекс платформы разработаны:
+The algorithms, computational core, and software suite are developed by:
 
-* **Т. О. Бай** (Bay, T. O., 2026 г.) — концепция, архитектура, вычислительные ядра и веб-интерфейс платформы
+* **T. O. Bay** (Bay, T. O., 2026) — concept, architecture, computational pipelines, and web interface
 
 ---
 
-## 📜 Цитирование / Citation
+## 📜 Citation
 
-Если вы используете платформу **ChemoSuite** в научной работе или экологических исследованиях, пожалуйста, укажите ссылку на репозиторий и процитируйте программный комплекс:
+If you use **ChemoSuite** in your academic research or environmental monitoring studies, please cite our software platform:
 
 ```bibtex
 @software{chemosuite2026,
@@ -260,7 +275,7 @@ streamlit run app.py
   title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
   year         = {2026},
   publisher    = {GitHub},
-  version      = {v2.2.0},
+  version      = {v3.0.0-dev},
   url          = {https://github.com/xav1c34/ChemoSuite},
   note         = {Web Application: https://nom-spectra.streamlit.app/}
 }

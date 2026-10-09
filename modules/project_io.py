@@ -109,7 +109,7 @@ def save_chemo_project(
             "project_name": project_name,
             "created_at": datetime.now().isoformat(),
             "notes": notes,
-            "lang": session_data.get("lang", "ru"),
+            "lang": session_data.get("lang", "en"),
             "summary": {
                 "n_spectra": len(spectra_db),
                 "spectra_names": list(spectra_db.keys()),

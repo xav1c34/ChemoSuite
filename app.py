@@ -1418,8 +1418,9 @@ if "nmr_ml_descriptors" not in st.session_state:
 # БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
 # ==============================================================================
 with st.sidebar:
-    lang_choice = st.selectbox("🌐 Язык / Language", ["Русский", "English"], index=0)
-    lang = "ru" if lang_choice == "Русский" else "en"
+    default_lang_idx = 0 if st.session_state.get("lang", "en") == "en" else 1
+    lang_choice = st.selectbox("🌐 Language / Язык", ["English", "Русский"], index=default_lang_idx)
+    lang = "en" if lang_choice == "English" else "ru"
     st.session_state["lang"] = lang
 
     st.markdown(T[lang]["nav_title"])
@@ -4172,8 +4173,8 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 with col_rep_lang:
                     report_lang_choice = st.radio(
                         T[lang]["ml_report_lang_label"],
-                        ["Русский (RU)", "English (EN)"],
-                        index=0 if lang == "ru" else 1,
+                        ["English (EN)", "Русский (RU)"],
+                        index=0 if lang == "en" else 1,
                         horizontal=True,
                         key="report_lang_selector"
                     )
@@ -4263,9 +4264,12 @@ elif active_module == T[lang]["mod4_name"]:
         ftir_data_src = st.radio(
             T[lang]["ftir_src_label"],
             [T[lang]["ftir_src_upload"], T[lang]["ftir_src_synth"]],
-            index=1,
+            index=0,
             key="ftir_data_source_radio"
         )
+        if st.session_state.get("_prev_ftir_data_src") != ftir_data_src:
+            st.session_state["_prev_ftir_data_src"] = ftir_data_src
+            st.session_state["ftir_samples"] = {}
 
         ftir_files = []
         if ftir_data_src == T[lang]["ftir_src_upload"]:
@@ -4301,17 +4305,18 @@ elif active_module == T[lang]["mod4_name"]:
         synth_samples, synth_desc = ftir_core.generate_synthetic_ftir_dataset(n_samples=12, random_state=42)
         current_ftir_samples = synth_samples
         st.session_state["ftir_samples"] = synth_samples
-    elif ftir_files:
-        for f in ftir_files:
-            try:
-                s_obj = ftir_core.parse_ftir_file(f.getvalue(), sample_id=f.name)
-                current_ftir_samples[f.name] = s_obj
-            except Exception as e_parse:
-                st.warning(f"Ошибка чтения {f.name}: {e_parse}")
-        if current_ftir_samples:
-            st.session_state["ftir_samples"] = current_ftir_samples
     else:
-        current_ftir_samples = st.session_state.get("ftir_samples", {})
+        if ftir_files:
+            for f in ftir_files:
+                try:
+                    s_obj = ftir_core.parse_ftir_file(f.getvalue(), sample_id=f.name)
+                    current_ftir_samples[f.name] = s_obj
+                except Exception as e_parse:
+                    st.warning(f"Ошибка чтения {f.name}: {e_parse}")
+            if current_ftir_samples:
+                st.session_state["ftir_samples"] = current_ftir_samples
+        else:
+            current_ftir_samples = st.session_state.get("ftir_samples", {})
 
     if not current_ftir_samples:
         st.info(T[lang]["ftir_no_samples"])
@@ -4768,26 +4773,16 @@ elif active_module == T[lang]["mod5_name"]:
         st.markdown(f"### {T[lang]['nmr_sidebar_hdr']}")
         nmr_data_src = st.radio(
             T[lang]["nmr_src_label"],
-            [T[lang]["nmr_src_synth"], T[lang]["nmr_src_upload"]],
+            [T[lang]["nmr_src_upload"], T[lang]["nmr_src_synth"]],
             index=0,
             key="nmr_data_source_radio"
         )
 
-        if nmr_data_src == T[lang]["nmr_src_synth"]:
-            if not st.session_state["nmr_samples"]:
-                demo_nmr_dir = os.path.join("demo_data", "nmr")
-                if os.path.exists(demo_nmr_dir) and any(f.endswith(".csv") for f in os.listdir(demo_nmr_dir)):
-                    for fn in os.listdir(demo_nmr_dir):
-                        if fn.endswith(".csv") and fn != "nmr_descriptors_matrix.csv":
-                            fpath = os.path.join(demo_nmr_dir, fn)
-                            with open(fpath, "rb") as f:
-                                b_content = f.read()
-                            s_obj = nmr_core.parse_nmr_file(b_content, sample_id=fn.replace(".csv", ""), nucleus="13C")
-                            st.session_state["nmr_samples"][s_obj.sample_id] = s_obj
-                else:
-                    s_synth, _ = nmr_core.generate_synthetic_nmr_dataset(n_samples_per_class=6, save_dir=demo_nmr_dir)
-                    st.session_state["nmr_samples"] = s_synth
-        else:
+        if st.session_state.get("_prev_nmr_data_src") != nmr_data_src:
+            st.session_state["_prev_nmr_data_src"] = nmr_data_src
+            st.session_state["nmr_samples"] = {}
+
+        if nmr_data_src == T[lang]["nmr_src_upload"]:
             uploaded_nmr_files = st.file_uploader(
                 T[lang]["nmr_uploader_label"],
                 type=["csv", "txt", "tsv", "xy", "jdx", "dx"],
@@ -4803,6 +4798,20 @@ elif active_module == T[lang]["mod5_name"]:
                         st.session_state["nmr_samples"][s_id] = s_obj
                     except Exception as e_up:
                         st.warning(f"Ошибка чтения {uf.name}: {e_up}")
+        else:
+            if not st.session_state["nmr_samples"]:
+                demo_nmr_dir = os.path.join("demo_data", "nmr")
+                if os.path.exists(demo_nmr_dir) and any(f.endswith(".csv") for f in os.listdir(demo_nmr_dir)):
+                    for fn in os.listdir(demo_nmr_dir):
+                        if fn.endswith(".csv") and fn != "nmr_descriptors_matrix.csv":
+                            fpath = os.path.join(demo_nmr_dir, fn)
+                            with open(fpath, "rb") as f:
+                                b_content = f.read()
+                            s_obj = nmr_core.parse_nmr_file(b_content, sample_id=fn.replace(".csv", ""), nucleus="13C")
+                            st.session_state["nmr_samples"][s_obj.sample_id] = s_obj
+                else:
+                    s_synth, _ = nmr_core.generate_synthetic_nmr_dataset(n_samples_per_class=6, save_dir=demo_nmr_dir)
+                    st.session_state["nmr_samples"] = s_synth
 
         st.markdown(f"#### {T[lang]['nmr_preproc_hdr']}")
         base_method_choice = st.selectbox(

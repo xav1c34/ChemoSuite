@@ -1,14 +1,14 @@
 # ⚗️ ChemoSuite: Multimodal Chemometrics Platform
 
 <p align="right">
-  <a href="README.md">Русский</a> | <b>English</b>
+  <b>English</b> | <a href="README_RU.md">Русский</a>
 </p>
 
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-63%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-86%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -32,7 +32,7 @@
 
 ## 📖 About the Platform
 
-Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), and multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) in a single interactive web interface.
+Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), Fourier-transform infrared spectroscopy (**FTIR**), and nuclear magnetic resonance spectroscopy (**13C/1H NMR**), coupled with multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) in a single interactive web interface.
 
 The platform addresses a key task in environmental monitoring: reliably distinguishing the background autochthonous organic matter of natural waters from technogenic wood-processing waste (using BPPM sludge lignin in the Lake Baikal ecosystem as a case study).
 
@@ -44,7 +44,9 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 | :--- | :--- | :--- | :--- |
 | **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) or **ZIP spectrum archives** | Polynomial mass-scale recalibration, vectorized molecular formula assignment with nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS with **interactive molecular reaction network graph** and topological reaction hubs, biogeochemical Van Krevelen polygons, batch archive processing, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, biomolecular pools (Lipids, Proteins, Lignin/CRAM, Tannins, CAS), Perminova 20-cell grid, KMD series, topological node degrees $\text{Degree}$ |
 | **💡 2. Optical Spectroscopy (EEM & UV-Vis)** | 2D EEM matrices (`.csv`, `.dat`, `.txt`) and 1D UV-Vis spectra (`.csv`, `.txt`) | Delaunay interpolation for Rayleigh scattering removal, Raman normalization (R.U.), non-negative PARAFAC, **CORCONDIA diagnostic**, **Split-Half model validation**, **OpenFluor spectral library matching ($TCC \ge 0.85/0.90$)**, inner filter effect (IFE) correction, Savitzky-Golay filter ($d^1A, d^2A$) | Indices $FI$, $HIX$, fluorophore profiles and contributions $C_1–C_3$, OpenFluor matches ($C_1–C_6$), model stability $TCC$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
-| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across three modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), **PLS-DA, OPLS-DA and Sparse PLS-DA (sPLS-DA with $L_1$-regularization)**, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$), S-Plot | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, sparse biomarker panel ($|W|$), and block contribution shares ($\text{VIP}^2$) |
+| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across 5 modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), **PLS-DA, OPLS-DA and Sparse PLS-DA (sPLS-DA with $L_1$-regularization)**, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$), S-Plot | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, sparse biomarker panel ($|W|$), and block contribution shares ($\text{VIP}^2$) |
+| **🔬 4. FTIR Spectroscopy Studio** | IR spectra (`.csv`, `.dpt`, `.txt`, `.xy`) | AsLS baseline correction, SNV / Vector normalization, Savitzky-Golay filtering ($d^2A$), **carbonyl and double-bond region deconvolution (1500–1800 cm⁻¹)** using Levenberg-Marquardt with Gaussian band profiles, spectral reference library for lignins and polysaccharides (Kraft, Organosolv, Soda, Cellulose, Xylan), lignin indices | Lignin indices $LI, AI, CI$, carbonyl band contributions $A_{1715}, A_{1650}, A_{1595}, A_{1510}$, aromaticity ratio, library match metrics ($r, \text{Score}$) |
+| **🧲 5. NMR Spectroscopy Studio** | 1D $^{13}\text{C}$ and $^1\text{H}$ NMR spectra (`.csv`, `.tsv`, JCAMP-DX `.jdx`, `.dx`) | AsLS / polynomial baseline correction, integral binning across 6 standardized IHSS biogeochemical chemical shift ranges ($0–220$ ppm), aromatic region deconvolution ($108–162$ ppm) into syringyl ($S$), guaiacyl ($G$), and $p$-hydroxyphenyl ($H$) lignin subunits, reference IHSS spectra library (Suwannee River, Elliott Soil, Nordic NOM), auto-recalibration via DMSO-d6 ($39.5$ ppm) and TMS ($0.0$ ppm) | Standardized IHSS fractions (Aliphatics, C-O Alkyls, Acetals, Aromatics, Phenolics, Carboxyls), $S/G, H/G$ subunit ratios, aromaticity degree $f_a$, hydrophobic/hydrophilic index $\text{HB/HI}$, IHSS similarity |
 
 ---
 
@@ -105,7 +107,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 #### Discriminant Analysis and Marker Selection (PLS-DA, OPLS-DA & VIP Scores)
 <img src="assets/ml_plsda_validation.png" width="100%" alt="PLS-DA Results" />
 
-* Multimodal classification model built on the merged descriptor pool of all three methods (**FT-ICR MS + EEM-PARAFAC + UV-Vis**).
+* Multimodal classification model built on the merged descriptor pool of all analytical modalities (**FT-ICR MS + EEM-PARAFAC + UV-Vis + FTIR + NMR**).
 * **PLS-DA & OPLS-DA Architectures:** standard PLS-DA and orthogonal OPLS-DA (Orthogonal PLS-DA) separating predictive variation ($t_{\text{pred}}$) from orthogonal noise ($t_{\text{ortho}}$).
 
 #### 3D Latent Scores Space & 95% Hotelling's Ellipsoid (Scores Plot 3D)
@@ -116,12 +118,12 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 #### Multiblock Biomarker Ranking (VIP Scores Barplot)
 <img src="assets/ml_splot_biomarkers.png" width="100%" alt="Ranked VIP Biomarkers" />
 
-* Multifactorial ranking of discriminative predictors ($VIP > 1.0$) with color-coded analytical source tagging (blue: ultrahigh-resolution FT-ICR MS, orange: EEM-PARAFAC fluorescence, green: UV-Vis spectrophotometry).
+* Multifactorial ranking of discriminative predictors ($VIP > 1.0$) with color-coded analytical source tagging (blue: FT-ICR MS, orange: EEM-PARAFAC, green: UV-Vis, red: FTIR, purple: NMR).
 
 * **S-Plot Diagram (OPLS-DA):** covariance $p[1]$ (magnitude) vs correlation $p(\text{corr})[1]$ (reliability) visualization for biomarker discovery with block color tags.
 * **Validation & Diagnostics:** Leave-One-Out / K-Fold cross-validation ($Q^2$) and permutation testing (50 iterations) with empirical $p$-value.
-* **Comprehensive Analytical Passport (.xlsx):** export multi-sheet styled Excel report containing metadata summary, fused feature matrix, FT-ICR MS 20-cells, EEM-PARAFAC, UV-Vis indices, VIP biomarkers, and S-Plot.
-* **Save & Restore Projects (.chemo):** package full analytical workspace session (mass spectra, optical descriptors, fused matrix, trained models) into a portable compressed project file and restore workspace state in one click.
+* **Comprehensive Analytical Passport (.xlsx):** export multi-sheet styled Excel report containing metadata summary, fused feature matrix, all modality indices, VIP biomarkers, and S-Plot.
+* **Save & Restore Projects (.chemo):** package full analytical workspace session (spectra, optical descriptors, fused matrix, trained models) into a portable compressed project file and restore workspace state in one click.
 
 ---
 
@@ -130,7 +132,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ```text
 ChemoSuite/
 │
-├── app.py                            # Main super-app: Streamlit UI routing, trimodal dashboards, and session assembler
+├── app.py                            # Main super-app: Streamlit UI routing, 5-modal dashboards, and session assembler
 │
 ├── modules/                          # 🧠 Computational and chemometric engines
 │   ├── __init__.py                   # Package initialization and module exports
@@ -138,21 +140,26 @@ ChemoSuite/
 │   ├── eem_core.py                   # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
 │   ├── chemo_ml.py                   # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, permutation
 │   ├── chemo_pubchem.py              # Chemoinformatics: PubChem PUG-REST API, ChEMBL, HMDB, 2D structures, offline library
+│   ├── ftir_core.py                  # FTIR core: AsLS, C=O/C=C deconvolution, lignin library, spectral indices
+│   ├── nmr_core.py                   # NMR core: AsLS, IHSS integrals, S/G/H deconvolution, auto-recalibration
 │   ├── project_io.py                 # .chemo project manager: serialization, ZIP compression, session restore
 │   └── report_generator.py           # Analytical report generator (.xlsx) in Russian & English styled with openpyxl
 │
-├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, ML)
+├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, FTIR, NMR, ML)
 │   ├── eem/                          # 12 excitation-emission fluorescence matrices
 │   ├── uv_vis/                       # 12 UV-Vis absorption spectra (200–700 nm)
 │   ├── fticr_ms/                     # 4 high-resolution mass spec peak lists + sample_A_full.csv
+│   ├── nmr/                          # 12 synthetic 13C NMR reference standards & descriptor matrix
 │   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
 │   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Automated test suite (63 unit tests)
+├── tests/                            # Automated test suite (86 unit and stress tests)
 │   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS networks, vector fluxes, pathways)
 │   ├── test_chemo_pubchem.py         # PubChem chemoinformatics tests (PUG-REST, formula cleaning, biomarker annotation)
 │   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
 │   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
+│   ├── test_ftir.py                  # FTIR tests (AsLS, deconvolution, lignin indices, library)
+│   ├── test_nmr.py                   # NMR tests (IHSS integrals, S/G/H deconvolution, auto-recalibration, JCAMP-DX)
 │   ├── test_demo_pipelines.py        # End-to-end integration tests for demo data (FT-ICR, EEM, UV-Vis, ML)
 │   ├── test_report_generator.py      # Multi-sheet Excel passport generation tests (.xlsx)
 │   ├── test_project_io.py            # Session serialization & restoration tests (.chemo)
@@ -164,7 +171,8 @@ ChemoSuite/
 ├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
 ├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, openpyxl, pytest)
 ├── .gitignore                        # System and temporary file exclusions
-├── README.md                         # Platform documentation (Russian)
+├── README.md                         # Main repository documentation on GitHub (English default)
+├── README_RU.md                      # Platform documentation (Russian)
 └── README_EN.md                      # Platform documentation (English)
 ```
 
@@ -172,14 +180,13 @@ ChemoSuite/
 
 ## 🚀 Quick Start
 
-### 1. Clone the repository
+### 1. Clone Repository
 ```bash
 git clone https://github.com/xav1c34/ChemoSuite.git
 cd ChemoSuite
 ```
 
-### 2. Set up a virtual environment
-
+### 2. Configure Virtual Environment
 **Windows (PowerShell):**
 ```powershell
 python -m venv .venv
@@ -192,18 +199,18 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3. Install dependencies
+### 3. Install Dependencies
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Run automated test suite
+### 4. Run Automated Test Suite
 ```bash
 pytest -v tests
 ```
 
-### 5. Launch the web application
+### 5. Launch Web Application
 ```bash
 streamlit run app.py
 ```
@@ -217,6 +224,8 @@ Once launched, the interface will open automatically in your browser at `http://
 * **Mass spectrometry (FT-ICR MS):** text files containing peak lists (`.csv`, `.tsv`, `.txt`, `.xy`). At least two numeric columns are required: experimental mass ($m/z$) and peak intensity/height.
 * **Fluorometry (EEM):** 2D fluorescence matrix tables (`.csv`, `.dat`, `.txt`) in which rows correspond to emission wavelengths ($Em$) and columns to excitation wavelengths ($Ex$), or vice versa; the parser detects orientation automatically.
 * **Spectrophotometry (UV-Vis):** 1D absorption spectrum tables (`.csv`, `.txt`, `.tsv`) with wavelength ($\lambda$, 200–800 nm) and absorbance ($A$) columns.
+* **Infrared spectroscopy (FTIR):** 1D transmission or absorbance spectra (`.csv`, `.dpt`, `.txt`, `.xy`) spanning wavenumbers $400–4000\text{ cm}^{-1}$.
+* **NMR spectroscopy (NMR):** 1D $^{13}\text{C}$ and $^1\text{H}$ NMR spectra (`.csv`, `.tsv`, `.txt`, `.xy`, JCAMP-DX `.jdx`, `.dx`) across chemical shift ranges $\delta$ ($0–220$ ppm).
 
 ---
 
@@ -238,8 +247,13 @@ Once launched, the interface will open automatically in your browser at `http://
   * Complete bilingual localization i18n (RU/EN) across all modules, tabs, graphs, dialogs, and reports.
   * Formatted multi-sheet Excel passport exports (.xlsx) styled with openpyxl and language switching.
   * Project workspace manager (`.chemo` session archives) with complete state serialization and 1-click recovery.
-  * Full stress testing suite with 63 unit/integration tests (handling singularities, zero variances, corrupt sessions, and noise).
-  * Modernized Streamlit API adhering to recent specifications (`width="stretch"`).
+  * Full stress testing suite with 63 unit/integration tests.
+* **`v3.0.0-dev` (ChemoSuite 5-Modal / FTIR & NMR Spectroscopy Studio)**:
+  * Complete 5-modal integration: **FT-ICR MS + EEM-PARAFAC + UV-Vis + FTIR + 13C/1H NMR**.
+  * Module 4 (FTIR): carbonyl region deconvolution (1500–1800 cm⁻¹), lignin & cellulose spectral library, and lignin indices.
+  * Module 5 (NMR): 13C/1H NMR IHSS chemical shift binning, aromatic region deconvolution into S/G/H lignin subunits, IHSS reference library, auto-recalibration.
+  * 5-block Data Fusion in ChemoSuite ML and export of all 5 modalities to `.chemo` project files and multi-sheet Excel passports.
+  * Expanded test suite with 86 unit and adversarial stress tests (`pytest`).
 
 ---
 
@@ -261,7 +275,7 @@ If you use **ChemoSuite** in your academic research or environmental monitoring 
   title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
   year         = {2026},
   publisher    = {GitHub},
-  version      = {v2.2.0},
+  version      = {v3.0.0-dev},
   url          = {https://github.com/xav1c34/ChemoSuite},
   note         = {Web Application: https://nom-spectra.streamlit.app/}
 }
