@@ -14,6 +14,12 @@
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://nom-spectra.streamlit.app/)
+
+**🌐 Онлайн-демо веб-приложения:** [https://nom-spectra.streamlit.app/](https://nom-spectra.streamlit.app/)
+
+<br />
+
 **Комплексная веб-платформа для глубокого хемометрического анализа природного органического вещества (РОВ/NOM) и техногенного шлам-лигнина.**
 
 <br />
@@ -124,13 +130,16 @@
 ```text
 ChemoSuite/
 │
-├── app.py                            # Главный супер-апп: UI-маршрутизация, дашборды трех модальностей и сессионный сборщик
-├── fticr_core.py                     # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, 20 ячеек, TMDS сети, векторные потоки и пути реакций
-├── chemo_pubchem.py                  # Хемоинформатика: PubChem PUG-REST API, ChEMBL, HMDB, 2D структуры, классы и офлайн-библиотека
-├── eem_core.py                       # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
-├── chemo_ml.py                       # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, пермутация
-├── report_generator.py               # Генератор многостраничных Excel-паспортов (.xlsx) на русском и английском с openpyxl
-├── project_io.py                     # Модуль проектов .chemo: сериализация, ZIP-сжатие и восстановление сессии
+├── app.py                            # Главный супер-апп: Streamlit UI-маршрутизация, дашборды трех модальностей и сборщик сессии
+│
+├── modules/                          # 🧠 Вычислительные и хемометрические модули платформы
+│   ├── __init__.py                   # Пакетная инициализация и реэкспорт функций
+│   ├── fticr_core.py                 # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, 20 ячеек, TMDS сети, векторные потоки
+│   ├── eem_core.py                   # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
+│   ├── chemo_ml.py                   # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, пермутация
+│   ├── chemo_pubchem.py              # Хемоинформатика: PubChem PUG-REST API, ChEMBL, HMDB, 2D структуры, офлайн-библиотека
+│   ├── project_io.py                 # Модуль проектов .chemo: сериализация, ZIP-сжатие и восстановление сессии
+│   └── report_generator.py           # Генератор многостраничных Excel-паспортов (.xlsx) на русском и английском с openpyxl
 │
 ├── demo_data/                        # Согласованные мультимодальные демо-данные (EEM, UV-Vis, FT-ICR MS, ML)
 │   ├── eem/                          # 12 матриц возбуждения-испускания флуоресценции
@@ -241,3 +250,21 @@ streamlit run app.py
 * Кафедра аналитической химии | Лаборатория природных гуминовых систем
 * Методология хемотипирования РОВ по 20 ячейкам и оценка $M_w$: проф., д.х.н. И. В. Перминова
 * Модуль EEM-PARAFAC, UV-Vis и мультиблочного моделирования: К. В. Петров (2026 г.)
+
+---
+
+## 📜 Цитирование / Citation
+
+Если вы используете платформу **ChemoSuite** в научной работе или экологических исследованиях, пожалуйста, укажите ссылку на репозиторий и процитируйте программный комплекс:
+
+```bibtex
+@software{chemosuite2026,
+  author       = {Petrov, K. V. and Perminova, I. V.},
+  title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
+  year         = {2026},
+  publisher    = {Lomonosov Moscow State University},
+  version      = {v2.2.0},
+  url          = {https://github.com/xav1c34/ChemoSuite},
+  note         = {Web Application: https://nom-spectra.streamlit.app/}
+}
+```

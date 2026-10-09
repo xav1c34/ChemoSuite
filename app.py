@@ -2,9 +2,16 @@
 import inspect
 import io
 import os
+from pathlib import Path
+import sys
 import tempfile
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
+
+# Регистрация папки modules в путях поиска Python
+_MODULES_DIR = str(Path(__file__).resolve().parent / "modules")
+if _MODULES_DIR not in sys.path:
+    sys.path.insert(0, _MODULES_DIR)
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
