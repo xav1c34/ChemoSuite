@@ -463,6 +463,49 @@ def generate_synthetic_chemometrics_dataset(n_samples: int = 10) -> List[EEMSamp
     return samples
 
 
+def generate_synthetic_uv_vis_dataset(
+    eem_samples: Optional[List[EEMSample]] = None,
+    n_samples: int = 10,
+) -> List[UVVisSample]:
+    """
+    Генерация синтетических 1D-спектров поглощения УФ-Вид (200-700 нм),
+    физико-химически согласованных с матрицами флуоресценции EEM и концентрацией DOC.
+    """
+    if eem_samples is None:
+        eem_samples = generate_synthetic_chemometrics_dataset(n_samples=n_samples)
+
+    np.random.seed(42)
+    wl = np.linspace(200, 700, 501)
+    uv_samples = []
+
+    for s in eem_samples:
+        doc = s.doc if s.doc is not None else (20.0 if "Lignin" in s.sample_id else 2.5)
+        a254 = s.a254 if s.a254 is not None else (doc * (0.055 if "Lignin" in s.sample_id else 0.020))
+
+        if "Lignin" in s.sample_id:
+            # Высокая ароматичность, пологий наклон S (высокомолекулярный лигнин), пик при 280 нм
+            slope = np.random.uniform(0.0135, 0.0155)
+            a_base = a254 * np.exp(-slope * (wl - 254.0))
+            a_lignin_shoulder = (0.06 + 0.002 * (doc - 14.0)) * np.exp(-0.5 * ((wl - 280.0) / 11.0) ** 2)
+            noise = np.random.normal(0, 0.0008, len(wl))
+            abs_vals = np.maximum(0.0005, a_base + a_lignin_shoulder + noise)
+        else:
+            # Олиготрофная байкальская вода: крутой экспоненциальный спад S, низкая ароматичность, низкий DOC
+            slope = np.random.uniform(0.0185, 0.0225)
+            a_base = a254 * np.exp(-slope * (wl - 254.0))
+            noise = np.random.normal(0, 0.0004, len(wl))
+            abs_vals = np.maximum(0.0002, a_base + noise)
+
+        uv_samples.append(UVVisSample(
+            sample_id=s.sample_id,
+            wl=wl,
+            absorbance=np.round(abs_vals, 5),
+            doc=round(doc, 2)
+        ))
+
+    return uv_samples
+
+
 # ==============================================================================
 # ПАРСИНГ, ПРОИЗВОДНЫЕ И РАСЧЕТ УФ-ВИД СПЕКТРОВ ПОГЛОЩЕНИЯ (UV-VIS)
 # ==============================================================================

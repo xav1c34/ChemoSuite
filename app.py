@@ -2753,15 +2753,19 @@ elif active_module == T[lang]["mod2_name"]:
 
     if eem_data_src == T[lang]["eem_src_synth"]:
         samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
+        uv_samples = eem_core.generate_synthetic_uv_vis_dataset(eem_samples=samples)
     else:
         samples = st.session_state.get("eem_stored_samples", [])
-
-    uv_samples = st.session_state.get("uv_stored_samples", [])
+        uv_samples = st.session_state.get("uv_stored_samples", [])
 
     # Автоматическая связка УФ-Вид спектров с EEM образцами
     if samples and uv_samples:
-        doc_dict = {s.sample_id: default_doc_val for s in samples} if default_doc_val > 0 else None
-        eem_core.link_uv_vis_to_eem(samples, uv_samples, doc_map=doc_dict)
+        doc_dict = {
+            s.sample_id: (s.doc if s.doc is not None else default_doc_val)
+            for s in samples
+            if (s.doc is not None or default_doc_val > 0)
+        }
+        eem_core.link_uv_vis_to_eem(samples, uv_samples, doc_map=doc_dict if doc_dict else None)
 
     if not samples and not uv_samples:
         st.warning(T[lang]["eem_warn_no_data"])
@@ -3041,7 +3045,7 @@ elif active_module == T[lang]["mod2_name"]:
 
                 # Таблица оптических дескрипторов УФ-Вид для всех загруженных проб
                 uv_indices_list = [
-                    eem_core.calculate_uv_vis_indices(u, doc=default_doc_val if default_doc_val > 0 else None)
+                    eem_core.calculate_uv_vis_indices(u, doc=(u.doc if u.doc is not None else (default_doc_val if default_doc_val > 0 else None)))
                     for u in uv_samples
                 ]
                 df_uv_indices = pd.DataFrame(uv_indices_list)

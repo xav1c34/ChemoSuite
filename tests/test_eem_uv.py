@@ -200,3 +200,35 @@ def test_synthetic_benchmark_parafac_readiness():
     assert res["scores"].shape == (10, 3)
 
 
+def test_synthetic_uv_vis_dataset():
+    """Тест генерации согласованного набора 1D-спектров УФ-Вид для синтетического бенчмарка."""
+    eem_samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
+    uv_samples = eem_core.generate_synthetic_uv_vis_dataset(eem_samples=eem_samples)
+
+    assert len(uv_samples) == 10
+    eem_names = [s.sample_id for s in eem_samples]
+    uv_names = [u.sample_id for u in uv_samples]
+    assert eem_names == uv_names
+
+    # Проверяем структуру спектра и индексы
+    for u in uv_samples:
+        assert len(u.wl) == 501
+        assert len(u.absorbance) == 501
+        assert u.doc is not None
+        assert u.doc > 0
+        indices = eem_core.calculate_uv_vis_indices(u)
+        assert indices["A254"] > 0
+        assert indices["SUVA254"] > 0
+        assert not np.isnan(indices["E2_E3"])
+
+    # Лигнин должен иметь более высокий SUVA254 и более низкий E2/E3 (высокий Mw)
+    lignin_u = next(u for u in uv_samples if "Lignin" in u.sample_id)
+    baikal_u = next(u for u in uv_samples if "Baikal" in u.sample_id)
+    ind_lig = eem_core.calculate_uv_vis_indices(lignin_u)
+    ind_bai = eem_core.calculate_uv_vis_indices(baikal_u)
+
+    assert ind_lig["SUVA254"] > ind_bai["SUVA254"]
+    assert ind_lig["Mw_est"] > ind_bai["Mw_est"]
+
+
+
