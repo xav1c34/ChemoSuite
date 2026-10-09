@@ -99,6 +99,7 @@ def save_chemo_project(
         uv_df = session_data.get("uv_ml_descriptors", None)
         fused_df = session_data.get("fused_data", None)
         ftir_df = session_data.get("ftir_ml_descriptors", None)
+        nmr_df = session_data.get("nmr_ml_descriptors", None)
         pls_res = session_data.get("pls_results", None)
         perm_res = session_data.get("perm_results", None)
 
@@ -115,6 +116,7 @@ def save_chemo_project(
                 "has_eem": eem_df is not None and not eem_df.empty,
                 "has_uv": uv_df is not None and not uv_df.empty,
                 "has_ftir": ftir_df is not None and not ftir_df.empty,
+                "has_nmr": nmr_df is not None and not nmr_df.empty,
                 "has_fused": fused_df is not None and not fused_df.empty,
                 "fused_source": session_data.get("fused_source", "Unknown"),
                 "has_trained_model": pls_res is not None,
@@ -171,6 +173,10 @@ def save_chemo_project(
         ftir_df = session_data.get("ftir_ml_descriptors", None)
         if isinstance(ftir_df, pd.DataFrame) and not ftir_df.empty:
             zf.writestr("descriptors/ftir_ml_descriptors.csv", ftir_df.to_csv(index=False))
+
+        nmr_df = session_data.get("nmr_ml_descriptors", None)
+        if isinstance(nmr_df, pd.DataFrame) and not nmr_df.empty:
+            zf.writestr("descriptors/nmr_ml_descriptors.csv", nmr_df.to_csv(index=False))
 
         # 4. Мультимодальная матрица слияния данных (Data Fusion)
         if isinstance(fused_df, pd.DataFrame) and not fused_df.empty:
@@ -338,7 +344,7 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
                     restored["spectra_db"][spec_name] = spec_entry
 
-            # 2. Дескрипторы EEM, UV-Vis и FTIR
+            # 2. Дескрипторы EEM, UV-Vis, FTIR и NMR
             if "descriptors/eem_ml_descriptors.csv" in names:
                 restored["eem_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/eem_ml_descriptors.csv")))
 
@@ -347,6 +353,9 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
             if "descriptors/ftir_ml_descriptors.csv" in names:
                 restored["ftir_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/ftir_ml_descriptors.csv")))
+
+            if "descriptors/nmr_ml_descriptors.csv" in names:
+                restored["nmr_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/nmr_ml_descriptors.csv")))
 
             # 3. Fused Data
             if "fusion/fused_data.csv" in names:

@@ -24,6 +24,8 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
             mapping[c] = "FT-ICR MS"
         elif c.startswith("FTIR_") or any(k in c_low for k in ["ftir", "raman", "wavenumber", "branching_idx", "lignin_idx", "gs_ratio", "polysaccharide_idx", "phenolic_idx"]):
             mapping[c] = "FTIR"
+        elif c.startswith("NMR_") or any(k in c_low for k in ["nmr", "cp_mas", "c_aliph", "c_o_alkyl", "c_aromatic", "c_carboxyl", "c_carbonyl", "fa_aromaticity", "hb_hi"]):
+            mapping[c] = "NMR"
         elif any(k in c_low for k in ["fi", "hix", "suva", "c1", "c2", "c3", "c4", "fulvic", "lignin", "protein", "humic"]):
             mapping[c] = "EEM-PARAFAC"
         else:
@@ -122,10 +124,11 @@ def merge_feature_blocks(
     df_eem: Optional[pd.DataFrame] = None,
     df_uv: Optional[pd.DataFrame] = None,
     df_ftir: Optional[pd.DataFrame] = None,
+    df_nmr: Optional[pd.DataFrame] = None,
     on_col: str = "Sample_ID",
 ) -> pd.DataFrame:
-    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis и FTIR по идентификаторам образцов."""
-    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir] if df is not None and not df.empty]
+    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis, FTIR и NMR по идентификаторам образцов."""
+    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr] if df is not None and not df.empty]
     if not dfs:
         return pd.DataFrame()
     for d in dfs:

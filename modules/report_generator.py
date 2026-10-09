@@ -20,7 +20,10 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 
-import chemo_ml
+try:
+    import chemo_ml
+except ImportError:
+    from . import chemo_ml
 
 
 def _style_header_cell(cell, fill_hex="0B2545", font_color="FFFFFF", font_size=11, bold=True):
@@ -84,6 +87,7 @@ def generate_excel_passport(
     eem_cols = [c for c in feature_cols if block_map.get(c) == "EEM-PARAFAC"]
     uv_cols = [c for c in feature_cols if block_map.get(c) == "UV-Vis"]
     ftir_cols = [c for c in feature_cols if block_map.get(c) == "FTIR"]
+    nmr_cols = [c for c in feature_cols if block_map.get(c) == "NMR"]
     other_cols = [c for c in feature_cols if block_map.get(c) == "Other"]
 
     is_en = (lang == "en")
@@ -115,6 +119,7 @@ def generate_excel_passport(
         ("EEM-PARAFAC Descriptors:" if is_en else "Дескрипторов EEM-PARAFAC:", len(eem_cols)),
         ("UV-Vis Descriptors:" if is_en else "Дескрипторов UV-Vis:", len(uv_cols)),
         ("FTIR Descriptors:" if is_en else "Дескрипторов FTIR:", len(ftir_cols)),
+        ("NMR Descriptors:" if is_en else "Дескрипторов NMR:", len(nmr_cols)),
     ]
 
     for idx, (lbl, val) in enumerate(meta_info, start=5):
@@ -254,7 +259,15 @@ def generate_excel_passport(
         populate_table_sheet(ws_ftir, fused_df[ftir_export_cols], header_fill="8E44AD")
 
     # =========================================================================
-    # ЛИСТ 7: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
+    # ЛИСТ 7: NMR дескрипторы (NMR Descriptors)
+    # =========================================================================
+    nmr_export_cols = [c for c in ["Sample_ID", "Class_Target"] if c in fused_df.columns] + nmr_cols
+    if len(nmr_cols) > 0:
+        ws_nmr = wb.create_sheet(title="NMR Descriptors")
+        populate_table_sheet(ws_nmr, fused_df[nmr_export_cols], header_fill="D35400")
+
+    # =========================================================================
+    # ЛИСТ 8: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
     # =========================================================================
     if model_results and "VIP_df" in model_results:
         vip_df = model_results["VIP_df"].copy()

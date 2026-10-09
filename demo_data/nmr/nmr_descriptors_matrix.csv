@@ -1,0 +1,13 @@
+Sample_ID,NMR_C_aliph_pct,NMR_C_O_alkyl_pct,NMR_C_methoxy_pct,NMR_C_carbohydrate_pct,NMR_C_aromatic_pct,NMR_C_ar_HC_pct,NMR_C_phenolic_pct,NMR_C_carboxyl_pct,NMR_C_carbonyl_pct,NMR_fa_aromaticity,NMR_hb_hi_index,NMR_alkyl_o_alkyl,NMR_lignin_signature,NMR_coo_ar_ratio,NMR_estimated_mw,Class_Target
+Baikal_Pristine_01,17.81,38.91,5.55,33.36,31.35,27.74,3.62,8.94,2.99,31.35,0.967,0.458,9.17,0.285,2571.0,Baikal_Pristine
+Sludge_Lignin_01,10.6,8.99,2.97,6.03,68.14,56.86,11.29,8.7,3.57,68.14,3.704,1.179,14.26,0.128,5992.0,Sludge_Lignin
+Baikal_Pristine_02,17.8,39.0,5.54,33.46,31.3,27.7,3.59,8.91,2.99,31.3,0.965,0.457,9.13,0.285,2568.0,Baikal_Pristine
+Sludge_Lignin_02,10.58,8.96,2.98,5.97,68.2,56.9,11.3,8.69,3.58,68.2,3.711,1.181,14.28,0.127,5999.0,Sludge_Lignin
+Baikal_Pristine_03,17.83,38.95,5.57,33.38,31.38,27.77,3.62,8.89,2.95,31.38,0.969,0.458,9.19,0.283,2573.0,Baikal_Pristine
+Sludge_Lignin_03,10.59,8.97,2.97,5.99,68.2,56.89,11.31,8.66,3.59,68.2,3.714,1.181,14.28,0.127,5999.0,Sludge_Lignin
+Baikal_Pristine_04,17.79,38.96,5.55,33.41,31.39,27.78,3.63,8.91,2.95,31.39,0.968,0.457,9.18,0.284,2573.0,Baikal_Pristine
+Sludge_Lignin_04,10.59,8.95,2.97,5.98,68.14,56.86,11.29,8.72,3.59,68.14,3.703,1.183,14.26,0.128,5992.0,Sludge_Lignin
+Baikal_Pristine_05,17.81,38.94,5.58,33.36,31.38,27.77,3.61,8.89,2.98,31.38,0.968,0.457,9.18,0.283,2572.0,Baikal_Pristine
+Sludge_Lignin_05,10.57,9.0,2.97,6.03,68.17,56.89,11.27,8.7,3.55,68.17,3.704,1.175,14.24,0.128,5995.0,Sludge_Lignin
+Baikal_Pristine_06,17.8,38.95,5.56,33.39,31.35,27.74,3.61,8.9,2.99,31.35,0.967,0.457,9.17,0.284,2571.0,Baikal_Pristine
+Sludge_Lignin_06,10.58,8.95,2.96,5.99,68.12,56.84,11.29,8.73,3.63,68.12,3.694,1.183,14.24,0.128,5988.0,Sludge_Lignin

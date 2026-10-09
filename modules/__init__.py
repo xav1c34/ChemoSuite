@@ -8,6 +8,7 @@ modules — Вычислительные и хемометрические мо�
 - project_io: Сериализация и восстановление проектов ChemoSuite (.chemo / ZIP).
 - report_generator: Генератор аналитических паспортов Excel (.xlsx).
 - ftir_core: Аналитическое ядро колебательной спектроскопии (ATR-FTIR & Raman).
+- nmr_core: Аналитическое ядро спектроскопии ЯМР (13C / 1H NMR).
 """
 
 from . import fticr_core
@@ -17,6 +18,7 @@ from . import chemo_pubchem
 from . import project_io
 from . import report_generator
 from . import ftir_core
+from . import nmr_core
 
 __all__ = [
     "fticr_core",
@@ -26,4 +28,5 @@ __all__ = [
     "project_io",
     "report_generator",
     "ftir_core",
+    "nmr_core",
 ]
