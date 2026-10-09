@@ -2636,6 +2636,14 @@ elif active_module == T[lang]["mod2_name"]:
             index=0,
             key="eem_data_source_radio",
         )
+        if st.session_state.get("_prev_eem_data_src") != eem_data_src:
+            st.session_state["_prev_eem_data_src"] = eem_data_src
+            if "parafac_active_tables_multiselect" in st.session_state:
+                del st.session_state["parafac_active_tables_multiselect"]
+            if "_prev_parafac_all_sample_ids" in st.session_state:
+                del st.session_state["_prev_parafac_all_sample_ids"]
+            if "eem_active_sample" in st.session_state:
+                del st.session_state["eem_active_sample"]
 
         eem_files = []
         uv_files = []
@@ -2769,7 +2777,7 @@ elif active_module == T[lang]["mod2_name"]:
             else:
                 s_names = [s.sample_id for s in samples]
                 selected_sname = st.selectbox(T[lang]["eem_select_sample"], s_names, key="eem_active_sample")
-                s_obj = next(s for s in samples if s.sample_id == selected_sname)
+                s_obj = next((s for s in samples if s.sample_id == selected_sname), samples[0])
 
                 fig_eem = go.Figure(data=go.Contour(
                     z=s_obj.data, x=s_obj.ex, y=s_obj.em, colorscale=palette.lower(),
@@ -2818,14 +2826,34 @@ elif active_module == T[lang]["mod2_name"]:
                 st.warning("Для факторизации PARAFAC необходимо минимум 2 матрицы EEM." if lang == "ru" else "At least 2 EEM matrices required for PARAFAC.")
             else:
                 all_sample_ids = [s.sample_id for s in samples]
+
+                # Автоматическая синхронизация при смене источника или состава доступных таблиц
+                prev_ids = st.session_state.get("_prev_parafac_all_sample_ids")
+                current_selected = st.session_state.get("parafac_active_tables_multiselect")
+                valid_selected = [s for s in current_selected if s in all_sample_ids] if current_selected else []
+
+                # Если состав доступных образцов изменился или в session_state нет ни одной валидной таблицы для текущего датасета:
+                if prev_ids != all_sample_ids or current_selected is None or (len(current_selected) > 0 and len(valid_selected) == 0):
+                    st.session_state["_prev_parafac_all_sample_ids"] = list(all_sample_ids)
+                    st.session_state["parafac_active_tables_multiselect"] = list(all_sample_ids)
+
                 col_sel1, col_sel2 = st.columns([3, 1])
                 with col_sel1:
                     selected_parafac_ids = st.multiselect(
                         T[lang]["eem_parafac_select_tables"],
                         options=all_sample_ids,
-                        default=all_sample_ids,
                         key="parafac_active_tables_multiselect",
                     )
+                    c_btn1, c_btn2, _ = st.columns([1, 1, 2])
+                    with c_btn1:
+                        if st.button("Выбрать все" if lang == "ru" else "Select All", key="btn_sel_all_parafac", type="secondary"):
+                            st.session_state["parafac_active_tables_multiselect"] = list(all_sample_ids)
+                            st.rerun()
+                    with c_btn2:
+                        if st.button("Сбросить" if lang == "ru" else "Deselect", key="btn_desel_parafac", type="secondary"):
+                            st.session_state["parafac_active_tables_multiselect"] = []
+                            st.rerun()
+
                 with col_sel2:
                     n_components_sel = st.selectbox(
                         "Компонентов (R):" if lang == "ru" else "Components (R):",
@@ -2836,6 +2864,9 @@ elif active_module == T[lang]["mod2_name"]:
 
                 if len(selected_parafac_ids) < 2:
                     st.warning(T[lang]["eem_parafac_min_samples"])
+                    if st.button("⚡ " + ("Выбрать все таблицы EEM" if lang == "ru" else "Select All EEM Tables"), key="btn_quick_select_all_parafac", type="primary"):
+                        st.session_state["parafac_active_tables_multiselect"] = list(all_sample_ids)
+                        st.rerun()
                 else:
                     active_parafac_samples = [s for s in samples if s.sample_id in selected_parafac_ids]
                     with st.spinner(T[lang]["eem_parafac_spinner"]):
@@ -2972,7 +3003,7 @@ elif active_module == T[lang]["mod2_name"]:
                 col_uv1, col_uv2 = st.columns([3, 1])
                 with col_uv1:
                     active_uv_name = st.selectbox(T[lang]["eem_uv_select_sample"], uv_names, key="active_uv_sample_select")
-                active_uv = next(u for u in uv_samples if u.sample_id == active_uv_name)
+                active_uv = next((u for u in uv_samples if u.sample_id == active_uv_name), uv_samples[0])
 
                 # График A(λ) с реперными точками
                 fig_uv = go.Figure()

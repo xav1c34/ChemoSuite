@@ -179,3 +179,24 @@ def test_openfluor_matching():
     # Синтетический датасет сгенерирован на основе канонических флуорофоров, сходство должно быть высоким
     assert any(matches_df["TCC_Mean"] >= 0.85)
 
+
+def test_synthetic_benchmark_parafac_readiness():
+    """Тест готовности синтетического бенчмарка для построения 3D тензора PARAFAC."""
+    synth_samples = eem_core.generate_synthetic_chemometrics_dataset(n_samples=10)
+    assert len(synth_samples) == 10
+    sample_ids = [s.sample_id for s in synth_samples]
+    assert len(set(sample_ids)) == 10
+
+    # Проверяем построение 3D тензора
+    tensor, ref_em, ref_ex, names = eem_core.build_eem_tensor(synth_samples)
+    assert tensor.ndim == 3
+    assert tensor.shape[0] == 10
+    assert len(names) == 10
+
+    # Проверяем факторизацию PARAFAC (R=3)
+    res = eem_core.fit_parafac(tensor, n_components=3, random_state=42)
+    assert res["explained_variance"] > 90.0
+    assert res["corcondia"] > 70.0
+    assert res["scores"].shape == (10, 3)
+
+
