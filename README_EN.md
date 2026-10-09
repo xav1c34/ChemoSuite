@@ -14,6 +14,12 @@
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://nom-spectra.streamlit.app/)
+
+**🌐 Online Web Application:** [https://nom-spectra.streamlit.app/](https://nom-spectra.streamlit.app/)
+
+<br />
+
 **A comprehensive web platform for in-depth chemometric analysis of natural organic matter (NOM/DOM) and technogenic sludge lignin.**
 
 <br />
@@ -124,13 +130,16 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ```text
 ChemoSuite/
 │
-├── app.py                            # Main super-app: UI routing, trimodal dashboards, and session assembler
-├── fticr_core.py                     # Mass spec core: formulas, 13C isotopes, KMD, Perminova grid, TMDS networks, vector fluxes & reaction pathways
-├── chemo_pubchem.py                  # Chemoinformatics: PubChem PUG-REST API, ChEMBL, HMDB, 2D structures, heuristic classes & offline library
-├── eem_core.py                       # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
-├── chemo_ml.py                       # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, permutation
-├── report_generator.py               # Analytical report generator (.xlsx) in Russian & English styled with openpyxl
-├── project_io.py                     # .chemo project manager: serialization, ZIP compression, session restore
+├── app.py                            # Main super-app: Streamlit UI routing, trimodal dashboards, and session assembler
+│
+├── modules/                          # 🧠 Computational and chemometric engines
+│   ├── __init__.py                   # Package initialization and module exports
+│   ├── fticr_core.py                 # Mass spec core: formulas, 13C isotopes, KMD, 20 cells, TMDS networks, vector fluxes
+│   ├── eem_core.py                   # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
+│   ├── chemo_ml.py                   # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, permutation
+│   ├── chemo_pubchem.py              # Chemoinformatics: PubChem PUG-REST API, ChEMBL, HMDB, 2D structures, offline library
+│   ├── project_io.py                 # .chemo project manager: serialization, ZIP compression, session restore
+│   └── report_generator.py           # Analytical report generator (.xlsx) in Russian & English styled with openpyxl
 │
 ├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, ML)
 │   ├── eem/                          # 12 excitation-emission fluorescence matrices
@@ -242,3 +251,21 @@ The algorithms and computational modules of the platform were developed as part 
 * Department of Analytical Chemistry | Laboratory of Natural Humic Systems
 * NOM chemotyping methodology based on the 20-cell grid and $M_w$ estimation: Prof. I. V. Perminova, Dr. Sci. (Chem.)
 * EEM-PARAFAC, UV-Vis, and multiblock modeling module: K. V. Petrov (2026)
+
+---
+
+## 📜 Citation
+
+If you use **ChemoSuite** in your academic research or environmental monitoring studies, please cite our software platform:
+
+```bibtex
+@software{chemosuite2026,
+  author       = {Petrov, K. V. and Perminova, I. V.},
+  title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
+  year         = {2026},
+  publisher    = {Lomonosov Moscow State University},
+  version      = {v2.2.0},
+  url          = {https://github.com/xav1c34/ChemoSuite},
+  note         = {Web Application: https://nom-spectra.streamlit.app/}
+}
+```
