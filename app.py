@@ -3,6 +3,7 @@ import inspect
 import io
 import os
 import tempfile
+import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.patches as patches
