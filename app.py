@@ -1695,7 +1695,7 @@ if active_module == T[lang]["mod1_name"]:
                         if pc_matches_list:
                             st.caption(f"{T[lang]['pubchem_isomers_label']} **{len(pc_matches_list)}**")
                             clean_t_f = chemo_pubchem.clean_formula(target_f) if hasattr(chemo_pubchem, "clean_formula") else target_f
-                            chembl_search_url = f"https://www.ebi.ac.uk/chembl/g/#search_results/all/query={urllib.parse.quote(clean_t_f)}"
+                            chembl_search_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(clean_t_f)}"
                             hmdb_search_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(clean_t_f)}&searcher=metabolites"
 
                             ext_c1, ext_c2, _ = st.columns([1.5, 1.5, 3])
@@ -1823,7 +1823,7 @@ if active_module == T[lang]["mod1_name"]:
                         vk_saved_res = st.session_state.get(f"vk_res_{active_spectrum_name}", [])
                         if vk_saved_res:
                             clean_vk_str = chemo_pubchem.clean_formula(sel_vk_f) if hasattr(chemo_pubchem, "clean_formula") else sel_vk_f
-                            vk_chembl_url = f"https://www.ebi.ac.uk/chembl/g/#search_results/all/query={urllib.parse.quote(clean_vk_str)}"
+                            vk_chembl_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(clean_vk_str)}"
                             vk_hmdb_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(clean_vk_str)}&searcher=metabolites"
 
                             ext_vk1, ext_vk2, _ = st.columns([1.5, 1.5, 3])

@@ -362,7 +362,7 @@ def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFra
         seen.add(f_clean)
 
         matches = lookup_formula_in_pubchem(f_clean, max_records=1, timeout=3.0)
-        chembl_url = f"https://www.ebi.ac.uk/chembl/g/#search_results/all/query={urllib.parse.quote(f_clean)}"
+        chembl_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(f_clean)}"
         hmdb_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(f_clean)}&searcher=metabolites"
 
         if matches:
