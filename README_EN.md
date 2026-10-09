@@ -243,14 +243,11 @@ Once launched, the interface will open automatically in your browser at `http://
 
 ---
 
-## 👥 Scientific and Methodological Background
+## 👥 Authorship and Development
 
-The algorithms and computational modules of the platform were developed as part of research on the molecular characterization of natural organic matter in Lake Baikal and the identification of technogenic sludge lignin:
+The algorithms, computational core, and software suite are developed by:
 
-* **Lomonosov Moscow State University, Faculty of Chemistry**
-* Department of Analytical Chemistry | Laboratory of Natural Humic Systems
-* NOM chemotyping methodology based on the 20-cell grid and $M_w$ estimation: Prof. I. V. Perminova, Dr. Sci. (Chem.)
-* EEM-PARAFAC, UV-Vis, and multiblock modeling module: T. O. Bay (2026)
+* **T. O. Bay** (Bay, T. O., 2026) — concept, architecture, computational pipelines, and web interface
 
 ---
 
@@ -260,10 +257,10 @@ If you use **ChemoSuite** in your academic research or environmental monitoring 
 
 ```bibtex
 @software{chemosuite2026,
-  author       = {Bay, T. O. and Perminova, I. V.},
+  author       = {Bay, T. O.},
   title        = {{ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis}},
   year         = {2026},
-  publisher    = {Lomonosov Moscow State University},
+  publisher    = {GitHub},
   version      = {v2.2.0},
   url          = {https://github.com/xav1c34/ChemoSuite},
   note         = {Web Application: https://nom-spectra.streamlit.app/}
