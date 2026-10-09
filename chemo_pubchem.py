@@ -114,6 +114,55 @@ REFERENCE_NOM_STRUCTURES = {
         "SMILES": "COC1=C(C=CC(=C1)C(C(=O)C)S(=O)(=O)O)O",
         "Class": "Лигносульфонат (Техногенный Kraft маркер)",
     },
+    "C15H10O7": {
+        "CID": 5280343,
+        "Title": "Quercetin",
+        "IUPACName": "2-(3,4-dihydroxyphenyl)-3,5,7-trihydroxychromen-4-one",
+        "SMILES": "C1=CC(=C(C=C1C2=C(C(=O)C3=C(C=C(C=C3O2)O)O)O)O)O",
+        "Class": "Флавоноид / Полифенол (Танниновый пул)",
+    },
+    "C15H10O6": {
+        "CID": 5280863,
+        "Title": "Kaempferol",
+        "IUPACName": "3,5,7-trihydroxy-2-(4-hydroxyphenyl)chromen-4-one",
+        "SMILES": "C1=CC(=CC=C1C2=C(C(=O)C3=C(C=C(C=C3O2)O)O)O)O",
+        "Class": "Флавоноид / Растительный полифенол",
+    },
+    "C7H6O5": {
+        "CID": 370,
+        "Title": "Gallic Acid",
+        "IUPACName": "3,4,5-trihydroxybenzoic acid",
+        "SMILES": "C1=C(C=C(C(=C1O)O)O)C(=O)O",
+        "Class": "Гидролизуемый таннин / Фенолокислота",
+    },
+    "C16H18O9": {
+        "CID": 1794427,
+        "Title": "Chlorogenic Acid",
+        "IUPACName": "(1S,3R,4R,5R)-3-[(E)-3-(3,4-dihydroxyphenyl)prop-2-enoyl]oxy-1,4,5-trihydroxycyclohexane-1-carboxylic acid",
+        "SMILES": "C1C(C(C(CC1(C(=O)O)O)OC(=O)/C=C/C2=CC(=C(C=C2)O)O)O)O",
+        "Class": "Оксикоричный эфир / Природный антиоксидант",
+    },
+    "C18H34O2": {
+        "CID": 445639,
+        "Title": "Oleic Acid",
+        "IUPACName": "(Z)-octadec-9-enoic acid",
+        "SMILES": "CCCCCCCCC=CCCCCCCCC(=O)O",
+        "Class": "Ненасыщенная жирная кислота (Липидный пул)",
+    },
+    "C16H32O2": {
+        "CID": 985,
+        "Title": "Palmitic Acid",
+        "IUPACName": "hexadecanoic acid",
+        "SMILES": "CCCCCCCCCCCCCCCC(=O)O",
+        "Class": "Насыщенная жирная кислота (Липидный пул)",
+    },
+    "C14H12O3": {
+        "CID": 445154,
+        "Title": "Resveratrol",
+        "IUPACName": "5-[(E)-2-(4-hydroxyphenyl)ethenyl]benzene-1,3-diol",
+        "SMILES": "C1=CC(=CC=C1/C=C/C2=CC(=CC(=C2)O)O)O",
+        "Class": "Стильбен / Растительный фитоалексин",
+    },
 }
 
 _memory_cache: Dict[str, List[Dict[str, Any]]] = {}
@@ -313,15 +362,22 @@ def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFra
         seen.add(f_clean)
 
         matches = lookup_formula_in_pubchem(f_clean, max_records=1, timeout=3.0)
+        chembl_url = f"https://www.ebi.ac.uk/chembl/g/#search_results/all/query={urllib.parse.quote(f_clean)}"
+        hmdb_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(f_clean)}&searcher=metabolites"
+
         if matches:
             best = matches[0]
+            cid = best.get("CID")
             rows.append({
                 "Formula": f_clean,
                 "Compound_Name": best.get("Title", "N/A"),
-                "CID": best.get("CID"),
+                "CID": cid,
                 "Chemical_Class": best.get("Class", "N/A"),
                 "SMILES": best.get("SMILES", "N/A"),
-                "PubChem_URL": best.get("PubChem_URL", ""),
+                "PubChem_URL": best.get("PubChem_URL", f"https://pubchem.ncbi.nlm.nih.gov/#query={f_clean}"),
+                "ChEMBL_URL": chembl_url,
+                "HMDB_URL": hmdb_url,
+                "Image_URL": best.get("Image_URL"),
             })
         else:
             rows.append({
@@ -331,6 +387,9 @@ def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFra
                 "Chemical_Class": classify_compound_by_name("", "", f_clean),
                 "SMILES": "N/A",
                 "PubChem_URL": f"https://pubchem.ncbi.nlm.nih.gov/#query={f_clean}",
+                "ChEMBL_URL": chembl_url,
+                "HMDB_URL": hmdb_url,
+                "Image_URL": None,
             })
 
     return pd.DataFrame(rows)

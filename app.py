@@ -514,7 +514,14 @@ T = {
         "pubchem_res_subclass": "Биогеохимический субкласс:",
         "pubchem_res_smiles": "SMILES:",
         "pubchem_res_cid": "PubChem CID:",
-        "pubchem_link_btn": "🌐 Открыть карточку соединения в PubChem",
+        "pubchem_link_btn": "🌐 Открыть в PubChem",
+        "pubchem_chembl_btn": "🧪 Найти в ChEMBL",
+        "pubchem_hmdb_btn": "🧬 Найти в HMDB (Метаболом)",
+        "pubchem_isomers_label": "Структурные изомеры в PubChem:",
+        "pubchem_card_header": "Хемоинформационный паспорт изомера #{i}: {title}",
+        "vk_inspect_title": "🔬 Хемоинформатическая идентификация точки (PubChem / ChEMBL / HMDB)",
+        "vk_inspect_caption": "Выберите формулу с диаграммы Ван-Кревелена для мгновенного извлечения структурных формул, SMILES и хемотипического класса.",
+        "vk_inspect_select": "Формула с диаграммы:",
         "tmds_mode_pathways": "🛣️ Трассировка путей реакций (Reaction Pathways)",
         "tmds_flux_header": "📊 Геохимические векторные потоки (Vector Flux Analysis)",
         "tmds_flux_ox_decarb": "Окисление / Декарбоксилирование (O/CO₂)",
@@ -928,7 +935,14 @@ T = {
         "pubchem_res_subclass": "Biogeochemical Subclass:",
         "pubchem_res_smiles": "SMILES:",
         "pubchem_res_cid": "PubChem CID:",
-        "pubchem_link_btn": "🌐 Open Compound in PubChem",
+        "pubchem_link_btn": "🌐 Open in PubChem",
+        "pubchem_chembl_btn": "🧪 Search in ChEMBL",
+        "pubchem_hmdb_btn": "🧬 Search in HMDB (Metabolome)",
+        "pubchem_isomers_label": "Structural Isomers in PubChem:",
+        "pubchem_card_header": "Chemoinformatic Passport of Isomer #{i}: {title}",
+        "vk_inspect_title": "🔬 Chemoinformatic Point Identification (PubChem / ChEMBL / HMDB)",
+        "vk_inspect_caption": "Select a molecular formula from the Van Krevelen diagram for instantaneous structural retrieval, SMILES, and chemotypic classification.",
+        "vk_inspect_select": "Formula from diagram:",
         "tmds_mode_pathways": "🛣️ Reaction Pathways Tracing",
         "tmds_flux_header": "📊 Geochemical Vector Flux Analysis",
         "tmds_flux_ox_decarb": "Oxidation / Decarboxylation Ratio (O/CO₂)",
@@ -1672,33 +1686,47 @@ if active_module == T[lang]["mod1_name"]:
                         cached_target = st.session_state.get(f"pc_last_f_{active_spectrum_name}")
                         if (search_clicked or (target_f and target_f != cached_target)):
                             with st.spinner(T[lang]["pubchem_searching"]):
-                                pc_matches = chemo_pubchem.lookup_formula_in_pubchem(target_f, max_records=1, timeout=4.0)
-                                st.session_state[f"pc_res_{active_spectrum_name}"] = pc_matches[0] if (pc_matches and len(pc_matches) > 0) else None
+                                pc_matches = chemo_pubchem.lookup_formula_in_pubchem(target_f, max_records=4, timeout=4.0)
+                                st.session_state[f"pc_res_list_{active_spectrum_name}"] = pc_matches if pc_matches else []
                                 st.session_state[f"pc_last_f_{active_spectrum_name}"] = target_f
 
-                        pc_active_res = st.session_state.get(f"pc_res_{active_spectrum_name}")
-                        if pc_active_res:
-                            pc_col_img, pc_col_meta = st.columns([1, 2])
-                            with pc_col_img:
-                                img_url = pc_active_res.get("Image_URL") or pc_active_res.get("image_url")
-                                if img_url:
-                                    st.image(img_url, caption=f"2D: {pc_active_res.get('Title', pc_active_res.get('name', ''))}", use_container_width=True)
-                                else:
-                                    st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
-                            with pc_col_meta:
-                                c_name = pc_active_res.get("Title") or pc_active_res.get("name", "N/A")
-                                c_iupac = pc_active_res.get("IUPACName") or pc_active_res.get("iupac_name", "N/A")
-                                c_class = pc_active_res.get("Class") or pc_active_res.get("class", "Unknown")
-                                c_smiles = pc_active_res.get("SMILES") or pc_active_res.get("smiles", "N/A")
-                                c_cid = pc_active_res.get("CID") or pc_active_res.get("cid")
+                        pc_matches_list = st.session_state.get(f"pc_res_list_{active_spectrum_name}", [])
+                        if pc_matches_list:
+                            st.caption(f"{T[lang]['pubchem_isomers_label']} **{len(pc_matches_list)}**")
+                            clean_t_f = chemo_pubchem.clean_formula(target_f) if hasattr(chemo_pubchem, "clean_formula") else target_f
+                            chembl_search_url = f"https://www.ebi.ac.uk/chembl/g/#search_results/all/query={urllib.parse.quote(clean_t_f)}"
+                            hmdb_search_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(clean_t_f)}&searcher=metabolites"
 
-                                st.markdown(f"**{T[lang]['pubchem_res_name']}** `{c_name}`")
-                                st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {c_iupac}")
-                                st.markdown(f"**{T[lang]['pubchem_res_class']}** `{c_class}`")
-                                st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{c_smiles}`")
-                                if c_cid:
-                                    st.markdown(f"**{T[lang]['pubchem_res_cid']}** [{c_cid}](https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid})")
-                                    st.link_button(T[lang]["pubchem_link_btn"], f"https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid}")
+                            ext_c1, ext_c2, _ = st.columns([1.5, 1.5, 3])
+                            with ext_c1:
+                                st.link_button(T[lang]["pubchem_chembl_btn"], chembl_search_url)
+                            with ext_c2:
+                                st.link_button(T[lang]["pubchem_hmdb_btn"], hmdb_search_url)
+
+                            for idx, pc_item in enumerate(pc_matches_list, 1):
+                                item_title = pc_item.get("Title") or pc_item.get("name", f"Isomer #{idx}")
+                                with st.container(border=True):
+                                    pc_col_img, pc_col_meta = st.columns([1, 2.2])
+                                    with pc_col_img:
+                                        img_url = pc_item.get("Image_URL") or pc_item.get("image_url")
+                                        if img_url:
+                                            st.image(img_url, caption=f"2D: {item_title}", use_container_width=True)
+                                        else:
+                                            st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
+                                    with pc_col_meta:
+                                        c_name = item_title
+                                        c_iupac = pc_item.get("IUPACName") or pc_item.get("iupac_name", "N/A")
+                                        c_class = pc_item.get("Class") or pc_item.get("class", "Unknown")
+                                        c_smiles = pc_item.get("SMILES") or pc_item.get("smiles", "N/A")
+                                        c_cid = pc_item.get("CID") or pc_item.get("cid")
+
+                                        st.markdown(f"**{T[lang]['pubchem_res_name']}** `{c_name}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {c_iupac}")
+                                        st.markdown(f"**{T[lang]['pubchem_res_class']}** `{c_class}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{c_smiles}`")
+                                        if c_cid:
+                                            st.markdown(f"**{T[lang]['pubchem_res_cid']}** [{c_cid}](https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid})")
+                                            st.link_button(f"{T[lang]['pubchem_link_btn']} #{c_cid}", f"https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid}")
             elif assigned_data is not None:
                 st.warning(T[lang]["no_formulas_warn"])
 
@@ -1770,6 +1798,60 @@ if active_module == T[lang]["mod1_name"]:
                         fig_bio.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
                         fig_bio.update_layout(showlegend=False, yaxis_title="%", xaxis_title="", margin=dict(l=10, r=10, t=10, b=10))
                         st_plotly(fig_bio)
+
+                if CHEMO_PUBCHEM_AVAILABLE and "Formula" in assigned_data.columns:
+                    st.markdown("---")
+                    with st.expander(T[lang]["vk_inspect_title"], expanded=False):
+                        st.caption(T[lang]["vk_inspect_caption"])
+                        vk_formulas = assigned_data.sort_values("intensity", ascending=False)["Formula"].head(80).tolist()
+                        v_col_sel, v_col_btn = st.columns([3, 1])
+                        with v_col_sel:
+                            sel_vk_f = st.selectbox(T[lang]["vk_inspect_select"], vk_formulas, key=f"vk_sel_f_{active_spectrum_name}")
+                        with v_col_btn:
+                            st.write("")
+                            st.write("")
+                            find_vk_clicked = st.button("🔍 " + T[lang]["pubchem_search_btn"].split()[-1], key=f"btn_vk_f_{active_spectrum_name}")
+
+                        last_vk_f = st.session_state.get(f"vk_last_f_{active_spectrum_name}")
+                        if find_vk_clicked or (sel_vk_f and sel_vk_f != last_vk_f):
+                            with st.spinner(T[lang]["pubchem_searching"]):
+                                vk_matches = chemo_pubchem.lookup_formula_in_pubchem(sel_vk_f, max_records=2, timeout=4.0)
+                                st.session_state[f"vk_res_{active_spectrum_name}"] = vk_matches
+                                st.session_state[f"vk_last_f_{active_spectrum_name}"] = sel_vk_f
+
+                        vk_saved_res = st.session_state.get(f"vk_res_{active_spectrum_name}", [])
+                        if vk_saved_res:
+                            clean_vk_str = chemo_pubchem.clean_formula(sel_vk_f) if hasattr(chemo_pubchem, "clean_formula") else sel_vk_f
+                            vk_chembl_url = f"https://www.ebi.ac.uk/chembl/g/#search_results/all/query={urllib.parse.quote(clean_vk_str)}"
+                            vk_hmdb_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(clean_vk_str)}&searcher=metabolites"
+
+                            ext_vk1, ext_vk2, _ = st.columns([1.5, 1.5, 3])
+                            with ext_vk1:
+                                st.link_button(T[lang]["pubchem_chembl_btn"], vk_chembl_url)
+                            with ext_vk2:
+                                st.link_button(T[lang]["pubchem_hmdb_btn"], vk_hmdb_url)
+
+                            for idx, item in enumerate(vk_saved_res, 1):
+                                with st.container(border=True):
+                                    c_img, c_info = st.columns([1, 2.2])
+                                    with c_img:
+                                        img_u = item.get("Image_URL")
+                                        if img_u:
+                                            st.image(img_u, caption=f"2D: {item.get('Title', 'Compound')}", use_container_width=True)
+                                        else:
+                                            st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
+                                    with c_info:
+                                        t_name = item.get("Title", "N/A")
+                                        iupac_name = item.get("IUPACName", "N/A")
+                                        cls_name = item.get("Class", "Unknown")
+                                        smi = item.get("SMILES", "N/A")
+                                        cid_val = item.get("CID")
+                                        st.markdown(f"**{T[lang]['pubchem_res_name']}** `{t_name}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {iupac_name}")
+                                        st.markdown(f"**{T[lang]['pubchem_res_class']}** `{cls_name}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{smi}`")
+                                        if cid_val:
+                                            st.link_button(f"{T[lang]['pubchem_link_btn']} #{cid_val}", f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val}")
             elif proj_type == T[lang]["proj_dbe_c"]:
                 fig_dbe = go.Figure()
                 known_classes = ["CHO", "CHON", "CHOS", "CHONS"]
@@ -3645,7 +3727,14 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
 
                         annot_saved = st.session_state.get("annotated_biomarkers")
                         if annot_saved is not None and not annot_saved.empty:
-                            st_df(annot_saved)
+                            st_df(
+                                annot_saved,
+                                column_config={
+                                    "PubChem_URL": st.column_config.LinkColumn("PubChem", display_text="Open CID"),
+                                    "ChEMBL_URL": st.column_config.LinkColumn("ChEMBL", display_text="Search"),
+                                    "HMDB_URL": st.column_config.LinkColumn("HMDB", display_text="Metabolites"),
+                                }
+                            )
                             st.download_button(
                                 label=T[lang]["ml_pubchem_dl_btn"],
                                 data=annot_saved.to_csv(index=False).encode("utf-8"),
@@ -3653,6 +3742,22 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 mime="text/csv",
                                 key="dl_annot_biomarkers_csv",
                             )
+
+                            # Интерактивная фотогалерея 2D структур ключевых маркеров
+                            with st.expander(T[lang]["pubchem_inspect_expander"], expanded=True):
+                                bm_cols = st.columns(3)
+                                for b_idx, (_, b_row) in enumerate(annot_saved.head(6).iterrows()):
+                                    with bm_cols[b_idx % 3]:
+                                        with st.container(border=True):
+                                            b_img = b_row.get("Image_URL")
+                                            if b_img:
+                                                st.image(b_img, caption=f"2D: {b_row['Compound_Name']}", use_container_width=True)
+                                            else:
+                                                st.info(f"Formula: {b_row['Formula']}")
+                                            st.markdown(f"**{b_row['Formula']}**")
+                                            st.caption(f"{b_row['Chemical_Class']}")
+                                            if pd.notna(b_row.get("CID")) and b_row.get("CID"):
+                                                st.link_button(f"{T[lang]['pubchem_link_btn']} #{int(b_row['CID'])}", b_row["PubChem_URL"])
 
             # Таб S-Plot (для OPLS-DA)
             if is_model_opls and tab_splot is not None:
