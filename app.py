@@ -472,6 +472,12 @@ T = {
         "ml_m_r2x_ortho": "R²X(ortho)",
         "ml_warn_opls_binary": "ℹ️ OPLS-DA оптимизирован для двух контрастных классов. Для 3+ классов выберите PLS-DA.",
         "ml_dl_passport_btn": "📑 Скачать полный аналитический паспорт (.xlsx)",
+        "ml_sens_label": "Чувствительность (Sensitivity):",
+        "ml_spec_label": "Специфичность (Specificity):",
+        "ml_bal_acc_label": "Сбалансированная точность (Balanced Accuracy):",
+        "ml_acc_label": "Общая точность (Accuracy):",
+        "ml_mode_multiclass": "Режим: Мультиклассовая классификация ({n} класса)",
+        "ml_report_lang_label": "Язык отчета / Report Language:",
         "ml_passport_desc": "Многостраничный Excel-паспорт: Сводка, матрица признаков, 20 ячеек FT-ICR, EEM, UV-Vis, VIP-биомаркеры, S-Plot.",
         "proj_expander_title": "💾 Проект платформы (.chemo)",
         "proj_save_header": "Сохранить текущую сессию",
@@ -880,6 +886,12 @@ T = {
         "ml_m_r2x_ortho": "R²X(ortho)",
         "ml_warn_opls_binary": "ℹ️ OPLS-DA is optimized for binary contrast. For 3+ classes, please select PLS-DA.",
         "ml_dl_passport_btn": "📑 Download Full Analytical Passport (.xlsx)",
+        "ml_sens_label": "Sensitivity:",
+        "ml_spec_label": "Specificity:",
+        "ml_bal_acc_label": "Balanced Accuracy:",
+        "ml_acc_label": "Accuracy:",
+        "ml_mode_multiclass": "Mode: Multiclass classification ({n} classes)",
+        "ml_report_lang_label": "Report Language / Язык отчета:",
         "ml_passport_desc": "Multi-sheet Excel workbook: Summary, Fused Matrix, FT-ICR 20-Grid, EEM, UV-Vis, VIP Biomarkers, S-Plot.",
         "proj_expander_title": "💾 ChemoSuite Project (.chemo)",
         "proj_save_header": "Save Current Session",
@@ -3686,17 +3698,17 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     if not res.get("is_multiclass", False):
                         st.markdown(
                             f"""
-                            * **Чувствительность (Sensitivity):** `{res.get('Sensitivity', 0.0):.1f}%`
-                            * **Специфичность (Specificity):** `{res.get('Specificity', 0.0):.1f}%`
-                            * **Сбалансированная точность:** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            * **{T[lang]['ml_sens_label']}** `{res.get('Sensitivity', 0.0):.1f}%`
+                            * **{T[lang]['ml_spec_label']}** `{res.get('Specificity', 0.0):.1f}%`
+                            * **{T[lang]['ml_bal_acc_label']}** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
                             """
                         )
                     else:
                         st.markdown(
                             f"""
-                            * **Режим:** Мультиклассовая классификация ({len(cls_labels)} класса)
-                            * **Сбалансированная точность (Balanced Accuracy):** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
-                            * **Общая точность (Accuracy):** `{res.get('Accuracy', 0.0):.1f}%`
+                            * **{T[lang]['ml_mode_multiclass'].format(n=len(cls_labels))}**
+                            * **{T[lang]['ml_bal_acc_label']}** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            * **{T[lang]['ml_acc_label']}** `{res.get('Accuracy', 0.0):.1f}%`
                             """
                         )
 
@@ -3756,6 +3768,17 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     unsafe_allow_html=True,
                 )
 
+                col_rep_lang, _ = st.columns([2, 2])
+                with col_rep_lang:
+                    report_lang_choice = st.radio(
+                        T[lang]["ml_report_lang_label"],
+                        ["Русский (RU)", "English (EN)"],
+                        index=0 if lang == "ru" else 1,
+                        horizontal=True,
+                        key="report_lang_selector"
+                    )
+                    rep_lang = "en" if "EN" in report_lang_choice else "ru"
+
                 if REPORT_GEN_AVAILABLE and report_generator is not None:
                     try:
                         passport_bytes = report_generator.generate_excel_passport(
@@ -3765,19 +3788,21 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 "project_name": st.session_state.get("fused_source", "ChemoSuite Session"),
                                 "operator": "ChemoSuite Unified Analytical Engine",
                             },
+                            lang=rep_lang,
                         )
+                        rep_suffix = "EN" if rep_lang == "en" else "RU"
                         st.download_button(
                             label=T[lang]["ml_dl_passport_btn"],
                             data=passport_bytes,
-                            file_name=f"ChemoSuite_Analytical_Passport_{curr_model_type}.xlsx",
+                            file_name=f"ChemoSuite_Analytical_Passport_{curr_model_type}_{rep_suffix}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             type="primary",
                             key="dl_passport_xlsx_btn",
                         )
                     except Exception as err:
-                        st.error(f"Ошибка формирования Excel-паспорта: {err}")
+                        st.error(f"Ошибка формирования Excel-паспорта: {err}" if lang == "ru" else f"Excel passport generation error: {err}")
                 else:
-                    st.warning("Модуль `report_generator.py` или библиотека `openpyxl` недоступны.")
+                    st.warning("Модуль `report_generator.py` или библиотека `openpyxl` недоступны." if lang == "ru" else "`report_generator.py` or `openpyxl` library is unavailable.")
 
                 st.markdown("---")
                 st.write("#### 📄 Табличные выгрузки отдельных компонентов" if lang == "ru" else "#### 📄 Individual Component Exports")

@@ -21,6 +21,8 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+.agents/
+.claude/
 
 *.csv
 *.tsv

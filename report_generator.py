@@ -63,9 +63,11 @@ def generate_excel_passport(
     fused_df: pd.DataFrame,
     model_results: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
+    lang: str = "ru",
 ) -> bytes:
     """
     Генерирует многостраничный файл Excel (.xlsx) с паспортом анализа и возвращает байты.
+    Поддерживает языки отчета: "ru" и "en".
     """
     wb = openpyxl.Workbook()
     wb.remove(wb.active)  # Удаляем дефолтный пустой лист
@@ -83,6 +85,8 @@ def generate_excel_passport(
     uv_cols = [c for c in feature_cols if block_map.get(c) == "UV-Vis"]
     other_cols = [c for c in feature_cols if block_map.get(c) == "Other"]
 
+    is_en = (lang == "en")
+
     # =========================================================================
     # ЛИСТ 1: Паспорт и сводка (Passport & Summary)
     # =========================================================================
@@ -97,18 +101,18 @@ def generate_excel_passport(
     banner_cell.font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
     banner_cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    ws_sum["A4"] = "1. ОБЩИЕ МЕТАДАННЫЕ АНАЛИЗА"
+    ws_sum["A4"] = "1. GENERAL ANALYSIS METADATA" if is_en else "1. ОБЩИЕ МЕТАДАННЫЕ АНАЛИЗА"
     ws_sum["A4"].font = Font(name="Calibri", size=12, bold=True, color="134074")
 
     meta_info = [
-        ("Проект / Сессия:", project_name),
-        ("Дата генерации:", now_str),
-        ("Оператор / Платформа:", operator_name),
-        ("Количество образцов (Samples):", len(fused_df)),
-        ("Всего дескрипторов (Features):", len(feature_cols)),
-        ("Дескрипторов FT-ICR MS:", len(ft_cols)),
-        ("Дескрипторов EEM-PARAFAC:", len(eem_cols)),
-        ("Дескрипторов UV-Vis:", len(uv_cols)),
+        ("Project / Session:" if is_en else "Проект / Сессия:", project_name),
+        ("Generation Date:" if is_en else "Дата генерации:", now_str),
+        ("Operator / Engine:" if is_en else "Оператор / Платформа:", operator_name),
+        ("Total Samples:" if is_en else "Количество образцов (Samples):", len(fused_df)),
+        ("Total Features:" if is_en else "Всего дескрипторов (Features):", len(feature_cols)),
+        ("FT-ICR MS Descriptors:" if is_en else "Дескрипторов FT-ICR MS:", len(ft_cols)),
+        ("EEM-PARAFAC Descriptors:" if is_en else "Дескрипторов EEM-PARAFAC:", len(eem_cols)),
+        ("UV-Vis Descriptors:" if is_en else "Дескрипторов UV-Vis:", len(uv_cols)),
     ]
 
     for idx, (lbl, val) in enumerate(meta_info, start=5):
@@ -119,7 +123,7 @@ def generate_excel_passport(
 
     # Секция хемометрической модели
     curr_row = 15
-    ws_sum.cell(row=curr_row, column=1, value="2. СВОДКА ХЕМОМЕТРИЧЕСКОЙ МОДЕЛИ")
+    ws_sum.cell(row=curr_row, column=1, value="2. CHEMOMETRIC MODEL SUMMARY" if is_en else "2. СВОДКА ХЕМОМЕТРИЧЕСКОЙ МОДЕЛИ")
     ws_sum.cell(row=curr_row, column=1).font = Font(name="Calibri", size=12, bold=True, color="134074")
     curr_row += 1
 
@@ -133,15 +137,15 @@ def generate_excel_passport(
         q2 = model_results.get("Q2", 0.0)
 
         model_info = [
-            ("Архитектура модели:", m_type),
-            ("R²X (Объясненная дисперсия X):", f"{r2x:.2f}%"),
-            ("R²Y (Объясненная дисперсия классов Y):", f"{r2y:.2f}%"),
-            ("Q² (Прогностическая способность CV):", f"{q2:.2f}%"),
-            ("Сбалансированная точность (Accuracy):", f"{acc:.2f}%"),
+            ("Model Architecture:" if is_en else "Архитектура модели:", m_type),
+            ("R²X (Explained X-variance):" if is_en else "R²X (Объясненная дисперсия X):", f"{r2x:.2f}%"),
+            ("R²Y (Explained Class Y-variance):" if is_en else "R²Y (Объясненная дисперсия классов Y):", f"{r2y:.2f}%"),
+            ("Q² (Predictive Ability CV):" if is_en else "Q² (Прогностическая способность CV):", f"{q2:.2f}%"),
+            ("Balanced Accuracy:" if is_en else "Сбалансированная точность (Accuracy):", f"{acc:.2f}%"),
         ]
         if r2x_p is not None and r2x_o is not None:
-            model_info.append(("R²X_pred (Предиктивная дисперсия):", f"{r2x_p:.2f}%"))
-            model_info.append(("R²X_ortho (Ортогональный шум):", f"{r2x_o:.2f}%"))
+            model_info.append(("R²X_pred (Predictive Variance):" if is_en else "R²X_pred (Предиктивная дисперсия):", f"{r2x_p:.2f}%"))
+            model_info.append(("R²X_ortho (Orthogonal Noise):" if is_en else "R²X_ortho (Ортогональный шум):", f"{r2x_o:.2f}%"))
 
         for lbl, val in model_info:
             ws_sum.cell(row=curr_row, column=1, value=lbl)
@@ -154,12 +158,12 @@ def generate_excel_passport(
         b_contrib = model_results.get("Block_Contributions", {})
         if b_contrib:
             curr_row += 1
-            ws_sum.cell(row=curr_row, column=1, value="3. ОТНОСИТЕЛЬНЫЙ ВКЛАД АНАЛИТИЧЕСКИХ БЛОКОВ (VIP²)")
+            ws_sum.cell(row=curr_row, column=1, value="3. RELATIVE ANALYTICAL BLOCK CONTRIBUTION (VIP²)" if is_en else "3. ОТНОСИТЕЛЬНЫЙ ВКЛАД АНАЛИТИЧЕСКИХ БЛОКОВ (VIP²)")
             ws_sum.cell(row=curr_row, column=1).font = Font(name="Calibri", size=12, bold=True, color="134074")
             curr_row += 1
 
-            ws_sum.cell(row=curr_row, column=1, value="Аналитический блок")
-            ws_sum.cell(row=curr_row, column=2, value="Доля вклада (%)")
+            ws_sum.cell(row=curr_row, column=1, value="Analytical Block" if is_en else "Аналитический блок")
+            ws_sum.cell(row=curr_row, column=2, value="Contribution Share (%)" if is_en else "Доля вклада (%)")
             _style_header_cell(ws_sum.cell(row=curr_row, column=1), fill_hex="134074")
             _style_header_cell(ws_sum.cell(row=curr_row, column=2), fill_hex="134074")
             curr_row += 1
@@ -171,7 +175,7 @@ def generate_excel_passport(
                 _style_data_cell(ws_sum.cell(row=curr_row, column=2), num_format="0.0%", align="right")
                 curr_row += 1
     else:
-        ws_sum.cell(row=curr_row, column=1, value="Модель машинного обучения еще не была обучена.")
+        ws_sum.cell(row=curr_row, column=1, value="Machine learning model has not been trained yet." if is_en else "Модель машинного обучения еще не была обучена.")
         ws_sum.cell(row=curr_row, column=1).font = Font(name="Calibri", size=10, italic=True)
 
     _apply_thin_borders(ws_sum, 4, curr_row, 1, 2)

@@ -72,3 +72,28 @@ def test_generate_excel_passport_no_model():
     assert "Passport & Summary" in wb.sheetnames
     assert "Fused Feature Matrix" in wb.sheetnames
     assert "Biomarkers & VIP" not in wb.sheetnames
+
+
+def test_generate_excel_passport_english():
+    """Тест генерации многостраничного отчета на английском языке."""
+    df, y = chemo_ml.generate_multimodal_benchmark()
+    df["Class_Target"] = y.values
+    X = df.drop(columns=["Sample_ID", "Class_Target"])
+
+    res = chemo_ml.train_plsda_model(X, y.values, n_components=2)
+    meta = {"project_name": "International Lake Monitoring", "operator": "Dr. Smith"}
+
+    excel_bytes = report_generator.generate_excel_passport(df, model_results=res, metadata=meta, lang="en")
+    assert isinstance(excel_bytes, bytes)
+
+    wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
+    ws_sum = wb["Passport & Summary"]
+
+    # Проверяем англоязычные заголовки
+    assert ws_sum["A4"].value == "1. GENERAL ANALYSIS METADATA"
+    assert ws_sum["A5"].value == "Project / Session:"
+    assert ws_sum["A6"].value == "Generation Date:"
+    assert ws_sum["A7"].value == "Operator / Engine:"
+    assert ws_sum["A8"].value == "Total Samples:"
+    assert ws_sum["B5"].value == "International Lake Monitoring"
+
