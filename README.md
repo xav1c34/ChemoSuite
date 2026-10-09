@@ -8,13 +8,17 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-44%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-49%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 **Комплексная веб-платформа для глубокого хемометрического анализа природного органического вещества (РОВ/NOM) и техногенного шлам-лигнина.**
+
+<br />
+
+<img src="assets/demo.gif" width="100%" alt="ChemoSuite Platform Demo" />
 
 </div>
 
