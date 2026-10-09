@@ -1192,7 +1192,7 @@ with st.sidebar:
                     data=chemo_proj_bytes,
                     file_name=f"ChemoSuite_Session_{time_str}.chemo",
                     mime="application/octet-stream",
-                    use_container_width=True,
+                    width="stretch",
                     key="dl_chemo_project_btn",
                 )
             except Exception as e_save:
@@ -1210,7 +1210,7 @@ with st.sidebar:
                     p_bytes = proj_file.getvalue()
                     p_sum = project_io.get_chemo_project_summary(p_bytes)
                     st.success(f"✓ {p_sum.get('project_name', 'ChemoSuite Project')} ({p_sum.get('created_at', '')[:10]})")
-                    if st.button(T[lang]["proj_restore_btn"], type="primary", use_container_width=True, key="btn_restore_chemo"):
+                    if st.button(T[lang]["proj_restore_btn"], type="primary", width="stretch", key="btn_restore_chemo"):
                         restored = project_io.load_chemo_project(p_bytes)
                         for k, v in restored.items():
                             if k != "project_metadata":
@@ -1711,7 +1711,7 @@ if active_module == T[lang]["mod1_name"]:
                                     with pc_col_img:
                                         img_url = pc_item.get("Image_URL") or pc_item.get("image_url")
                                         if img_url:
-                                            st.image(img_url, caption=f"2D: {item_title}", use_container_width=True)
+                                            st.image(img_url, caption=f"2D: {item_title}", width="stretch")
                                         else:
                                             st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
                                     with pc_col_meta:
@@ -1838,7 +1838,7 @@ if active_module == T[lang]["mod1_name"]:
                                     with c_img:
                                         img_u = item.get("Image_URL")
                                         if img_u:
-                                            st.image(img_u, caption=f"2D: {item.get('Title', 'Compound')}", use_container_width=True)
+                                            st.image(img_u, caption=f"2D: {item.get('Title', 'Compound')}", width="stretch")
                                         else:
                                             st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
                                     with c_info:
@@ -2150,7 +2150,7 @@ if active_module == T[lang]["mod1_name"]:
     with tabs[6]:
         st.subheader(T[lang]["tab_cmp"])
 
-        with st.popover("ℹ️ " + ("Руководство: Зачем нужна Алгебра спектров и как её применять" if lang == "ru" else "Guide: Spectrum Algebra & Comparative Analysis"), use_container_width=True):
+        with st.popover("ℹ️ " + ("Руководство: Зачем нужна Алгебра спектров и как её применять" if lang == "ru" else "Guide: Spectrum Algebra & Comparative Analysis"), width="stretch"):
             st.markdown(r"""
 ### 🔬 Зачем нужна Алгебра спектров в экологическом анализе?
 
@@ -3173,7 +3173,7 @@ elif active_module == T[lang]["mod3_name"]:
     st.title(T[lang]["ml_title"])
     st.caption(T[lang]["ml_subtitle"])
 
-    with st.popover("ℹ️ " + ("Руководство: Что такое Data Fusion (Слияние данных) и зачем это нужно?" if lang == "ru" else "Guide: Multiblock Data Fusion & Chemometrics"), use_container_width=True):
+    with st.popover("ℹ️ " + ("Руководство: Что такое Data Fusion (Слияние данных) и зачем это нужно?" if lang == "ru" else "Guide: Multiblock Data Fusion & Chemometrics"), width="stretch"):
         st.markdown(r"""
 ### 🧬 Концепция Data Fusion (Многоблочная хемометрика)
 
@@ -3752,7 +3752,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                         with st.container(border=True):
                                             b_img = b_row.get("Image_URL")
                                             if b_img:
-                                                st.image(b_img, caption=f"2D: {b_row['Compound_Name']}", use_container_width=True)
+                                                st.image(b_img, caption=f"2D: {b_row['Compound_Name']}", width="stretch")
                                             else:
                                                 st.info(f"Formula: {b_row['Formula']}")
                                             st.markdown(f"**{b_row['Formula']}**")

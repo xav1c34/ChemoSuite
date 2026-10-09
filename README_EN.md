@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-50%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-63%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -139,14 +139,15 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
 │   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Automated test suite (50 unit tests)
+├── tests/                            # Automated test suite (63 unit tests)
 │   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS networks, vector fluxes, pathways)
 │   ├── test_chemo_pubchem.py         # PubChem chemoinformatics tests (PUG-REST, formula cleaning, biomarker annotation)
 │   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
 │   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
 │   ├── test_demo_pipelines.py        # End-to-end integration tests for demo data (FT-ICR, EEM, UV-Vis, ML)
 │   ├── test_report_generator.py      # Multi-sheet Excel passport generation tests (.xlsx)
-│   └── test_project_io.py            # Session serialization & restoration tests (.chemo)
+│   ├── test_project_io.py            # Session serialization & restoration tests (.chemo)
+│   └── test_unusual_stress_cases.py  # Stress testing under adversarial and boundary conditions (singular PLS, noise, edge cases)
 │
 ├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.12)
 ├── pytest.ini                        # Pytest configuration file
@@ -222,6 +223,14 @@ Once launched, the interface will open automatically in your browser at `http://
   * Active session assembler: automatic merging of descriptors from Modules 1 and 2 into Module 3.
   * Modular core architecture: separated computational engines (`fticr_core.py`, `eem_core.py`, `chemo_ml.py`) and UI (`app.py`).
   * Comprehensive 18-unit test suite (`pytest`) and GitHub Actions automated CI/CD pipeline.
+* **`v2.2.0` (ChemoSuite LTS / Full Trimodal & Chemoinformatics Release)**:
+  * Orthogonal OPLS-DA and sparse sPLS-DA algorithms ($L_1$-LASSO regularization with biomarker selection).
+  * Expanded chemoinformatics: direct 2D chemical structure rendering and cross-database queries for PubChem, ChEMBL, and HMDB.
+  * Complete bilingual localization i18n (RU/EN) across all modules, tabs, graphs, dialogs, and reports.
+  * Formatted multi-sheet Excel passport exports (.xlsx) styled with openpyxl and language switching.
+  * Project workspace manager (`.chemo` session archives) with complete state serialization and 1-click recovery.
+  * Full stress testing suite with 63 unit/integration tests (handling singularities, zero variances, corrupt sessions, and noise).
+  * Modernized Streamlit API adhering to recent specifications (`width="stretch"`).
 
 ---
 

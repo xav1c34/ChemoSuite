@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-50%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-63%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -139,14 +139,15 @@ ChemoSuite/
 │   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
 │   └── README.md                     # Инструкция по использованию демо-файлов
 │
-├── tests/                            # Набор модульных тестов pytest (50 unit-тестов)
+├── tests/                            # Набор модульных тестов pytest (63 unit-теста)
 │   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS сети, векторные потоки, пути реакций)
 │   ├── test_chemo_pubchem.py         # Тесты хемоинформатики PubChem (PUG-REST, очистка формул, аннотация биомаркеров)
 │   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
 │   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
 │   ├── test_demo_pipelines.py        # Сквозные интеграционные тесты реальных демо-данных (FT-ICR, EEM, UV-Vis, ML)
 │   ├── test_report_generator.py      # Тесты генерации многостраничных Excel-паспортов (.xlsx)
-│   └── test_project_io.py            # Тесты сериализации и восстановления сессий (.chemo)
+│   ├── test_project_io.py            # Тесты сериализации и восстановления сессий (.chemo)
+│   └── test_unusual_stress_cases.py  # Стресс-тестирование граничных и сингулярных условий (сингулярный PLS, пустые спектры, шум)
 │
 ├── .github/workflows/ci.yml          # GitHub Actions CI пайплайн (Ubuntu/Windows, Python 3.10-3.12)
 ├── pytest.ini                        # Конфигурация запуска тестов pytest
@@ -221,6 +222,14 @@ streamlit run app.py
   * Сборщик сессии: автоматическое сведение дескрипторов из Модулей 1 и 2 в Модуль 3.
   * Модульная архитектура: разделение вычислительных ядер (`fticr_core.py`, `eem_core.py`, `chemo_ml.py`) и UI (`app.py`).
   * Полный набор из 18 unit-тестов (`pytest`) и автоматический CI/CD пайплайн GitHub Actions.
+* **`v2.2.0` (ChemoSuite LTS / Full Trimodal & Chemoinformatics Release)**:
+  * Алгоритмы ортогонального OPLS-DA и разреженного sPLS-DA ($L_1$-LASSO регуляризация с отбором ключевых биомаркеров).
+  * Расширенная хемоинформатика: прямое отображение 2D-структур и кросс-поиск в базах данных PubChem, ChEMBL и HMDB.
+  * Полная двуязычная локализация i18n (RU/EN) во всех модулях, вкладках, графиках и отчетах.
+  * Экспорт паспортов в многостраничный Excel (.xlsx) с форматированием openpyxl и двуязычной поддержкой.
+  * Управление проектами (`.chemo` архивы сессий) с полной сериализацией состояния и 1-кликовым восстановлением.
+  * Полный стресс-тестовый пакет из 63 unit/интеграционных тестов (включая проверку сингулярностей, нулевых дисперсий и поврежденных данных).
+  * Модернизация Streamlit API под актуальные стандарты (`width="stretch"`).
 
 ---
 
