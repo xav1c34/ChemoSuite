@@ -74,11 +74,13 @@ def test_save_and_load_full_multimodal_project():
 
     eem_df = pd.DataFrame({"Sample_ID": ["S1", "S2"], "FI_370": [1.2, 1.4], "HIX": [0.8, 0.9]})
     uv_df = pd.DataFrame({"Sample_ID": ["S1", "S2"], "A254": [0.35, 0.42], "E2_E3": [4.1, 3.8]})
+    ftir_df = pd.DataFrame({"Sample_ID": ["S1", "S2"], "AI_FTIR": [0.3, 0.5], "LI_FTIR": [0.4, 0.8]})
 
     session_data = {
         "spectra_db": spectra_db,
         "eem_ml_descriptors": eem_df,
         "uv_ml_descriptors": uv_df,
+        "ftir_ml_descriptors": ftir_df,
         "fused_data": fused_df,
         "fused_source": "Trimodal Integration Test",
         "pls_results": pls_res,
@@ -102,6 +104,7 @@ def test_save_and_load_full_multimodal_project():
     assert meta["summary"]["n_spectra"] == 1
     assert meta["summary"]["has_eem"] is True
     assert meta["summary"]["has_uv"] is True
+    assert meta["summary"]["has_ftir"] is True
     assert meta["summary"]["has_fused"] is True
     assert meta["summary"]["has_trained_model"] is True
     assert meta["summary"]["model_type"] == "PLS-DA"
@@ -121,6 +124,7 @@ def test_save_and_load_full_multimodal_project():
     # Проверка дескрипторов
     assert_frame_equal(restored["eem_ml_descriptors"], eem_df)
     assert_frame_equal(restored["uv_ml_descriptors"], uv_df)
+    assert_frame_equal(restored["ftir_ml_descriptors"], ftir_df)
     assert_frame_equal(restored["fused_data"], fused_df)
     assert restored["fused_source"] == "Trimodal Integration Test"
 

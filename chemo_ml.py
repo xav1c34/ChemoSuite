@@ -22,6 +22,8 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
             mapping[c] = "UV-Vis"
         elif c.startswith("VK_") or any(k in c_low for k in ["mn", "mw", "dbe", "ai", "nosc", "cho_", "chon_", "chos_", "chons_"]):
             mapping[c] = "FT-ICR MS"
+        elif c.startswith("FTIR_") or any(k in c_low for k in ["ftir", "raman", "wavenumber", "branching_idx", "lignin_idx", "gs_ratio", "polysaccharide_idx", "phenolic_idx"]):
+            mapping[c] = "FTIR"
         elif any(k in c_low for k in ["fi", "hix", "suva", "c1", "c2", "c3", "c4", "fulvic", "lignin", "protein", "humic"]):
             mapping[c] = "EEM-PARAFAC"
         else:
@@ -119,10 +121,11 @@ def merge_feature_blocks(
     df_fticr: Optional[pd.DataFrame] = None,
     df_eem: Optional[pd.DataFrame] = None,
     df_uv: Optional[pd.DataFrame] = None,
+    df_ftir: Optional[pd.DataFrame] = None,
     on_col: str = "Sample_ID",
 ) -> pd.DataFrame:
-    """Универсальное соединение матриц FT-ICR, EEM и UV-Vis по идентификаторам образцов."""
-    dfs = [df for df in [df_fticr, df_eem, df_uv] if df is not None and not df.empty]
+    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis и FTIR по идентификаторам образцов."""
+    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir] if df is not None and not df.empty]
     if not dfs:
         return pd.DataFrame()
     for d in dfs:
@@ -992,6 +995,13 @@ def generate_multimodal_benchmark() -> Tuple[pd.DataFrame, pd.Series]:
         row["S_R"] = round(np.random.uniform(0.65, 0.92) if is_lignin else np.random.uniform(1.05, 1.45), 2)
         row["d2A_280"] = round(np.random.uniform(-1.9, -0.9) if is_lignin else np.random.uniform(-0.35, 0.05), 4)
         row["Mw_est"] = round(np.random.uniform(2100.0, 3100.0) if is_lignin else np.random.uniform(850.0, 1600.0), 0)
+
+        # 4. Признаки колебательной спектроскопии (FTIR)
+        row["FTIR_Aromaticity_Idx"] = round(np.random.uniform(2.8, 4.5) if is_lignin else np.random.uniform(0.6, 1.4), 3)
+        row["FTIR_Oxidation_Idx"] = round(np.random.uniform(0.85, 1.35) if is_lignin else np.random.uniform(0.35, 0.65), 3)
+        row["FTIR_Lignin_Idx"] = round(np.random.uniform(0.75, 1.05) if is_lignin else np.random.uniform(0.12, 0.28), 3)
+        row["FTIR_GS_Ratio"] = round(np.random.uniform(1.8, 3.2) if is_lignin else np.random.uniform(0.8, 1.4), 3)
+        row["FTIR_Polysaccharide_Idx"] = round(np.random.uniform(0.35, 0.65) if is_lignin else np.random.uniform(1.2, 2.2), 3)
 
         records.append(row)
 

@@ -98,6 +98,7 @@ def save_chemo_project(
         eem_df = session_data.get("eem_ml_descriptors", None)
         uv_df = session_data.get("uv_ml_descriptors", None)
         fused_df = session_data.get("fused_data", None)
+        ftir_df = session_data.get("ftir_ml_descriptors", None)
         pls_res = session_data.get("pls_results", None)
         perm_res = session_data.get("perm_results", None)
 
@@ -113,6 +114,7 @@ def save_chemo_project(
                 "spectra_names": list(spectra_db.keys()),
                 "has_eem": eem_df is not None and not eem_df.empty,
                 "has_uv": uv_df is not None and not uv_df.empty,
+                "has_ftir": ftir_df is not None and not ftir_df.empty,
                 "has_fused": fused_df is not None and not fused_df.empty,
                 "fused_source": session_data.get("fused_source", "Unknown"),
                 "has_trained_model": pls_res is not None,
@@ -165,6 +167,10 @@ def save_chemo_project(
 
         if isinstance(uv_df, pd.DataFrame) and not uv_df.empty:
             zf.writestr("descriptors/uv_ml_descriptors.csv", uv_df.to_csv(index=False))
+
+        ftir_df = session_data.get("ftir_ml_descriptors", None)
+        if isinstance(ftir_df, pd.DataFrame) and not ftir_df.empty:
+            zf.writestr("descriptors/ftir_ml_descriptors.csv", ftir_df.to_csv(index=False))
 
         # 4. Мультимодальная матрица слияния данных (Data Fusion)
         if isinstance(fused_df, pd.DataFrame) and not fused_df.empty:
@@ -290,6 +296,7 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
                 "spectra_db": {},
                 "eem_ml_descriptors": None,
                 "uv_ml_descriptors": None,
+                "ftir_ml_descriptors": None,
                 "fused_data": None,
                 "fused_source": meta.get("summary", {}).get("fused_source", "Restored Session"),
                 "pls_results": None,
@@ -331,12 +338,15 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
                     restored["spectra_db"][spec_name] = spec_entry
 
-            # 2. Дескрипторы EEM и UV-Vis
+            # 2. Дескрипторы EEM, UV-Vis и FTIR
             if "descriptors/eem_ml_descriptors.csv" in names:
                 restored["eem_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/eem_ml_descriptors.csv")))
 
             if "descriptors/uv_ml_descriptors.csv" in names:
                 restored["uv_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/uv_ml_descriptors.csv")))
+
+            if "descriptors/ftir_ml_descriptors.csv" in names:
+                restored["ftir_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/ftir_ml_descriptors.csv")))
 
             # 3. Fused Data
             if "fusion/fused_data.csv" in names:

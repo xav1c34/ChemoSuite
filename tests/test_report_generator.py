@@ -30,6 +30,7 @@ def test_generate_excel_passport_plsda():
     assert "FT-ICR MS Descriptors" in sheet_names
     assert "EEM Descriptors" in sheet_names
     assert "UV-Vis Descriptors" in sheet_names
+    assert "FTIR Descriptors" in sheet_names
     assert "Biomarkers & VIP" in sheet_names
 
     # Проверка листа сводки

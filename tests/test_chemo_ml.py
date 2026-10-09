@@ -10,7 +10,7 @@ import chemo_ml
 
 def test_classify_feature_blocks():
     """Тест автоматической классификации признаков по аналитическим блокам."""
-    cols = ["VK_1", "VK_20", "AI", "DBE", "FI", "HIX", "C1_Fulvic", "A254", "E2_E3", "Mw_est", "Random_Col"]
+    cols = ["VK_1", "VK_20", "AI", "DBE", "FI", "HIX", "C1_Fulvic", "A254", "E2_E3", "Mw_est", "FTIR_Lignin_Idx", "Random_Col"]
     mapping = chemo_ml.classify_feature_blocks(cols)
 
     assert mapping["VK_1"] == "FT-ICR MS"
@@ -19,6 +19,7 @@ def test_classify_feature_blocks():
     assert mapping["C1_Fulvic"] == "EEM-PARAFAC"
     assert mapping["A254"] == "UV-Vis"
     assert mapping["Mw_est"] == "UV-Vis"
+    assert mapping["FTIR_Lignin_Idx"] == "FTIR"
     assert mapping["Random_Col"] == "Other"
 
 

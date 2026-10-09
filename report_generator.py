@@ -83,6 +83,7 @@ def generate_excel_passport(
     ft_cols = [c for c in feature_cols if block_map.get(c) == "FT-ICR MS"]
     eem_cols = [c for c in feature_cols if block_map.get(c) == "EEM-PARAFAC"]
     uv_cols = [c for c in feature_cols if block_map.get(c) == "UV-Vis"]
+    ftir_cols = [c for c in feature_cols if block_map.get(c) == "FTIR"]
     other_cols = [c for c in feature_cols if block_map.get(c) == "Other"]
 
     is_en = (lang == "en")
@@ -113,6 +114,7 @@ def generate_excel_passport(
         ("FT-ICR MS Descriptors:" if is_en else "Дескрипторов FT-ICR MS:", len(ft_cols)),
         ("EEM-PARAFAC Descriptors:" if is_en else "Дескрипторов EEM-PARAFAC:", len(eem_cols)),
         ("UV-Vis Descriptors:" if is_en else "Дескрипторов UV-Vis:", len(uv_cols)),
+        ("FTIR Descriptors:" if is_en else "Дескрипторов FTIR:", len(ftir_cols)),
     ]
 
     for idx, (lbl, val) in enumerate(meta_info, start=5):
@@ -244,7 +246,15 @@ def generate_excel_passport(
         populate_table_sheet(ws_uv, fused_df[uv_export_cols], header_fill="2CA02C")
 
     # =========================================================================
-    # ЛИСТ 6: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
+    # ЛИСТ 6: FTIR дескрипторы (FTIR Descriptors)
+    # =========================================================================
+    ftir_export_cols = [c for c in ["Sample_ID", "Class_Target"] if c in fused_df.columns] + ftir_cols
+    if len(ftir_cols) > 0:
+        ws_ftir = wb.create_sheet(title="FTIR Descriptors")
+        populate_table_sheet(ws_ftir, fused_df[ftir_export_cols], header_fill="8E44AD")
+
+    # =========================================================================
+    # ЛИСТ 7: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
     # =========================================================================
     if model_results and "VIP_df" in model_results:
         vip_df = model_results["VIP_df"].copy()
