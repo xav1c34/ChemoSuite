@@ -7,6 +7,7 @@ modules — Вычислительные и хемометрические мо�
 - chemo_pubchem: Интеграция с PubChem, ChEMBL и HMDB REST API.
 - project_io: Сериализация и восстановление проектов ChemoSuite (.chemo / ZIP).
 - report_generator: Генератор аналитических паспортов Excel (.xlsx).
+- ftir_core: Аналитическое ядро колебательной спектроскопии (ATR-FTIR & Raman).
 """
 
 from . import fticr_core
@@ -15,6 +16,7 @@ from . import chemo_ml
 from . import chemo_pubchem
 from . import project_io
 from . import report_generator
+from . import ftir_core
 
 __all__ = [
     "fticr_core",
@@ -23,4 +25,5 @@ __all__ = [
     "chemo_pubchem",
     "project_io",
     "report_generator",
+    "ftir_core",
 ]
