@@ -5821,7 +5821,7 @@ Decomposition is separated into 4 kinetic temperature zones:
                                 "Monomer": c_monomer,
                                 "Area (%)": round(c_pct, 2),
                                 "Formula": c_formula,
-                                "MW": round(c_mw, 1) if c_mw > 0 else "—",
+                                "MW": round(float(c_mw), 1) if c_mw > 0 else np.nan,
                                 "CAS": c_cas,
                             })
                         df_p_tbl = pd.DataFrame(peaks_table)
