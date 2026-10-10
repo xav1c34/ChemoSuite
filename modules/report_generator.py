@@ -88,6 +88,7 @@ def generate_excel_passport(
     uv_cols = [c for c in feature_cols if block_map.get(c) == "UV-Vis"]
     ftir_cols = [c for c in feature_cols if block_map.get(c) == "FTIR"]
     nmr_cols = [c for c in feature_cols if block_map.get(c) == "NMR"]
+    thermal_cols = [c for c in feature_cols if block_map.get(c) == "Thermal"]
     other_cols = [c for c in feature_cols if block_map.get(c) == "Other"]
 
     is_en = (lang == "en")
@@ -267,7 +268,15 @@ def generate_excel_passport(
         populate_table_sheet(ws_nmr, fused_df[nmr_export_cols], header_fill="D35400")
 
     # =========================================================================
-    # ЛИСТ 8: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
+    # ЛИСТ 8: Thermal / Py-GC-MS дескрипторы (Thermal Descriptors)
+    # =========================================================================
+    thermal_export_cols = [c for c in ["Sample_ID", "Class_Target"] if c in fused_df.columns] + thermal_cols
+    if len(thermal_cols) > 0:
+        ws_therm = wb.create_sheet(title="Thermal Descriptors")
+        populate_table_sheet(ws_therm, fused_df[thermal_export_cols], header_fill="C0392B")
+
+    # =========================================================================
+    # ЛИСТ 9: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
     # =========================================================================
     if model_results and "VIP_df" in model_results:
         vip_df = model_results["VIP_df"].copy()

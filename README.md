@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-86%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-95%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -32,7 +32,7 @@
 
 ## 📖 About the Platform
 
-Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), Fourier-transform infrared spectroscopy (**FTIR**), and nuclear magnetic resonance spectroscopy (**13C/1H NMR**), coupled with multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) in a single interactive web interface.
+Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), Fourier-transform infrared spectroscopy (**FTIR**), nuclear magnetic resonance spectroscopy (**13C/1H NMR**), and thermal degradation analysis (**Py-GC-MS & TGA/DSC**), coupled with multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA**) in a single interactive web interface.
 
 The platform addresses a key task in environmental monitoring: reliably distinguishing the background autochthonous organic matter of natural waters from technogenic wood-processing waste (using BPPM sludge lignin in the Lake Baikal ecosystem as a case study).
 
@@ -44,9 +44,10 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 | :--- | :--- | :--- | :--- |
 | **🧪 1. FT-ICR MS Studio** | Mass spectrum peak lists (`.csv`, `.tsv`, `.txt`, `.xy`) or **ZIP spectrum archives** | Polynomial mass-scale recalibration, vectorized molecular formula assignment with nitrogen rule and $^{13}\text{C}$ isotopic filtering, TMDS with **interactive molecular reaction network graph** and topological reaction hubs, biogeochemical Van Krevelen polygons, batch archive processing, spectral algebra | $H/C$, $O/C$, $DBE$, $AI$, $NOSC$, biomolecular pools (Lipids, Proteins, Lignin/CRAM, Tannins, CAS), Perminova 20-cell grid, KMD series, topological node degrees $\text{Degree}$ |
 | **💡 2. Optical Spectroscopy (EEM & UV-Vis)** | 2D EEM matrices (`.csv`, `.dat`, `.txt`) and 1D UV-Vis spectra (`.csv`, `.txt`) | Delaunay interpolation for Rayleigh scattering removal, Raman normalization (R.U.), non-negative PARAFAC, **CORCONDIA diagnostic**, **Split-Half model validation**, **OpenFluor spectral library matching ($TCC \ge 0.85/0.90$)**, inner filter effect (IFE) correction, Savitzky-Golay filter ($d^1A, d^2A$) | Indices $FI$, $HIX$, fluorophore profiles and contributions $C_1–C_3$, OpenFluor matches ($C_1–C_6$), model stability $TCC$, $A_{254}, A_{280}, E_2/E_3, E_4/E_6, S_R, d^2A_{280}, M_w, \text{SUVA}_{254}$ |
-| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across 5 modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), **PLS-DA, OPLS-DA and Sparse PLS-DA (sPLS-DA with $L_1$-regularization)**, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$), S-Plot | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, sparse biomarker panel ($|W|$), and block contribution shares ($\text{VIP}^2$) |
+| **🧬 3. ChemoSuite ML** | Fused descriptor matrices across 6 modalities (session or CSV) | **Low-Level Fusion** (block scaling $1/\sqrt{P_k}$) and **Mid-Level Fusion** (PCA compression of FT-ICR MS), **PLS-DA, OPLS-DA and Sparse PLS-DA (sPLS-DA with $L_1$-regularization)**, 95% Hotelling's $T^2$ ellipse, permutation test ($H_0$), S-Plot | Sample classification, $LV_1/LV_2$ projections, $R^2X, R^2Y, Q^2$ metrics, confusion matrix, $p$-value, ranked VIP scores, sparse biomarker panel ($|W|$), and block contribution shares ($\text{VIP}^2$) |
 | **🔬 4. FTIR Spectroscopy Studio** | IR spectra (`.csv`, `.dpt`, `.txt`, `.xy`) | AsLS baseline correction, SNV / Vector normalization, Savitzky-Golay filtering ($d^2A$), **carbonyl and double-bond region deconvolution (1500–1800 cm⁻¹)** using Levenberg-Marquardt with Gaussian band profiles, spectral reference library for lignins and polysaccharides (Kraft, Organosolv, Soda, Cellulose, Xylan), lignin indices | Lignin indices $LI, AI, CI$, carbonyl band contributions $A_{1715}, A_{1650}, A_{1595}, A_{1510}$, aromaticity ratio, library match metrics ($r, \text{Score}$) |
 | **🧲 5. NMR Spectroscopy Studio** | 1D $^{13}\text{C}$ and $^1\text{H}$ NMR spectra (`.csv`, `.tsv`, JCAMP-DX `.jdx`, `.dx`) | AsLS / polynomial baseline correction, integral binning across 6 standardized IHSS biogeochemical chemical shift ranges ($0–220$ ppm), aromatic region deconvolution ($108–162$ ppm) into syringyl ($S$), guaiacyl ($G$), and $p$-hydroxyphenyl ($H$) lignin subunits, reference IHSS spectra library (Suwannee River, Elliott Soil, Nordic NOM), auto-recalibration via DMSO-d6 ($39.5$ ppm) and TMS ($0.0$ ppm) | Standardized IHSS fractions (Aliphatics, C-O Alkyls, Acetals, Aromatics, Phenolics, Carboxyls), $S/G, H/G$ subunit ratios, aromaticity degree $f_a$, hydrophobic/hydrophilic index $\text{HB/HI}$, IHSS similarity |
+| **🌡️ 6. Thermal Analysis Studio (Py-GC-MS & TGA)** | Py-GC-MS TIC / peak tables (`.csv`, `.txt`) and TGA mass loss files (`.csv`, `.txt`) | Flash pyrolysis peak detection and deconvolution, reference biomarker library matching ($H, G, S$ monomers, furans, proteins), Savitzky-Golay smoothed numerical DTG derivative ($-dm/dT$), kinetic thermal zone integration (Zones I–IV) | Pyrolysis ratios $S/G, H/G, L/C, (Ac/Al)_G, (Ac/Al)_S$, Thermal Index $TI = \Delta m_{\text{arom}} / \Delta m_{\text{aliph}}$, $T_{5\%}, T_{10\%}, T_{50\%}$, $T_{max}$ DTG, residue at 800°C |
 
 ---
 
@@ -107,7 +108,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 #### Discriminant Analysis and Marker Selection (PLS-DA, OPLS-DA & VIP Scores)
 <img src="assets/ml_plsda_validation.png" width="100%" alt="PLS-DA Results" />
 
-* Multimodal classification model built on the merged descriptor pool of all analytical modalities (**FT-ICR MS + EEM-PARAFAC + UV-Vis + FTIR + NMR**).
+* Multimodal classification model built on the merged descriptor pool of all analytical modalities (**FT-ICR MS + EEM-PARAFAC + UV-Vis + FTIR + NMR + Thermal Analysis**).
 * **PLS-DA & OPLS-DA Architectures:** standard PLS-DA and orthogonal OPLS-DA (Orthogonal PLS-DA) separating predictive variation ($t_{\text{pred}}$) from orthogonal noise ($t_{\text{ortho}}$).
 
 #### 3D Latent Scores Space & 95% Hotelling's Ellipsoid (Scores Plot 3D)
@@ -118,7 +119,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 #### Multiblock Biomarker Ranking (VIP Scores Barplot)
 <img src="assets/ml_splot_biomarkers.png" width="100%" alt="Ranked VIP Biomarkers" />
 
-* Multifactorial ranking of discriminative predictors ($VIP > 1.0$) with color-coded analytical source tagging (blue: FT-ICR MS, orange: EEM-PARAFAC, green: UV-Vis, red: FTIR, purple: NMR).
+* Multifactorial ranking of discriminative predictors ($VIP > 1.0$) with color-coded analytical source tagging (blue: FT-ICR MS, orange: EEM-PARAFAC, green: UV-Vis, purple: FTIR, teal: NMR, red: Thermal).
 
 * **S-Plot Diagram (OPLS-DA):** covariance $p[1]$ (magnitude) vs correlation $p(\text{corr})[1]$ (reliability) visualization for biomarker discovery with block color tags.
 * **Validation & Diagnostics:** Leave-One-Out / K-Fold cross-validation ($Q^2$) and permutation testing (50 iterations) with empirical $p$-value.
@@ -132,7 +133,7 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ```text
 ChemoSuite/
 │
-├── app.py                            # Main super-app: Streamlit UI routing, 5-modal dashboards, and session assembler
+├── app.py                            # Main super-app: Streamlit UI routing, 6-modal dashboards, and session assembler
 │
 ├── modules/                          # 🧠 Computational and chemometric engines
 │   ├── __init__.py                   # Package initialization and module exports
@@ -142,24 +143,27 @@ ChemoSuite/
 │   ├── chemo_pubchem.py              # Chemoinformatics: PubChem PUG-REST API, ChEMBL, HMDB, 2D structures, offline library
 │   ├── ftir_core.py                  # FTIR core: AsLS, C=O/C=C deconvolution, lignin library, spectral indices
 │   ├── nmr_core.py                   # NMR core: AsLS, IHSS integrals, S/G/H deconvolution, auto-recalibration
+│   ├── thermal_core.py               # Thermal core: Py-GC-MS peak detection, reference library, TGA/DTG derivatives, zones I-IV
 │   ├── project_io.py                 # .chemo project manager: serialization, ZIP compression, session restore
 │   └── report_generator.py           # Analytical report generator (.xlsx) in Russian & English styled with openpyxl
 │
-├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, FTIR, NMR, ML)
+├── demo_data/                        # Synchronized multimodal demo data (EEM, UV-Vis, FT-ICR MS, FTIR, NMR, Thermal, ML)
 │   ├── eem/                          # 12 excitation-emission fluorescence matrices
 │   ├── uv_vis/                       # 12 UV-Vis absorption spectra (200–700 nm)
 │   ├── fticr_ms/                     # 4 high-resolution mass spec peak lists + sample_A_full.csv
 │   ├── nmr/                          # 12 synthetic 13C NMR reference standards & descriptor matrix
+│   ├── thermal/                      # 12 synthetic Py-GC-MS & TGA reference pairs & descriptor matrix
 │   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
 │   └── README.md                     # Guide on using demo files
 │
-├── tests/                            # Automated test suite (86 unit and stress tests)
+├── tests/                            # Automated test suite (94 unit and stress tests)
 │   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS networks, vector fluxes, pathways)
 │   ├── test_chemo_pubchem.py         # PubChem chemoinformatics tests (PUG-REST, formula cleaning, biomarker annotation)
 │   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
 │   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
 │   ├── test_ftir.py                  # FTIR tests (AsLS, deconvolution, lignin indices, library)
 │   ├── test_nmr.py                   # NMR tests (IHSS integrals, S/G/H deconvolution, auto-recalibration, JCAMP-DX)
+│   ├── test_thermal.py               # Thermal tests (Py-GC-MS library match, TGA/DTG derivatives, zones I-IV, indices)
 │   ├── test_demo_pipelines.py        # End-to-end integration tests for demo data (FT-ICR, EEM, UV-Vis, ML)
 │   ├── test_report_generator.py      # Multi-sheet Excel passport generation tests (.xlsx)
 │   ├── test_project_io.py            # Session serialization & restoration tests (.chemo)

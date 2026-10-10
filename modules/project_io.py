@@ -100,6 +100,7 @@ def save_chemo_project(
         fused_df = session_data.get("fused_data", None)
         ftir_df = session_data.get("ftir_ml_descriptors", None)
         nmr_df = session_data.get("nmr_ml_descriptors", None)
+        thermal_df = session_data.get("thermal_ml_descriptors", None)
         pls_res = session_data.get("pls_results", None)
         perm_res = session_data.get("perm_results", None)
 
@@ -117,6 +118,7 @@ def save_chemo_project(
                 "has_uv": uv_df is not None and not uv_df.empty,
                 "has_ftir": ftir_df is not None and not ftir_df.empty,
                 "has_nmr": nmr_df is not None and not nmr_df.empty,
+                "has_thermal": thermal_df is not None and not thermal_df.empty,
                 "has_fused": fused_df is not None and not fused_df.empty,
                 "fused_source": session_data.get("fused_source", "Unknown"),
                 "has_trained_model": pls_res is not None,
@@ -177,6 +179,10 @@ def save_chemo_project(
         nmr_df = session_data.get("nmr_ml_descriptors", None)
         if isinstance(nmr_df, pd.DataFrame) and not nmr_df.empty:
             zf.writestr("descriptors/nmr_ml_descriptors.csv", nmr_df.to_csv(index=False))
+
+        thermal_df = session_data.get("thermal_ml_descriptors", None)
+        if isinstance(thermal_df, pd.DataFrame) and not thermal_df.empty:
+            zf.writestr("descriptors/thermal_ml_descriptors.csv", thermal_df.to_csv(index=False))
 
         # 4. Мультимодальная матрица слияния данных (Data Fusion)
         if isinstance(fused_df, pd.DataFrame) and not fused_df.empty:
@@ -303,6 +309,9 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
                 "eem_ml_descriptors": None,
                 "uv_ml_descriptors": None,
                 "ftir_ml_descriptors": None,
+                "nmr_ml_descriptors": None,
+                "thermal_ml_descriptors": None,
+                "thermal_samples": {},
                 "fused_data": None,
                 "fused_source": meta.get("summary", {}).get("fused_source", "Restored Session"),
                 "pls_results": None,
@@ -356,6 +365,9 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
             if "descriptors/nmr_ml_descriptors.csv" in names:
                 restored["nmr_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/nmr_ml_descriptors.csv")))
+
+            if "descriptors/thermal_ml_descriptors.csv" in names:
+                restored["thermal_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/thermal_ml_descriptors.csv")))
 
             # 3. Fused Data
             if "fusion/fused_data.csv" in names:

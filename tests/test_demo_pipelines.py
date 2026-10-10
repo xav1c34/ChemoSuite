@@ -205,3 +205,77 @@ def test_session_sample_persistence_and_recalibration():
 
     np.testing.assert_allclose(re_filtered["mass"].values, calibrated_masses)
 
+
+def test_demo_thermal_pipeline_and_6modal_data_fusion():
+    """Тест обработки демонстрационных данных Py-GC-MS и TGA и 6-модального слияния данных."""
+    import thermal_core
+    th_dir = os.path.join(os.path.dirname(__file__), "..", "demo_data", "thermal")
+    assert os.path.exists(th_dir)
+    py_files = [f for f in os.listdir(th_dir) if f.endswith("_PyGCMS.csv")]
+    tga_files = [f for f in os.listdir(th_dir) if f.endswith("_TGA.csv")]
+    assert len(py_files) == 12
+    assert len(tga_files) == 12
+
+    # 1. Парсинг первого образца Py-GC-MS и TGA
+    with open(os.path.join(th_dir, py_files[0]), "rb") as f:
+        py_s = thermal_core.parse_py_gcms_file(f.read(), sample_id="Test_Py")
+    assert len(py_s.peaks) > 0
+    assert "Py_S_G_ratio" in py_s.indices
+    assert "Py_L_C_ratio" in py_s.indices
+
+    with open(os.path.join(th_dir, tga_files[0]), "rb") as f:
+        tga_s = thermal_core.parse_tga_file(f.read(), sample_id="Test_TGA")
+    assert len(tga_s.temperature) > 50
+    assert "TGA_Thermal_Index_TI" in tga_s.indices
+    assert "TGA_T50_degC" in tga_s.indices
+
+    # 2. Загрузка матрицы дескрипторов
+    mat_file = os.path.join(th_dir, "thermal_descriptors_matrix.csv")
+    assert os.path.exists(mat_file)
+    df_thermal = pd.read_csv(mat_file)
+    assert len(df_thermal) == 12
+    assert "Py_S_G_ratio" in df_thermal.columns
+    assert ("TGA_Thermostability_Index" in df_thermal.columns or "TGA_Thermal_Index_TI" in df_thermal.columns)
+
+    # 3. 6-модальное слияние данных в chemo_ml
+    fused_path = os.path.join(os.path.dirname(__file__), "..", "demo_data", "multimodal_ml", "chemo_unified_multimodal.csv")
+    df_fused = pd.read_csv(fused_path)
+
+    # Приводим Sample_ID к общему виду для слияния
+    df_thermal_aligned = df_thermal.copy()
+    df_thermal_aligned["Sample_ID"] = df_fused["Sample_ID"].iloc[:len(df_thermal_aligned)].values
+
+    merged_6m = chemo_ml.merge_feature_blocks(df_fused, None, df_thermal=df_thermal_aligned)
+    assert not merged_6m.empty
+    blocks = chemo_ml.classify_feature_blocks(merged_6m)
+    assert "Thermal" in blocks.values()
+
+    # 4. Обучение модели PLS-DA на 6 модальностях
+    feat_cols = [c for c in merged_6m.columns if c not in ["Sample_ID", "Class_Target"]]
+    X = merged_6m[feat_cols]
+    y = merged_6m["Class_Target"].values
+    pls_res = chemo_ml.train_plsda_model(X, y, n_components=2)
+    assert pls_res["Q2"] > 0
+    assert "VIP_df" in pls_res
+    assert any(pls_res["VIP_df"]["Block"] == "Thermal")
+
+    # 5. Экспорт паспорта Excel с 6 модальностями
+    rep_bytes = report_generator.generate_excel_passport(
+        merged_6m,
+        model_results=pls_res,
+        metadata={"project_name": "6-Modal ChemoSuite Test", "operator": "Pytest"},
+        lang="ru"
+    )
+    assert len(rep_bytes) > 2000
+
+    # 6. Сохранение и загрузка проекта .chemo с блоком Thermal
+    session_data = {
+        "fused_data": merged_6m,
+        "pls_results": pls_res,
+        "thermal_ml_descriptors": df_thermal_aligned,
+    }
+    proj_bytes = project_io.save_chemo_project(session_data, project_name="Test_6M_Project")
+    loaded = project_io.load_chemo_project(proj_bytes)
+    assert "thermal_ml_descriptors" in loaded
+    assert len(loaded["thermal_ml_descriptors"]) == len(df_thermal_aligned)
+

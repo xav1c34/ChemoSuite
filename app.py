@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 # Попытка импорта специализированных библиотек
@@ -105,6 +106,17 @@ except ImportError:
     except ImportError:
         nmr_core = None
         NMR_CORE_AVAILABLE = False
+
+try:
+    import thermal_core
+    THERMAL_CORE_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import thermal_core
+        THERMAL_CORE_AVAILABLE = True
+    except ImportError:
+        thermal_core = None
+        THERMAL_CORE_AVAILABLE = False
 
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
@@ -541,6 +553,41 @@ T = {
         "nmr_dl_csv": "📥 Скачать дескрипторы ЯМР (CSV)",
         "nmr_dl_excel": "📊 Экспорт в Excel (.xlsx)",
         "ml_up_nmr": "Таблица дескрипторов NMR (CSV):",
+        "ml_up_thermal": "Таблица дескрипторов Thermal (CSV):",
+        # Модуль 6: Термический анализ и пиролиз (Py-GC-MS & TGA/DSC)
+        "mod6_name": "🌡️ Термолиз и пиролиз (Py-GC-MS & TGA/DSC)",
+        "thermal_title": "🌡️ Термический анализ и аналитический пиролиз (Py-GC-MS & TGA/DSC)",
+        "thermal_subtitle": "Молекулярная термодеструкция РОВ и лигнина: пиролитические маркеры H/G/S, термогравиметрия (TGA/DTG) и кинетические зоны",
+        "thermal_err_missing": "⚠️ Вычислительное ядро thermal_core.py не найдено в директории modules!",
+        "thermal_sidebar_hdr": "📁 Менеджер термолиза и TGA",
+        "thermal_src_label": "Источник термических данных:",
+        "thermal_src_upload": "Загрузить файлы (Py-GC-MS & TGA)",
+        "thermal_src_synth": "Эталонный бенчмарк (12 проб)",
+        "thermal_up_py_label": "Загрузите файлы Py-GC-MS (.csv, .txt):",
+        "thermal_up_tga_label": "Загрузите файлы TGA (.csv, .txt):",
+        "thermal_tab1_title": "📈 Хроматограммы Py-GC-MS и мономеры",
+        "thermal_tab2_title": "🔥 Термограммы TGA / DTG и температурные зоны",
+        "thermal_tab3_title": "🧬 Хемометрические индексы (S/G, L/C, TI)",
+        "thermal_tab4_title": "🌐 Мультимодальная интеграция и экспорт",
+        "thermal_no_samples": "Нет загруженных термических данных. Загрузите файлы в боковой панели или выберите 'Эталонный бенчмарк'.",
+        "thermal_active_sample": "Активный образец:",
+        "thermal_peaks_hdr": "Идентифицированные пиролизные продукты (Библиотека биомаркеров)",
+        "thermal_peaks_dl_btn": "📥 Скачать таблицу пиков (CSV)",
+        "thermal_dist_pie_title": "Распределение классов продуктов пиролиза",
+        "thermal_monomers_bar_title": "Основные мономеры лигнина и биомаркеры (Площадь %)",
+        "thermal_tga_title": "Термогравиметрическая кривая (TGA) и производная (DTG)",
+        "thermal_tga_zones_chk": "Отображать температурные зоны деструкции (I–IV)",
+        "thermal_tga_dtg_chk": "Показывать производную кривую DTG (-dm/dT)",
+        "thermal_kpi_sg": "Индекс S/G (Сирингил / Гваяцил)",
+        "thermal_kpi_hg": "Индекс H/G (п-Гидроксифенил / Гваяцил)",
+        "thermal_kpi_lc": "Индекс L/C (Лигнин / Углеводы)",
+        "thermal_kpi_ti": "Индекс термостабильности TI (Зона III / Зона II)",
+        "thermal_kpi_t50": "Температура полураспада T₅₀%",
+        "thermal_kpi_residue": "Остаточная масса при 800°C",
+        "thermal_sync_ml_btn": "🧬 Синхронизировать дескрипторы с Модулем 3 (ChemoSuite ML)",
+        "thermal_sync_success": "Дескрипторы термического анализа ({n} образцов) успешно переданы в Модуль 3!",
+        "thermal_dl_csv": "📥 Скачать дескрипторы Thermal (CSV)",
+        "thermal_dl_excel": "📊 Экспорт в Excel (.xlsx)",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -1079,6 +1126,41 @@ T = {
         "nmr_dl_csv": "📥 Download NMR Descriptors (CSV)",
         "nmr_dl_excel": "📊 Export to Excel (.xlsx)",
         "ml_up_nmr": "NMR Descriptors table (CSV):",
+        "ml_up_thermal": "Thermal Descriptors table (CSV):",
+        # Module 6: Thermal Analysis & Pyrolysis (Py-GC-MS & TGA)
+        "mod6_name": "🌡️ Thermal Analysis & Pyrolysis (Py-GC-MS & TGA)",
+        "thermal_title": "🌡️ Thermal Analysis & Analytical Pyrolysis (Py-GC-MS & TGA Studio)",
+        "thermal_subtitle": "Molecular thermodegradation of NOM and lignin: Py-GC-MS H/G/S biomarkers, TGA/DTG thermogravimetry & kinetic zones",
+        "thermal_err_missing": "⚠️ Computational engine thermal_core.py not found in modules directory!",
+        "thermal_sidebar_hdr": "📁 Pyrolysis & TGA Manager",
+        "thermal_src_label": "Thermal Data Source:",
+        "thermal_src_upload": "Upload Files (Py-GC-MS & TGA)",
+        "thermal_src_synth": "Reference Benchmark (12 samples)",
+        "thermal_up_py_label": "Upload Py-GC-MS files (.csv, .txt):",
+        "thermal_up_tga_label": "Upload TGA files (.csv, .txt):",
+        "thermal_tab1_title": "📈 Py-GC-MS Chromatograms & Monomers",
+        "thermal_tab2_title": "🔥 TGA / DTG Thermograms & Thermal Zones",
+        "thermal_tab3_title": "🧬 Chemometric Indices (S/G, L/C, TI)",
+        "thermal_tab4_title": "🌐 Multi-Modal Integration & Export",
+        "thermal_no_samples": "No thermal data loaded. Upload files in the sidebar or select 'Reference Benchmark'.",
+        "thermal_active_sample": "Active Sample:",
+        "thermal_peaks_hdr": "Identified Pyrolysis Products (Biomarker Library)",
+        "thermal_peaks_dl_btn": "📥 Download Peak Table (CSV)",
+        "thermal_dist_pie_title": "Pyrolysis Product Class Distribution",
+        "thermal_monomers_bar_title": "Key Lignin Monomers & Biomarkers (% Area)",
+        "thermal_tga_title": "Thermogravimetric Curve (TGA) & Derivative (DTG)",
+        "thermal_tga_zones_chk": "Highlight Thermal Decomposition Zones (I–IV)",
+        "thermal_tga_dtg_chk": "Show DTG Derivative Curve (-dm/dT)",
+        "thermal_kpi_sg": "S/G Ratio (Syringyl / Guaiacyl)",
+        "thermal_kpi_hg": "H/G Ratio (p-Hydroxyphenyl / Guaiacyl)",
+        "thermal_kpi_lc": "L/C Ratio (Lignin / Carbohydrates)",
+        "thermal_kpi_ti": "Thermal Stability Index TI (Zone III / Zone II)",
+        "thermal_kpi_t50": "Half-Decomposition Temp T₅₀%",
+        "thermal_kpi_residue": "Residual Mass at 800°C",
+        "thermal_sync_ml_btn": "🧬 Sync Descriptors to Module 3 (ChemoSuite ML)",
+        "thermal_sync_success": "Thermal descriptors ({n} samples) successfully synced to Module 3!",
+        "thermal_dl_csv": "📥 Download Thermal Descriptors (CSV)",
+        "thermal_dl_excel": "📊 Export to Excel (.xlsx)",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -1413,6 +1495,10 @@ if "nmr_samples" not in st.session_state:
     st.session_state["nmr_samples"] = {}
 if "nmr_ml_descriptors" not in st.session_state:
     st.session_state["nmr_ml_descriptors"] = None
+if "thermal_samples" not in st.session_state:
+    st.session_state["thermal_samples"] = {}
+if "thermal_ml_descriptors" not in st.session_state:
+    st.session_state["thermal_ml_descriptors"] = None
 
 # ==============================================================================
 # БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
@@ -1426,7 +1512,7 @@ with st.sidebar:
     st.markdown(T[lang]["nav_title"])
     active_module = st.radio(
         T[lang]["nav_module_label"],
-        [T[lang]["mod1_name"], T[lang]["mod2_name"], T[lang]["mod3_name"], T[lang]["mod4_name"], T[lang]["mod5_name"]],
+        [T[lang]["mod1_name"], T[lang]["mod2_name"], T[lang]["mod3_name"], T[lang]["mod4_name"], T[lang]["mod5_name"], T[lang]["mod6_name"]],
         index=0,
     )
     st.markdown("---")
@@ -1440,6 +1526,7 @@ with st.sidebar:
             has_uv = st.session_state.get("uv_ml_descriptors") is not None
             has_ftir = st.session_state.get("ftir_ml_descriptors") is not None
             has_nmr = st.session_state.get("nmr_ml_descriptors") is not None
+            has_thermal = st.session_state.get("thermal_ml_descriptors") is not None
             has_fused = st.session_state.get("fused_data") is not None
             m_res = st.session_state.get("pls_results")
             m_type = m_res.get("model_type") if isinstance(m_res, dict) else ("Нет" if lang == "ru" else "None")
@@ -1450,7 +1537,7 @@ with st.sidebar:
                 f"{T[lang]['proj_summary_spec'].format(n=n_spec)} | "
                 f"{T[lang]['proj_summary_eem'].format(val=yes_lbl if has_eem else no_lbl)} | "
                 f"{T[lang]['proj_summary_uv'].format(val=yes_lbl if has_uv else no_lbl)} | "
-                f"FTIR: {yes_lbl if has_ftir else no_lbl} | NMR: {yes_lbl if has_nmr else no_lbl}\n\n"
+                f"FTIR: {yes_lbl if has_ftir else no_lbl} | NMR: {yes_lbl if has_nmr else no_lbl} | Therm: {yes_lbl if has_thermal else no_lbl}\n\n"
                 f"{T[lang]['proj_summary_fused'].format(val=yes_lbl if has_fused else no_lbl)} | "
                 f"{T[lang]['proj_summary_model'].format(val=m_type)}"
             )
@@ -3525,6 +3612,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
         uv_df = st.session_state.get("uv_ml_descriptors", None)
         ftir_df = st.session_state.get("ftir_ml_descriptors", None)
         nmr_df = st.session_state.get("nmr_ml_descriptors", None)
+        thermal_df = st.session_state.get("thermal_ml_descriptors", None)
 
         n_fticr_samples = len(st.session_state["fticr_batch_summary"]) if ("fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty) else len(assigned_spectra)
         st.info(
@@ -3532,11 +3620,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             f"FT-ICR MS: **{n_fticr_samples}** | EEM: **{len(eem_df) if eem_df is not None else 0}** | "
             f"UV-Vis: **{len(uv_df) if uv_df is not None else 0}** | "
             f"FTIR: **{len(ftir_df) if ftir_df is not None else 0}** | "
-            f"NMR: **{len(nmr_df) if nmr_df is not None else 0}**"
+            f"NMR: **{len(nmr_df) if nmr_df is not None else 0}** | "
+            f"Thermal: **{len(thermal_df) if thermal_df is not None else 0}**"
         )
 
         if st.button(T[lang]["ml_btn_assemble_session"], type="primary", key="btn_assemble_session"):
-            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty) and (ftir_df is None or ftir_df.empty) and (nmr_df is None or nmr_df.empty):
+            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty) and (ftir_df is None or ftir_df.empty) and (nmr_df is None or nmr_df.empty) and (thermal_df is None or thermal_df.empty):
                 st.warning(T[lang]["ml_session_need_more"])
             else:
                 if "fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty:
@@ -3549,7 +3638,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             fticr_rows.append(desc)
                     df_ms_assembled = pd.DataFrame(fticr_rows) if fticr_rows else pd.DataFrame()
 
-                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df, df_ftir=ftir_df, df_nmr=nmr_df)
+                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df, df_ftir=ftir_df, df_nmr=nmr_df, df_thermal=thermal_df)
                 if not merged_df.empty:
                     if "Class_Target" not in merged_df.columns:
                         # Разметка по умолчанию: 1 для образцов со словом lignin / impact
@@ -3557,7 +3646,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             lambda s: 1 if any(k in str(s).lower() for k in ["lignin", "impact", "шлам"]) else 0
                         )
                     st.session_state["fused_data"] = merged_df
-                    st.session_state["fused_source"] = "Сессионные спектры (5 модальностей)" if lang == "ru" else "Session Spectra (5 Modalities)"
+                    st.session_state["fused_source"] = "Сессионные спектры (6 модальностей)" if lang == "ru" else "Session Spectra (6 Modalities)"
                     st.success(f"Успешно объединено образцов: {len(merged_df)}" if lang == "ru" else f"Successfully assembled samples: {len(merged_df)}")
                     st.rerun()
                 else:
@@ -3572,7 +3661,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             key="ml_upload_type_radio"
         )
         if upload_type == T[lang]["ml_upload_two"]:
-            col_u1, col_u2, col_u3, col_u4, col_u5 = st.columns(5)
+            col_u1, col_u2, col_u3, col_u4, col_u5, col_u6 = st.columns(6)
             with col_u1:
                 f_ms = st.file_uploader(
                     T[lang]["ml_up_ms"],
@@ -3608,34 +3697,35 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     key="up_nmr_features",
                     help="Таблица дескрипторов 13C ЯМР (Sample_ID, fa, HB/HI, %C). Демо: demo_data/nmr/nmr_descriptors_matrix.csv" if lang == "ru" else "NMR descriptor table. Demo: demo_data/nmr/nmr_descriptors_matrix.csv",
                 )
+            with col_u6:
+                f_thermal = st.file_uploader(
+                    T[lang]["ml_up_thermal"],
+                    type=["csv", "tsv", "txt"],
+                    key="up_thermal_features",
+                    help="Таблица дескрипторов Thermal (Sample_ID, S/G, TI, T50). Демо: demo_data/thermal/thermal_descriptors_matrix.csv" if lang == "ru" else "Thermal descriptor table. Demo: demo_data/thermal/thermal_descriptors_matrix.csv",
+                )
 
-            if f_ms or f_eem or f_uv or f_ftir or f_nmr:
+            if f_ms or f_eem or f_uv or f_ftir or f_nmr or f_thermal:
                 try:
                     df_up_ms = pd.read_csv(f_ms) if f_ms else None
                     df_up_eem = pd.read_csv(f_eem) if f_eem else None
                     df_up_uv = pd.read_csv(f_uv) if f_uv else None
                     df_up_ftir = pd.read_csv(f_ftir) if f_ftir else None
                     df_up_nmr = pd.read_csv(f_nmr) if f_nmr else None
-                    merged = chemo_ml.merge_feature_blocks(df_up_ms, df_up_eem, df_up_uv, df_ftir=df_up_ftir, df_nmr=df_up_nmr)
+                    df_up_thermal = pd.read_csv(f_thermal) if f_thermal else None
+                    merged = chemo_ml.merge_feature_blocks(df_up_ms, df_up_eem, df_up_uv, df_ftir=df_up_ftir, df_nmr=df_up_nmr, df_thermal=df_up_thermal)
                     if not merged.empty:
                         if "Class_Target" not in merged.columns:
                             merged["Class_Target"] = 0
                         st.session_state["fused_data"] = merged
-                        src_names = [f.name for f in [f_ms, f_eem, f_uv, f_ftir, f_nmr] if f is not None]
+                        src_names = [f.name for f in [f_ms, f_eem, f_uv, f_ftir, f_nmr, f_thermal] if f is not None]
                         st.session_state["fused_source"] = " + ".join(src_names)
                 except Exception as e:
                     st.error(f"⚠️ Ошибка загрузки файлов: {e}")
                     st.info(
-                        "💡 **Подсказка:** Для Модуля 3 требуются сводные таблицы дескрипторов по образцам из каталога `demo_data/multimodal_ml/`:\n"
-                        "- FT-ICR MS: `demo_data/multimodal_ml/chemo_fticr_block.csv`\n"
-                        "- EEM-PARAFAC: `demo_data/multimodal_ml/chemo_eem_block.csv`\n"
-                        "- UV-Vis: `demo_data/multimodal_ml/chemo_uv_block.csv`\n\n"
-                        "*Примечание:* Сырые файлы пик-листов (`demo_data/fticr_ms/`) и 1D-спектров (`demo_data/uv_vis/`) предназначены для обработки в Модулях 1 и 2, после чего их можно передать сюда через опцию «Собрать из сессии»."
+                        "💡 **Подсказка:** Для Модуля 3 требуются сводные таблицы дескрипторов по образцам из каталога `demo_data/`."
                         if lang == "ru" else
-                        "💡 **Tip:** Module 3 requires summary descriptor tables across samples from `demo_data/multimodal_ml/`:\n"
-                        "- FT-ICR MS: `demo_data/multimodal_ml/chemo_fticr_block.csv`\n"
-                        "- EEM-PARAFAC: `demo_data/multimodal_ml/chemo_eem_block.csv`\n"
-                        "- UV-Vis: `demo_data/multimodal_ml/chemo_uv_block.csv`"
+                        "💡 **Tip:** Module 3 requires summary descriptor tables across samples from `demo_data/`."
                     )
         else:
             f_single = st.file_uploader(
@@ -3975,7 +4065,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_sp = px.bar(
                         top_sparse, x="Absolute_Weight", y="Descriptor", orientation="h",
                         color="Block",
-                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
+                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"},
                         text=top_sparse["Absolute_Weight"].apply(lambda v: f"{v:.3f}"),
                     )
                     fig_sp.update_layout(
@@ -3999,7 +4089,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_vip = px.bar(
                         top_vip, x="VIP", y="Descriptor", orientation="h",
                         color="Block",
-                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
+                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"},
                         text=top_vip["VIP"].apply(lambda v: f"{v:.2f}"),
                     )
                     fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text=T[lang]["ml_vip_cutoff"])
@@ -4068,7 +4158,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             color="Block",
                             size="VIP",
                             hover_name="Descriptor",
-                            color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"},
+                            color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"},
                             labels={"p1_cov": "Covariance p[1] (Magnitude)", "p_corr": "Correlation p(corr)[1] (Reliability)"},
                         )
                         fig_s.add_hline(y=0.0, line_dash="dash", line_color="#bfbfbf")
@@ -4143,7 +4233,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 block_contribs = res.get("Block_Contributions", {})
                 if block_contribs:
                     st.write(f"**{T[lang]['ml_donut_title']}**")
-                    b_palette = {"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "Other": "#7f7f7f"}
+                    b_palette = {"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"}
                     donut_colors = [b_palette.get(k, "#7f7f7f") for k in block_contribs.keys()]
                     fig_donut = go.Figure(data=[go.Pie(
                         labels=list(block_contribs.keys()),
@@ -5371,6 +5461,544 @@ elif active_module == T[lang]["mod5_name"]:
                 st.session_state["nmr_ml_descriptors"] = df_nmr_desc
                 st.toast(T[lang]["nmr_sync_success"].format(n=len(df_nmr_desc)), icon="✅")
                 st.rerun()
+
+# ==============================================================================
+# МОДУЛЬ 6: ТЕРМИЧЕСКИЙ АНАЛИЗ И ПИРОЛИЗ (Py-GC-MS & TGA/DSC)
+# ==============================================================================
+elif active_module == T[lang]["mod6_name"]:
+    if not THERMAL_CORE_AVAILABLE or thermal_core is None:
+        st.error(T[lang]["thermal_err_missing"])
+        st.stop()
+
+    st.markdown(
+        f"""
+        <div style="background: linear-gradient(90deg, #5c0617 0%, #870000 50%, #190a2c 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">
+            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["thermal_title"]}</h3>
+            <p style="margin: 4px 0 0 0; color: #F5D0D0; font-size: 13px;">{T[lang]["thermal_subtitle"]}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.popover("ℹ️ " + ("Руководство: Аналитический пиролиз (Py-GC-MS) и термогравиметрия (TGA/DTG) в анализе РОВ и лигнина" if lang == "ru" else "Guide: Analytical Pyrolysis (Py-GC-MS) & Thermogravimetry (TGA/DTG) in NOM & Lignin Analysis"), width="stretch"):
+        st.markdown(r"""
+### 🔬 Физико-химические основы термодеструкции природного и техногенного органического вещества
+
+**Аналитический пиролиз (Flash Py-GC-MS, 500–600°C)** в бескислородной среде гелия вызывает термический разрыв наименее прочных связей ($\beta$-O-4, $\beta$-5, алифатические мостики) макромолекулярного скелета, высвобождая летучие мономерные фрагменты, отражающие структуру исходного полимера:
+
+| Группа мономеров | Ключевые маркеры (Py-GC-MS) | Специфичность | Экологическое / биогеохимическое значение |
+| :--- | :--- | :--- | :--- |
+| **Гваяцильные (G)** | Гваякол, 4-Метилгваякол, Ванилин, Ванилиновая к-та | Хвойный лигнин (сосна, лиственница Прибайкалья) | Доминирующий маркер сульфатного шлам-лигнина БЦБК |
+| **Сирингильные (S)** | Сирингол, 4-Метилсирингол, Сирингальдегид, Сиринговая к-та | Лиственный лигнин (береза, осина) | Источник аллохтонного терригенного стока |
+| **п-Гидроксифенильные (H)** | Фенол, о/м/п-Крезолы, 4-Винилфенол | Травянистые растения, мхи, торфяники | Автохтонный и моховой гуминовый пул |
+| **Углеводы (Carb)** | Фурфурол, 5-HMF, Левоглюкозан, 2-Фурилметилкетон | Полисахариды, целлюлоза, гемицеллюлозы | Доля биогенного углеводного матрикса |
+| **Азотистые (N)** | Пиридин, Пиррол, Индол, Метилиндол | Белки, пептиды, микробная биомасса | Индикатор микробной активности и автохтонного РОВ |
+
+---
+
+### 📊 Хемометрические индексы пиролиза:
+* **Индекс $S/G$:** Отношение сирингильных мономеров к гваяцильным. Для чистых хвойных лигнинов $S/G \approx 0.01–0.05$; для лиственных $S/G > 1.0$.
+* **Индекс $H/G$:** Доля неметоксилированных фенолов. Возрастает при деметилировании и микробной биодеградации.
+* **Индекс $L/C$:** Отношение суммарного пула лигнина $(G+S+H)$ к углеводам. Ключевой биомаркер зрелости и техногенного загрязнения лигнином.
+* **Степень окисления $(Ac/Al)_G$ и $(Ac/Al)_S$:** Отношение карбоновых кислот к соответствующим альдегидам (ванилиновая к-та / ванилин). В интактном лигнине $(Ac/Al)_G < 0.20$; при техногенном щелочном окислении или глубоком выветривании возрастает до $0.50–1.20$.
+
+---
+
+### 🔥 Термогравиметрия (TGA) и дифференциальная термогравиметрия (DTG, $-dm/dT$):
+Кривая убыли массы и скорость термодеструкции разделяются на 4 температурные зоны:
+1. **Зона I ($T < 150^\circ\text{C}$):** Десорбция гигроскопической влаги, окклюдированных газов и сверхлетучих фрагментов.
+2. **Зона II ($150–350^\circ\text{C}$):** Деструкция гемицеллюлоз, эфирных связей $\beta$-O-4 и алифатических боковых цепей ($\Delta m_{\text{aliph}}$).
+3. **Зона III ($350–600^\circ\text{C}$):** Глубокий пиролиз ароматического углеродного скелета, конденсация и распад стабильных C–C связей лигнина ($\Delta m_{\text{arom}}$).
+4. **Зона IV ($T > 600^\circ\text{C}$):** Обугливание высококонденсированного полиароматического кокса и термолиз минерального зольного остатка.
+* **Thermal Index ($TI$):** $TI = \frac{\Delta m_{\text{III}}}{\Delta m_{\text{II}}} = \frac{\Delta m_{\text{arom}}}{\Delta m_{\text{aliph}}}$. Отражает термическую стабильность и долю тугоплавкого конденсированного лигнина.
+""" if lang == "ru" else r"""
+### 🔬 Physicochemical Principles of Thermal Degradation in NOM & Lignin
+
+**Analytical Pyrolysis (Flash Py-GC-MS, 500–600°C)** under inert helium cleaves weaker ether ($\beta$-O-4) and aliphatic bonds, liberating volatile monomers that reflect structural precursors:
+
+| Monomer Class | Representative Biomarkers | Biological Specificity | Environmental / Geochemical Relevance |
+| :--- | :--- | :--- | :--- |
+| **Guaiacyl (G)** | Guaiacol, 4-Methylguaiacol, Vanillin, Vanillic acid | Softwood lignin (Pine, Larch from Lake Baikal basin) | Primary chemical signature of kraft sludge lignin |
+| **Syringyl (S)** | Syringol, 4-Methylsyringol, Syringaldehyde, Syringic acid | Hardwood lignin (Birch, Aspen) | Marker of angiosperm terrigenous runoff |
+| **p-Hydroxyphenyl (H)**| Phenol, o/m/p-Cresols, 4-Vinylphenol | Non-woody tissues, mosses, peatlands | Autochthonous & bryophyte organic pool |
+| **Carbohydrate (Carb)**| Furfural, 5-HMF, Levoglucosan, 2-Furylmethylketone | Polysaccharides, cellulose, hemicellulose | Biogenic carbohydrate matrix contribution |
+| **Nitrogen (N)** | Pyridine, Pyrrole, Indole, Methylindole | Proteins, amino sugars, microbial biomass | Microbial activity and autochthonous NOM |
+
+---
+
+### 📊 Pyrolysis Chemometric Indices:
+* **$S/G$ Ratio:** Syringyl-to-guaiacyl ratio ($S/G < 0.05$ for gymnosperms/softwood kraft lignin, $> 1.0$ for angiosperms).
+* **$H/G$ Ratio:** p-Hydroxyphenyl to guaiacyl ratio (increases during demethylation & biodegradation).
+* **$L/C$ Ratio:** Total lignin $(G+S+H)$ to carbohydrate ratio. Discriminates biogenic NOM from concentrated kraft lignin.
+* **Oxidation State $(Ac/Al)_G$ & $(Ac/Al)_S$:** Acid-to-aldehyde ratios. Fresh wood $< 0.20$; degraded or pulping-oxidized lignin reaches $0.50–1.20$.
+
+---
+
+### 🔥 Thermogravimetry (TGA) & Derivative (DTG, $-dm/dT$):
+Decomposition is separated into 4 kinetic temperature zones:
+1. **Zone I ($T < 150^\circ\text{C}$):** Moisture desorption & volatile degasification.
+2. **Zone II ($150–350^\circ\text{C}$):** Hemicellulose, aliphatic scission & $\beta$-O-4 cleavage ($\Delta m_{\text{aliph}}$).
+3. **Zone III ($350–600^\circ\text{C}$):** Pyrolysis of cross-linked aromatic lignin core & refractory C-C linkages ($\Delta m_{\text{arom}}$).
+4. **Zone IV ($T > 600^\circ\text{C}$):** Polycondensed char graphitization & inorganic mineral ash.
+* **Thermal Index ($TI$):** $TI = \frac{\Delta m_{\text{III}}}{\Delta m_{\text{II}}} = \frac{\Delta m_{\text{arom}}}{\Delta m_{\text{aliph}}}$. Quantifies thermal stability and aromatic condensation.
+""")
+
+    with st.sidebar:
+        st.markdown(f"### {T[lang]['thermal_sidebar_hdr']}")
+        thermal_src = st.radio(
+            T[lang]["thermal_src_label"],
+            [T[lang]["thermal_src_upload"], T[lang]["thermal_src_synth"]],
+            index=0,
+            key="thermal_data_source_radio"
+        )
+
+        if st.session_state.get("_prev_thermal_src") != thermal_src:
+            st.session_state["_prev_thermal_src"] = thermal_src
+            st.session_state["thermal_samples"] = {}
+
+        if thermal_src == T[lang]["thermal_src_upload"]:
+            up_py_files = st.file_uploader(
+                T[lang]["thermal_up_py_label"],
+                type=["csv", "txt", "tsv"],
+                accept_multiple_files=True,
+                key="thermal_up_py_files"
+            )
+            up_tga_files = st.file_uploader(
+                T[lang]["thermal_up_tga_label"],
+                type=["csv", "txt", "tsv"],
+                accept_multiple_files=True,
+                key="thermal_up_tga_files"
+            )
+
+            if up_py_files:
+                for uf in up_py_files:
+                    b_content = uf.getvalue()
+                    s_id = uf.name.rsplit(".", 1)[0].replace("_PyGCMS", "").replace("_pygcms", "")
+                    try:
+                        py_obj = thermal_core.parse_py_gcms_file(b_content, sample_id=s_id)
+                        if s_id not in st.session_state["thermal_samples"]:
+                            st.session_state["thermal_samples"][s_id] = thermal_core.ThermalSample(sample_id=s_id, py_gcms=py_obj)
+                        else:
+                            st.session_state["thermal_samples"][s_id].py_gcms = py_obj
+                    except Exception as e_py:
+                        st.warning(f"Py-GC-MS error ({uf.name}): {e_py}")
+
+            if up_tga_files:
+                for uf in up_tga_files:
+                    b_content = uf.getvalue()
+                    s_id = uf.name.rsplit(".", 1)[0].replace("_TGA", "").replace("_tga", "")
+                    try:
+                        tga_obj = thermal_core.parse_tga_file(b_content, sample_id=s_id)
+                        if s_id not in st.session_state["thermal_samples"]:
+                            st.session_state["thermal_samples"][s_id] = thermal_core.ThermalSample(sample_id=s_id, tga=tga_obj)
+                        else:
+                            st.session_state["thermal_samples"][s_id].tga = tga_obj
+                    except Exception as e_tga:
+                        st.warning(f"TGA error ({uf.name}): {e_tga}")
+        else:
+            if not st.session_state["thermal_samples"]:
+                demo_th_dir = os.path.join("demo_data", "thermal")
+                if os.path.exists(demo_th_dir) and any(f.endswith(".csv") for f in os.listdir(demo_th_dir)):
+                    all_files = os.listdir(demo_th_dir)
+                    sample_map = {}
+                    for fn in all_files:
+                        if not fn.endswith(".csv") or fn == "thermal_descriptors_matrix.csv":
+                            continue
+                        fpath = os.path.join(demo_th_dir, fn)
+                        with open(fpath, "rb") as f:
+                            b_content = f.read()
+                        if "_PyGCMS" in fn:
+                            s_id = fn.replace("_PyGCMS.csv", "")
+                            if s_id not in sample_map:
+                                sample_map[s_id] = thermal_core.ThermalSample(sample_id=s_id)
+                            sample_map[s_id].py_gcms = thermal_core.parse_py_gcms_file(b_content, sample_id=s_id)
+                        elif "_TGA" in fn:
+                            s_id = fn.replace("_TGA.csv", "")
+                            if s_id not in sample_map:
+                                sample_map[s_id] = thermal_core.ThermalSample(sample_id=s_id)
+                            sample_map[s_id].tga = thermal_core.parse_tga_file(b_content, sample_id=s_id)
+                    st.session_state["thermal_samples"] = sample_map
+                else:
+                    synth_samples, _ = thermal_core.generate_synthetic_thermal_dataset(n_samples_per_class=6, save_dir=demo_th_dir)
+                    st.session_state["thermal_samples"] = synth_samples
+
+    if not st.session_state["thermal_samples"]:
+        st.info(T[lang]["thermal_no_samples"])
+    else:
+        # Сборка матрицы дескрипторов по всем образцам
+        th_rows = []
+        for s_id, s_obj in st.session_state["thermal_samples"].items():
+            row = {"Sample_ID": s_id}
+            row.update(thermal_core.extract_thermal_descriptors(s_obj))
+            row["Class_Target"] = 1 if any(k in str(s_id).lower() for k in ["lignin", "sludge", "шлам"]) else 0
+            th_rows.append(row)
+        df_thermal_desc = pd.DataFrame(th_rows)
+
+        sample_list = list(st.session_state["thermal_samples"].keys())
+        col_sel1, col_sel2 = st.columns([3, 1.5])
+        with col_sel1:
+            active_s_id = st.selectbox(
+                T[lang]["thermal_active_sample"],
+                sample_list,
+                index=0,
+                key="select_active_thermal_sample"
+            )
+        active_sample = st.session_state["thermal_samples"][active_s_id]
+        has_py = active_sample.py_gcms is not None
+        has_tga = active_sample.tga is not None
+
+        with col_sel2:
+            st.markdown(
+                f"<div style='padding-top: 28px;'>"
+                f"<span style='background: {'#27ae60' if has_py else '#7f8c8d'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Py-GC-MS: {'✓' if has_py else '✗'}</span>"
+                f"<span style='background: {'#c0392b' if has_tga else '#7f8c8d'}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;'>TGA: {'✓' if has_tga else '✗'}</span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+        tab_th1, tab_th2, tab_th3, tab_th4 = st.tabs([
+            T[lang]["thermal_tab1_title"],
+            T[lang]["thermal_tab2_title"],
+            T[lang]["thermal_tab3_title"],
+            T[lang]["thermal_tab4_title"],
+        ])
+
+        # ----------------------------------------------------------------------
+        # ТАБ 1: Py-GC-MS Хроматограммы и мономеры
+        # ----------------------------------------------------------------------
+        with tab_th1:
+            if not has_py:
+                st.warning("Для активного образца отсутствуют данные Py-GC-MS. Загрузите соответствующий файл или используйте эталонный бенчмарк." if lang == "ru" else "No Py-GC-MS data available for the active sample.")
+            else:
+                py_data = active_sample.py_gcms
+                st.write(f"#### {T[lang]['thermal_tab1_title']} — **{active_s_id}**")
+
+                fig_tic = go.Figure()
+                if len(py_data.retention_times) > 0 and len(py_data.tic_intensity) > 0:
+                    fig_tic.add_trace(go.Scatter(
+                        x=py_data.retention_times,
+                        y=py_data.tic_intensity,
+                        mode="lines",
+                        line=dict(color="#1A365D", width=1.5),
+                        name="TIC (Raw Signal)",
+                    ))
+
+                class_palette = {
+                    "Guaiacyl": "#e67e22",
+                    "Syringyl": "#8e44ad",
+                    "p-Hydroxyphenyl": "#2980b9",
+                    "Carbohydrate": "#27ae60",
+                    "Nitrogen": "#c0392b",
+                    "Aliphatic": "#f39c12",
+                    "Other": "#7f8c8d"
+                }
+
+                if py_data.peaks:
+                    # Разметка пиков цветными маркерами
+                    for p in py_data.peaks:
+                        p_color = class_palette.get(p.compound_class, "#7f8c8d")
+                        p_name = p.name_ru if lang == "ru" else p.name_en
+                        fig_tic.add_trace(go.Scatter(
+                            x=[p.rt],
+                            y=[p.peak_area if (len(py_data.tic_intensity) == 0) else np.interp(p.rt, py_data.retention_times, py_data.tic_intensity)],
+                            mode="markers",
+                            marker=dict(size=9, color=p_color, symbol="diamond", line=dict(width=1, color="black")),
+                            name=p.compound_class,
+                            legendgroup=p.compound_class,
+                            showlegend=False,
+                            hoverinfo="text",
+                            hovertext=(
+                                f"<b>{p_name}</b><br>"
+                                f"Класс: {p.compound_class} ({p.monomer_type})<br>"
+                                f"RT: {p.rt:.2f} мин | Площадь: {p.area_pct:.2f}%<br>"
+                                f"Формула: {p.formula} (MW {p.mw:.1f})"
+                                if lang == "ru" else
+                                f"<b>{p_name}</b><br>"
+                                f"Class: {p.compound_class} ({p.monomer_type})<br>"
+                                f"RT: {p.rt:.2f} min | Area: {p.area_pct:.2f}%<br>"
+                                f"Formula: {p.formula} (MW {p.mw:.1f})"
+                            )
+                        ))
+
+                fig_tic.update_layout(
+                    xaxis_title="Retention Time (min)" if lang == "en" else "Время удерживания RT (мин)",
+                    yaxis_title="Total Ion Current (TIC)" if lang == "en" else "Интенсивность ионного тока (TIC)",
+                    template="plotly_white",
+                    height=440,
+                    margin=dict(l=40, r=20, t=30, b=40),
+                )
+                st_plotly(fig_tic)
+
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    st.write(f"**{T[lang]['thermal_dist_pie_title']}**")
+                    class_areas = {
+                        "Guaiacyl (G)": py_data.indices.get("Py_G_pct", 0.0),
+                        "Syringyl (S)": py_data.indices.get("Py_S_pct", 0.0),
+                        "p-Hydroxyphenyl (H)": py_data.indices.get("Py_H_pct", 0.0),
+                        "Carbohydrate": py_data.indices.get("Py_Carbohydrate_Area_pct", 0.0),
+                        "Nitrogen / Protein": py_data.indices.get("Py_Nitrogen_Area_pct", 0.0),
+                        "Aliphatic / Lipid": py_data.indices.get("Py_Aliphatic_Area_pct", 0.0),
+                        "Unassigned": py_data.indices.get("Py_Unassigned_Area_pct", 0.0),
+                    }
+                    class_areas_filtered = {k: v for k, v in class_areas.items() if v > 0.01}
+                    fig_pie = go.Figure(data=[go.Pie(
+                        labels=list(class_areas_filtered.keys()),
+                        values=list(class_areas_filtered.values()),
+                        hole=0.45,
+                        marker=dict(colors=[
+                            class_palette.get(k.split()[0], "#7f8c8d") for k in class_areas_filtered.keys()
+                        ])
+                    )])
+                    fig_pie.update_layout(height=360, margin=dict(l=20, r=20, t=20, b=20))
+                    st_plotly(fig_pie)
+
+                with col_p2:
+                    st.write(f"**{T[lang]['thermal_monomers_bar_title']}**")
+                    if py_data.peaks:
+                        top_peaks = sorted(py_data.peaks, key=lambda x: x.area_pct, reverse=True)[:10]
+                        df_top = pd.DataFrame([
+                            {
+                                "Compound": (p.name_ru if lang == "ru" else p.name_en),
+                                "Class": p.compound_class,
+                                "Area_%": p.area_pct
+                            }
+                            for p in top_peaks
+                        ])
+                        fig_bar = px.bar(
+                            df_top,
+                            x="Area_%",
+                            y="Compound",
+                            orientation="h",
+                            color="Class",
+                            color_discrete_map=class_palette,
+                            text=df_top["Area_%"].apply(lambda v: f"{v:.1f}%")
+                        )
+                        fig_bar.update_layout(
+                            yaxis=dict(autorange="reversed"),
+                            xaxis_title="Relative Area (%)" if lang == "en" else "Относительная площадь (%)",
+                            template="plotly_white",
+                            height=360,
+                            margin=dict(l=20, r=20, t=20, b=20)
+                        )
+                        st_plotly(fig_bar)
+
+                with st.expander(f"📋 {T[lang]['thermal_peaks_hdr']} ({len(py_data.peaks)} пиков)", expanded=False):
+                    if py_data.peaks:
+                        peaks_table = []
+                        for p in py_data.peaks:
+                            peaks_table.append({
+                                "RT (min)": round(p.rt, 2),
+                                "Compound": p.name_ru if lang == "ru" else p.name_en,
+                                "Class": p.compound_class,
+                                "Monomer": p.monomer_type,
+                                "Area (%)": round(p.area_pct, 2),
+                                "Formula": p.formula,
+                                "MW": round(p.mw, 1),
+                                "CAS": p.cas,
+                            })
+                        df_p_tbl = pd.DataFrame(peaks_table)
+                        st_df(df_p_tbl)
+                        st.download_button(
+                            label=T[lang]["thermal_peaks_dl_btn"],
+                            data=df_p_tbl.to_csv(index=False).encode("utf-8"),
+                            file_name=f"{active_s_id}_PyGCMS_Peaks.csv",
+                            mime="text/csv",
+                            key=f"dl_peaks_{active_s_id}"
+                        )
+
+        # ----------------------------------------------------------------------
+        # ТАБ 2: TGA / DTG Термограммы и температурные зоны
+        # ----------------------------------------------------------------------
+        with tab_th2:
+            if not has_tga:
+                st.warning("Для активного образца отсутствуют данные TGA/DTG. Загрузите файл термогравиметрии или выберите эталонный бенчмарк." if lang == "ru" else "No TGA/DTG data available for the active sample.")
+            else:
+                tga_data = active_sample.tga
+                st.write(f"#### {T[lang]['thermal_tga_title']} — **{active_s_id}**")
+
+                col_to1, col_to2 = st.columns(2)
+                show_zones = col_to1.checkbox(T[lang]["thermal_tga_zones_chk"], value=True, key="chk_tga_zones")
+                show_dtg = col_to2.checkbox(T[lang]["thermal_tga_dtg_chk"], value=True, key="chk_tga_dtg")
+
+                fig_tga = make_subplots(specs=[[{"secondary_y": True}]])
+                fig_tga.add_trace(
+                    go.Scatter(
+                        x=tga_data.temperature,
+                        y=tga_data.mass_pct,
+                        mode="lines",
+                        line=dict(color="#C0392B", width=2.5),
+                        name="TGA Mass (%)",
+                    ),
+                    secondary_y=False
+                )
+
+                if show_dtg:
+                    fig_tga.add_trace(
+                        go.Scatter(
+                            x=tga_data.temperature,
+                            y=tga_data.dtg,
+                            mode="lines",
+                            line=dict(color="#2980B9", width=2.0),
+                            name="DTG (-dm/dT, %/°C)",
+                        ),
+                        secondary_y=True
+                    )
+
+                if show_zones:
+                    # Зона I (<150°C)
+                    fig_tga.add_vrect(x0=30, x1=150, fillcolor="#3498DB", opacity=0.10, layer="below", line_width=0,
+                                      annotation_text="Zone I: Moisture" if lang == "en" else "Зона I: Влага (<150°C)", annotation_position="top left")
+                    # Зона II (150-350°C)
+                    fig_tga.add_vrect(x0=150, x1=350, fillcolor="#F1C40F", opacity=0.12, layer="below", line_width=0,
+                                      annotation_text="Zone II: Aliphatic" if lang == "en" else "Зона II: Алифатика (150–350°C)", annotation_position="top left")
+                    # Зона III (350-600°C)
+                    fig_tga.add_vrect(x0=350, x1=600, fillcolor="#E74C3C", opacity=0.10, layer="below", line_width=0,
+                                      annotation_text="Zone III: Lignin Core" if lang == "en" else "Зона III: Ядро лигнина (350–600°C)", annotation_position="top left")
+                    # Зона IV (>600°C)
+                    fig_tga.add_vrect(x0=600, x1=800, fillcolor="#95A5A6", opacity=0.12, layer="below", line_width=0,
+                                      annotation_text="Zone IV: Char" if lang == "en" else "Зона IV: Кокс (>600°C)", annotation_position="top left")
+
+                fig_tga.update_xaxes(title_text="Temperature (°C)" if lang == "en" else "Температура (°C)")
+                fig_tga.update_yaxes(title_text="TGA Mass Loss (%)" if lang == "en" else "Масса образца TGA (%)", secondary_y=False)
+                fig_tga.update_yaxes(title_text="DTG (-dm/dT, %/°C)" if lang == "en" else "Скорость деструкции DTG (-dm/dT, %/°C)", secondary_y=True)
+                fig_tga.update_layout(template="plotly_white", height=450, margin=dict(l=40, r=40, t=30, b=40))
+                st_plotly(fig_tga)
+
+                # Метрики зон деструкции
+                st.markdown("##### " + ("Кинетические зоны термодеструкции" if lang == "ru" else "Thermal Decomposition Kinetic Zones"))
+                col_zm1, col_zm2, col_zm3, col_zm4 = st.columns(4)
+                col_zm1.metric("Зона I (<150°C)" if lang == "ru" else "Zone I (<150°C)", f"{tga_data.indices.get('TGA_Zone_I_pct', 0.0):.1f}%", help="Влага и десорбция")
+                col_zm2.metric("Зона II (150–350°C)" if lang == "ru" else "Zone II (150-350°C)", f"{tga_data.indices.get('TGA_Zone_II_pct', 0.0):.1f}%", help="Гемицеллюлозы и алифатика")
+                col_zm3.metric("Зона III (350–600°C)" if lang == "ru" else "Zone III (350-600°C)", f"{tga_data.indices.get('TGA_Zone_III_pct', 0.0):.1f}%", help="Ароматический каркас лигнина")
+                col_zm4.metric("Зона IV (>600°C)" if lang == "ru" else "Zone IV (>600°C)", f"{tga_data.indices.get('TGA_Zone_IV_pct', 0.0):.1f}%", help="Кокс и минеральный остаток")
+
+                col_tm1, col_tm2, col_tm3, col_tm4 = st.columns(4)
+                col_tm1.metric(T[lang]["thermal_kpi_ti"], f"{tga_data.indices.get('TGA_Thermal_Index_TI', 0.0):.2f}", help="Δm(III) / Δm(II)")
+                col_tm2.metric(T[lang]["thermal_kpi_t50"], f"{tga_data.indices.get('TGA_T50_degC', 0.0):.1f} °C", help="Температура 50% убыли массы")
+                col_tm3.metric("T_max (DTG)", f"{tga_data.indices.get('DTG_Tmax_degC', 0.0):.1f} °C", help="Пик максимальной скорости деструкции")
+                col_tm4.metric(T[lang]["thermal_kpi_residue"], f"{tga_data.indices.get('TGA_Residue_800C_pct', 0.0):.1f}%", help="Неразложившийся остаток при 800°C")
+
+        # ----------------------------------------------------------------------
+        # ТАБ 3: Хемометрические индексы (S/G, L/C, TI)
+        # ----------------------------------------------------------------------
+        with tab_th3:
+            st.write(f"#### {T[lang]['thermal_tab3_title']}")
+
+            col_k1, col_k2, col_k3, col_k4, col_k5, col_k6 = st.columns(6)
+            sg_val = active_sample.py_gcms.indices.get("Py_S_G_ratio", 0.0) if has_py else 0.0
+            hg_val = active_sample.py_gcms.indices.get("Py_H_G_ratio", 0.0) if has_py else 0.0
+            lc_val = active_sample.py_gcms.indices.get("Py_L_C_ratio", 0.0) if has_py else 0.0
+            ox_val = active_sample.py_gcms.indices.get("Py_Acid_Aldehyde_G", 0.0) if has_py else 0.0
+            ti_val = active_sample.tga.indices.get("TGA_Thermal_Index_TI", 0.0) if has_tga else 0.0
+            t50_val = active_sample.tga.indices.get("TGA_T50_degC", 0.0) if has_tga else 0.0
+
+            col_k1.metric("S/G Ratio", f"{sg_val:.3f}" if has_py else "—")
+            col_k2.metric("H/G Ratio", f"{hg_val:.3f}" if has_py else "—")
+            col_k3.metric("L/C Ratio", f"{lc_val:.2f}" if has_py else "—")
+            col_k4.metric("(Ac/Al)_G", f"{ox_val:.2f}" if has_py else "—")
+            col_k5.metric("TI (TGA)", f"{ti_val:.2f}" if has_tga else "—")
+            col_k6.metric("T_50% (TGA)", f"{t50_val:.1f} °C" if has_tga else "—")
+
+            st.markdown("---")
+            st.write("##### " + ("Сводная таблица термических дескрипторов по всем пробам сессии" if lang == "ru" else "Summary Table of Thermal Descriptors Across All Samples"))
+            st_df(df_thermal_desc)
+
+            # Радар-диаграмма сравнения активного образца со средней картиной
+            if len(df_thermal_desc) > 1 and has_py and has_tga:
+                st.write("##### " + ("Мультипараметрический профиль образца (Fingerprint Radar)" if lang == "ru" else "Sample Thermal Fingerprint Radar"))
+                radar_metrics = ["Py_S_G_ratio", "Py_L_C_ratio", "Py_Acid_Aldehyde_G", "TGA_Thermal_Index_TI", "Py_Total_Lignin_Area_pct"]
+                labels = ["S/G Ratio", "L/C Ratio", "(Ac/Al)_G", "Thermal Index TI", "Lignin Area (%)"]
+
+                # Нормализация для радара [0, 1]
+                vals_sample = []
+                vals_mean = []
+                for m in radar_metrics:
+                    col_vals = df_thermal_desc[m] if m in df_thermal_desc.columns else pd.Series([0.0])
+                    v_min, v_max = col_vals.min(), col_vals.max()
+                    denom = (v_max - v_min) if (v_max - v_min) > 1e-6 else 1.0
+                    v_s = (active_sample.py_gcms.indices.get(m, active_sample.tga.indices.get(m, 0.0)) - v_min) / denom
+                    v_m = (col_vals.mean() - v_min) / denom
+                    vals_sample.append(float(np.clip(v_s, 0.0, 1.0)))
+                    vals_mean.append(float(np.clip(v_m, 0.0, 1.0)))
+
+                fig_radar = go.Figure()
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=vals_sample + [vals_sample[0]],
+                    theta=labels + [labels[0]],
+                    fill='toself',
+                    name=active_s_id,
+                    line_color="#c0392b"
+                ))
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=vals_mean + [vals_mean[0]],
+                    theta=labels + [labels[0]],
+                    fill='toself',
+                    name="Mean (All Samples)" if lang == "en" else "Среднее (Все пробы)",
+                    line_color="#2980b9",
+                    opacity=0.5
+                ))
+                fig_radar.update_layout(
+                    polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+                    showlegend=True,
+                    height=420,
+                    margin=dict(l=40, r=40, t=30, b=30)
+                )
+                st_plotly(fig_radar)
+
+        # ----------------------------------------------------------------------
+        # ТАБ 4: Мультимодальная интеграция и экспорт
+        # ----------------------------------------------------------------------
+        with tab_th4:
+            st.write(f"#### {T[lang]['thermal_tab4_title']}")
+
+            if len(df_thermal_desc) > 1 and "TGA_Thermal_Index_TI" in df_thermal_desc.columns and "Py_L_C_ratio" in df_thermal_desc.columns:
+                df_plot = df_thermal_desc.copy()
+                df_plot["_size"] = df_plot["Py_Total_Lignin_Area_pct"].apply(lambda v: max(float(v), 5.0) if pd.notnull(v) else 10.0)
+                fig_scatter = px.scatter(
+                    df_plot,
+                    x="TGA_Thermal_Index_TI",
+                    y="Py_L_C_ratio",
+                    text="Sample_ID",
+                    size="_size",
+                    color="Class_Target",
+                    color_continuous_scale="Reds",
+                    title="Thermal Stability (TI) vs Lignin/Carbohydrate Ratio (L/C)" if lang == "en" else "Термический индекс (TI) vs Лигнин/Углеводы (L/C)",
+                    labels={
+                        "TGA_Thermal_Index_TI": "Thermal Index TI (Zone III / Zone II)",
+                        "Py_L_C_ratio": "Lignin / Carbohydrate Ratio (L/C)",
+                        "Class_Target": "Class"
+                    }
+                )
+                fig_scatter.update_layout(height=420, template="plotly_white")
+                st_plotly(fig_scatter)
+
+            c_d1, c_d2, c_d3 = st.columns([1.5, 1.5, 2.5])
+            with c_d1:
+                st.download_button(
+                    label=T[lang]["thermal_dl_csv"],
+                    data=df_thermal_desc.to_csv(index=False).encode("utf-8"),
+                    file_name="ChemoSuite_Thermal_Descriptors.csv",
+                    mime="text/csv",
+                    key="dl_thermal_descriptors_csv",
+                )
+            with c_d2:
+                excel_th_buf = io.BytesIO()
+                with pd.ExcelWriter(excel_th_buf, engine="openpyxl") as writer:
+                    df_thermal_desc.to_excel(writer, index=False, sheet_name="Thermal_Descriptors")
+                st.download_button(
+                    label=T[lang]["thermal_dl_excel"],
+                    data=excel_th_buf.getvalue(),
+                    file_name="ChemoSuite_Thermal_Descriptors.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_thermal_descriptors_excel",
+                )
+            with c_d3:
+                if st.button(T[lang]["thermal_sync_ml_btn"], type="primary", key="btn_sync_thermal_ml_descriptors"):
+                    st.session_state["thermal_ml_descriptors"] = df_thermal_desc
+                    st.toast(T[lang]["thermal_sync_success"].format(n=len(df_thermal_desc)), icon="✅")
+                    st.rerun()
+
 
 
 

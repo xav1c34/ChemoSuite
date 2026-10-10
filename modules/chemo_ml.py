@@ -26,6 +26,8 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
             mapping[c] = "FTIR"
         elif c.startswith("NMR_") or any(k in c_low for k in ["nmr", "cp_mas", "c_aliph", "c_o_alkyl", "c_aromatic", "c_carboxyl", "c_carbonyl", "fa_aromaticity", "hb_hi"]):
             mapping[c] = "NMR"
+        elif c.startswith("Py_") or c.startswith("TGA_") or c.startswith("DTG_") or any(k in c_low for k in ["py_", "tga", "dtg", "thermostability", "char_yield", "moisture_loss", "aliphatic_loss", "aromatic_loss"]):
+            mapping[c] = "Thermal"
         elif any(k in c_low for k in ["fi", "hix", "suva", "c1", "c2", "c3", "c4", "fulvic", "lignin", "protein", "humic"]):
             mapping[c] = "EEM-PARAFAC"
         else:
@@ -125,10 +127,11 @@ def merge_feature_blocks(
     df_uv: Optional[pd.DataFrame] = None,
     df_ftir: Optional[pd.DataFrame] = None,
     df_nmr: Optional[pd.DataFrame] = None,
+    df_thermal: Optional[pd.DataFrame] = None,
     on_col: str = "Sample_ID",
 ) -> pd.DataFrame:
-    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis, FTIR и NMR по идентификаторам образцов."""
-    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr] if df is not None and not df.empty]
+    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis, FTIR, NMR и Thermal по идентификаторам образцов."""
+    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr, df_thermal] if df is not None and not df.empty]
     if not dfs:
         return pd.DataFrame()
     for d in dfs:
@@ -146,13 +149,18 @@ def merge_feature_blocks(
             return d2.copy()
         if d2.empty:
             return d1.copy()
-        merged = pd.merge(d1, d2, on=on_col, how="inner")
+
+        # Защита от дублирования метаколонок (Class_Target, Group, Label и т.д.)
+        dup_meta = [c for c in d2.columns if c in d1.columns and c != on_col and c.lower() in ["class_target", "class", "target", "group", "label"]]
+        d2_use = d2.drop(columns=dup_meta) if dup_meta else d2
+
+        merged = pd.merge(d1, d2_use, on=on_col, how="inner")
         if not merged.empty:
             return merged
 
         # Слияние с очисткой от расширений файлов и регистра
         c1 = d1.copy()
-        c2 = d2.copy()
+        c2 = d2_use.copy()
         c1["_id_clean"] = c1[on_col].astype(str).str.strip().str.lower().str.replace(r"\.(csv|tsv|txt|dat)$", "", regex=True)
         c2["_id_clean"] = c2[on_col].astype(str).str.strip().str.lower().str.replace(r"\.(csv|tsv|txt|dat)$", "", regex=True)
         cols_to_drop = [c for c in [on_col] if c in c2.columns]

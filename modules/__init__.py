@@ -9,6 +9,7 @@ modules — Вычислительные и хемометрические мо�
 - report_generator: Генератор аналитических паспортов Excel (.xlsx).
 - ftir_core: Аналитическое ядро колебательной спектроскопии (ATR-FTIR & Raman).
 - nmr_core: Аналитическое ядро спектроскопии ЯМР (13C / 1H NMR).
+- thermal_core: Аналитическое ядро термического анализа и пиролиза (Py-GC-MS & TGA/DTG/DSC).
 """
 
 from . import fticr_core
@@ -19,6 +20,7 @@ from . import project_io
 from . import report_generator
 from . import ftir_core
 from . import nmr_core
+from . import thermal_core
 
 __all__ = [
     "fticr_core",
@@ -29,4 +31,5 @@ __all__ = [
     "report_generator",
     "ftir_core",
     "nmr_core",
+    "thermal_core",
 ]
