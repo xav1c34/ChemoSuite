@@ -118,6 +118,18 @@ except ImportError:
         thermal_core = None
         THERMAL_CORE_AVAILABLE = False
 
+try:
+    import sec_core
+    SEC_CORE_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import sec_core
+        SEC_CORE_AVAILABLE = True
+    except ImportError:
+        sec_core = None
+        SEC_CORE_AVAILABLE = False
+
+
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
 # ==============================================================================
@@ -588,6 +600,42 @@ T = {
         "thermal_sync_success": "Дескрипторы термического анализа ({n} образцов) успешно переданы в Модуль 3!",
         "thermal_dl_csv": "📥 Скачать дескрипторы Thermal (CSV)",
         "thermal_dl_excel": "📊 Экспорт в Excel (.xlsx)",
+        "ml_up_sec": "Таблица дескрипторов SEC/GPC (CSV):",
+        # Модуль 7: Гель-проникающая и эксклюзионная хроматография (SEC / GPC)
+        "mod7_name": "📏 Эксклюзионная хроматография (SEC / GPC)",
+        "sec_title": "📏 Гель-проникающая и эксклюзионная хроматография (SEC / GPC Studio)",
+        "sec_subtitle": "Молекулярно-массовые распределения (ММР), полидисперсность (Đ = Mw/Mn) и экологическое фракционирование РОВ и лигнина",
+        "sec_err_missing": "⚠️ Вычислительное ядро sec_core.py не найдено в директории modules!",
+        "sec_sidebar_hdr": "📁 Менеджер SEC / GPC",
+        "sec_src_label": "Источник хроматографических данных:",
+        "sec_src_upload": "Загрузить файлы SEC (.csv, .txt)",
+        "sec_src_synth": "Эталонный бенчмарк (12 проб)",
+        "sec_up_label": "Загрузите хроматограммы SEC (.csv, .txt):",
+        "sec_calib_preset_label": "Стандарт калибровки колонки:",
+        "sec_flow_rate_label": "Скорость потока (мл/мин):",
+        "sec_tab1_title": "📈 Хроматограмма элюирования и пики",
+        "sec_tab2_title": "📊 Молекулярно-массовое распределение (ММР)",
+        "sec_tab3_title": "⚖️ Полидисперсность и фракционирование",
+        "sec_tab4_title": "🌐 Мультимодальная интеграция и экспорт",
+        "sec_no_samples": "Нет загруженных хроматограмм SEC. Загрузите файлы в боковой панели или выберите 'Эталонный бенчмарк'.",
+        "sec_active_sample": "Активный образец:",
+        "sec_peaks_hdr": "Идентифицированные молекулярные фракции и пики",
+        "sec_peaks_dl_btn": "📥 Скачать таблицу пиков (CSV)",
+        "sec_xaxis_label": "Шкала оси X:",
+        "sec_xaxis_time": "Время удерживания (мин)",
+        "sec_xaxis_vol": "Элюционный объем (мл)",
+        "sec_kpi_mn": "Mn (Среднечисловая M)",
+        "sec_kpi_mw": "Mw (Среднемассовая M)",
+        "sec_kpi_mz": "Mz (z-Средняя M)",
+        "sec_kpi_mp": "Mp (Пиковая M)",
+        "sec_kpi_pdi": "Полидисперсность Đ (Mw/Mn)",
+        "sec_kpi_hmw_ratio": "Отношение HMW / LMW",
+        "sec_kpi_frac1": "Фракция I (>20 кДа, HMW)",
+        "sec_kpi_frac4": "Фракция IV (<1 кДа, LMW)",
+        "sec_sync_ml_btn": "🧬 Синхронизировать дескрипторы с Модулем 3 (ChemoSuite ML)",
+        "sec_sync_success": "Дескрипторы SEC/GPC ({n} образцов) успешно переданы в Модуль 3!",
+        "sec_dl_csv": "📥 Скачать дескрипторы SEC (CSV)",
+        "sec_dl_excel": "📊 Экспорт в Excel (.xlsx)",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -1161,6 +1209,42 @@ T = {
         "thermal_sync_success": "Thermal descriptors ({n} samples) successfully synced to Module 3!",
         "thermal_dl_csv": "📥 Download Thermal Descriptors (CSV)",
         "thermal_dl_excel": "📊 Export to Excel (.xlsx)",
+        "ml_up_sec": "SEC/GPC Descriptors table (CSV):",
+        # Module 7: Size-Exclusion & Gel Permeation Chromatography (SEC / GPC)
+        "mod7_name": "📏 Size-Exclusion Chromatography (SEC / GPC)",
+        "sec_title": "📏 Size-Exclusion & Gel Permeation Chromatography (SEC / GPC Studio)",
+        "sec_subtitle": "Molecular weight distributions (MWD), polydispersity (Đ = Mw/Mn), and environmental NOM/lignin fractionation",
+        "sec_err_missing": "⚠️ Computational engine sec_core.py not found in modules directory!",
+        "sec_sidebar_hdr": "📁 SEC / GPC Manager",
+        "sec_src_label": "Chromatographic Data Source:",
+        "sec_src_upload": "Upload SEC files (.csv, .txt)",
+        "sec_src_synth": "Reference Benchmark (12 samples)",
+        "sec_up_label": "Upload SEC chromatograms (.csv, .txt):",
+        "sec_calib_preset_label": "Column Calibration Standard:",
+        "sec_flow_rate_label": "Eluent Flow Rate (mL/min):",
+        "sec_tab1_title": "📈 Elution Chromatogram & Peaks",
+        "sec_tab2_title": "📊 Molecular Weight Distribution (MWD)",
+        "sec_tab3_title": "⚖️ Polydispersity & Fractionation",
+        "sec_tab4_title": "🌐 Multi-Modal Integration & Export",
+        "sec_no_samples": "No SEC chromatograms loaded. Upload files in the sidebar or select 'Reference Benchmark'.",
+        "sec_active_sample": "Active Sample:",
+        "sec_peaks_hdr": "Identified Molecular Fractions & Peaks",
+        "sec_peaks_dl_btn": "📥 Download Peak Table (CSV)",
+        "sec_xaxis_label": "X-Axis Scale:",
+        "sec_xaxis_time": "Retention Time (min)",
+        "sec_xaxis_vol": "Elution Volume (mL)",
+        "sec_kpi_mn": "Mn (Number-Average MW)",
+        "sec_kpi_mw": "Mw (Weight-Average MW)",
+        "sec_kpi_mz": "Mz (z-Average MW)",
+        "sec_kpi_mp": "Mp (Peak MW)",
+        "sec_kpi_pdi": "Polydispersity Đ (Mw/Mn)",
+        "sec_kpi_hmw_ratio": "HMW / LMW Ratio",
+        "sec_kpi_frac1": "Fraction I (>20 kDa, HMW)",
+        "sec_kpi_frac4": "Fraction IV (<1 kDa, LMW)",
+        "sec_sync_ml_btn": "🧬 Sync Descriptors to Module 3 (ChemoSuite ML)",
+        "sec_sync_success": "SEC/GPC descriptors ({n} samples) successfully synced to Module 3!",
+        "sec_dl_csv": "📥 Download SEC Descriptors (CSV)",
+        "sec_dl_excel": "📊 Export to Excel (.xlsx)",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -1499,6 +1583,10 @@ if "thermal_samples" not in st.session_state:
     st.session_state["thermal_samples"] = {}
 if "thermal_ml_descriptors" not in st.session_state:
     st.session_state["thermal_ml_descriptors"] = None
+if "sec_samples" not in st.session_state:
+    st.session_state["sec_samples"] = {}
+if "sec_ml_descriptors" not in st.session_state:
+    st.session_state["sec_ml_descriptors"] = None
 
 # ==============================================================================
 # БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
@@ -1512,7 +1600,15 @@ with st.sidebar:
     st.markdown(T[lang]["nav_title"])
     active_module = st.radio(
         T[lang]["nav_module_label"],
-        [T[lang]["mod1_name"], T[lang]["mod2_name"], T[lang]["mod3_name"], T[lang]["mod4_name"], T[lang]["mod5_name"], T[lang]["mod6_name"]],
+        [
+            T[lang]["mod1_name"],
+            T[lang]["mod2_name"],
+            T[lang]["mod3_name"],
+            T[lang]["mod4_name"],
+            T[lang]["mod5_name"],
+            T[lang]["mod6_name"],
+            T[lang]["mod7_name"],
+        ],
         index=0,
     )
     st.markdown("---")
@@ -1527,6 +1623,7 @@ with st.sidebar:
             has_ftir = st.session_state.get("ftir_ml_descriptors") is not None
             has_nmr = st.session_state.get("nmr_ml_descriptors") is not None
             has_thermal = st.session_state.get("thermal_ml_descriptors") is not None
+            has_sec = st.session_state.get("sec_ml_descriptors") is not None
             has_fused = st.session_state.get("fused_data") is not None
             m_res = st.session_state.get("pls_results")
             m_type = m_res.get("model_type") if isinstance(m_res, dict) else ("Нет" if lang == "ru" else "None")
@@ -1537,7 +1634,7 @@ with st.sidebar:
                 f"{T[lang]['proj_summary_spec'].format(n=n_spec)} | "
                 f"{T[lang]['proj_summary_eem'].format(val=yes_lbl if has_eem else no_lbl)} | "
                 f"{T[lang]['proj_summary_uv'].format(val=yes_lbl if has_uv else no_lbl)} | "
-                f"FTIR: {yes_lbl if has_ftir else no_lbl} | NMR: {yes_lbl if has_nmr else no_lbl} | Therm: {yes_lbl if has_thermal else no_lbl}\n\n"
+                f"FTIR: {yes_lbl if has_ftir else no_lbl} | NMR: {yes_lbl if has_nmr else no_lbl} | Therm: {yes_lbl if has_thermal else no_lbl} | SEC: {yes_lbl if has_sec else no_lbl}\n\n"
                 f"{T[lang]['proj_summary_fused'].format(val=yes_lbl if has_fused else no_lbl)} | "
                 f"{T[lang]['proj_summary_model'].format(val=m_type)}"
             )
@@ -3613,6 +3710,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
         ftir_df = st.session_state.get("ftir_ml_descriptors", None)
         nmr_df = st.session_state.get("nmr_ml_descriptors", None)
         thermal_df = st.session_state.get("thermal_ml_descriptors", None)
+        sec_df = st.session_state.get("sec_ml_descriptors", None)
 
         n_fticr_samples = len(st.session_state["fticr_batch_summary"]) if ("fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty) else len(assigned_spectra)
         st.info(
@@ -3621,11 +3719,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             f"UV-Vis: **{len(uv_df) if uv_df is not None else 0}** | "
             f"FTIR: **{len(ftir_df) if ftir_df is not None else 0}** | "
             f"NMR: **{len(nmr_df) if nmr_df is not None else 0}** | "
-            f"Thermal: **{len(thermal_df) if thermal_df is not None else 0}**"
+            f"Thermal: **{len(thermal_df) if thermal_df is not None else 0}** | "
+            f"SEC: **{len(sec_df) if sec_df is not None else 0}**"
         )
 
         if st.button(T[lang]["ml_btn_assemble_session"], type="primary", key="btn_assemble_session"):
-            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty) and (ftir_df is None or ftir_df.empty) and (nmr_df is None or nmr_df.empty) and (thermal_df is None or thermal_df.empty):
+            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty) and (ftir_df is None or ftir_df.empty) and (nmr_df is None or nmr_df.empty) and (thermal_df is None or thermal_df.empty) and (sec_df is None or sec_df.empty):
                 st.warning(T[lang]["ml_session_need_more"])
             else:
                 if "fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty:
@@ -3638,7 +3737,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             fticr_rows.append(desc)
                     df_ms_assembled = pd.DataFrame(fticr_rows) if fticr_rows else pd.DataFrame()
 
-                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df, df_ftir=ftir_df, df_nmr=nmr_df, df_thermal=thermal_df)
+                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df, df_ftir=ftir_df, df_nmr=nmr_df, df_thermal=thermal_df, df_sec=sec_df)
                 if not merged_df.empty:
                     if "Class_Target" not in merged_df.columns:
                         # Разметка по умолчанию: 1 для образцов со словом lignin / impact
@@ -3646,7 +3745,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             lambda s: 1 if any(k in str(s).lower() for k in ["lignin", "impact", "шлам"]) else 0
                         )
                     st.session_state["fused_data"] = merged_df
-                    st.session_state["fused_source"] = "Сессионные спектры (6 модальностей)" if lang == "ru" else "Session Spectra (6 Modalities)"
+                    st.session_state["fused_source"] = "Сессионные спектры (7 модальностей)" if lang == "ru" else "Session Spectra (7 Modalities)"
                     st.success(f"Успешно объединено образцов: {len(merged_df)}" if lang == "ru" else f"Successfully assembled samples: {len(merged_df)}")
                     st.rerun()
                 else:
@@ -3661,7 +3760,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             key="ml_upload_type_radio"
         )
         if upload_type == T[lang]["ml_upload_two"]:
-            col_u1, col_u2, col_u3, col_u4, col_u5, col_u6 = st.columns(6)
+            col_u1, col_u2, col_u3, col_u4, col_u5, col_u6, col_u7 = st.columns(7)
             with col_u1:
                 f_ms = st.file_uploader(
                     T[lang]["ml_up_ms"],
@@ -3704,8 +3803,15 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     key="up_thermal_features",
                     help="Таблица дескрипторов Thermal (Sample_ID, S/G, TI, T50). Демо: demo_data/thermal/thermal_descriptors_matrix.csv" if lang == "ru" else "Thermal descriptor table. Demo: demo_data/thermal/thermal_descriptors_matrix.csv",
                 )
+            with col_u7:
+                f_sec = st.file_uploader(
+                    T[lang]["ml_up_sec"],
+                    type=["csv", "tsv", "txt"],
+                    key="up_sec_features",
+                    help="Таблица дескрипторов SEC/GPC (Sample_ID, Mn, Mw, Đ, Frac). Демо: demo_data/sec/sec_descriptors_matrix.csv" if lang == "ru" else "SEC/GPC descriptor table. Demo: demo_data/sec/sec_descriptors_matrix.csv",
+                )
 
-            if f_ms or f_eem or f_uv or f_ftir or f_nmr or f_thermal:
+            if f_ms or f_eem or f_uv or f_ftir or f_nmr or f_thermal or f_sec:
                 try:
                     df_up_ms = pd.read_csv(f_ms) if f_ms else None
                     df_up_eem = pd.read_csv(f_eem) if f_eem else None
@@ -3713,12 +3819,13 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     df_up_ftir = pd.read_csv(f_ftir) if f_ftir else None
                     df_up_nmr = pd.read_csv(f_nmr) if f_nmr else None
                     df_up_thermal = pd.read_csv(f_thermal) if f_thermal else None
-                    merged = chemo_ml.merge_feature_blocks(df_up_ms, df_up_eem, df_up_uv, df_ftir=df_up_ftir, df_nmr=df_up_nmr, df_thermal=df_up_thermal)
+                    df_up_sec = pd.read_csv(f_sec) if f_sec else None
+                    merged = chemo_ml.merge_feature_blocks(df_up_ms, df_up_eem, df_up_uv, df_ftir=df_up_ftir, df_nmr=df_up_nmr, df_thermal=df_up_thermal, df_sec=df_up_sec)
                     if not merged.empty:
                         if "Class_Target" not in merged.columns:
                             merged["Class_Target"] = 0
                         st.session_state["fused_data"] = merged
-                        src_names = [f.name for f in [f_ms, f_eem, f_uv, f_ftir, f_nmr, f_thermal] if f is not None]
+                        src_names = [f.name for f in [f_ms, f_eem, f_uv, f_ftir, f_nmr, f_thermal, f_sec] if f is not None]
                         st.session_state["fused_source"] = " + ".join(src_names)
                 except Exception as e:
                     st.error(f"⚠️ Ошибка загрузки файлов: {e}")
@@ -4065,7 +4172,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_sp = px.bar(
                         top_sparse, x="Absolute_Weight", y="Descriptor", orientation="h",
                         color="Block",
-                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"},
+                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "SEC/GPC": "#008080", "Other": "#7f7f7f"},
                         text=top_sparse["Absolute_Weight"].apply(lambda v: f"{v:.3f}"),
                     )
                     fig_sp.update_layout(
@@ -4089,7 +4196,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_vip = px.bar(
                         top_vip, x="VIP", y="Descriptor", orientation="h",
                         color="Block",
-                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"},
+                        color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "SEC/GPC": "#008080", "Other": "#7f7f7f"},
                         text=top_vip["VIP"].apply(lambda v: f"{v:.2f}"),
                     )
                     fig_vip.add_vline(x=1.0, line_dash="dash", line_color="black", annotation_text=T[lang]["ml_vip_cutoff"])
@@ -4158,7 +4265,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             color="Block",
                             size="VIP",
                             hover_name="Descriptor",
-                            color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"},
+                            color_discrete_map={"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "SEC/GPC": "#008080", "Other": "#7f7f7f"},
                             labels={"p1_cov": "Covariance p[1] (Magnitude)", "p_corr": "Correlation p(corr)[1] (Reliability)"},
                         )
                         fig_s.add_hline(y=0.0, line_dash="dash", line_color="#bfbfbf")
@@ -4233,7 +4340,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 block_contribs = res.get("Block_Contributions", {})
                 if block_contribs:
                     st.write(f"**{T[lang]['ml_donut_title']}**")
-                    b_palette = {"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "Other": "#7f7f7f"}
+                    b_palette = {"FT-ICR MS": "#0b5394", "EEM-PARAFAC": "#e69138", "UV-Vis": "#2ca02c", "FTIR": "#8e44ad", "NMR": "#16a085", "Thermal": "#c0392b", "SEC/GPC": "#008080", "Other": "#7f7f7f"}
                     donut_colors = [b_palette.get(k, "#7f7f7f") for k in block_contribs.keys()]
                     fig_donut = go.Figure(data=[go.Pie(
                         labels=list(block_contribs.keys()),
@@ -6044,6 +6151,487 @@ Decomposition is separated into 4 kinetic temperature zones:
                     st.session_state["thermal_ml_descriptors"] = df_thermal_desc
                     st.toast(T[lang]["thermal_sync_success"].format(n=len(df_thermal_desc)), icon="✅")
                     st.rerun()
+
+# ==============================================================================
+# МОДУЛЬ 7: ГЕЛЬ-ПРОНИКАЮЩАЯ И ЭКСКЛЮЗИОННАЯ ХРОМАТОГРАФИЯ (SEC / GPC)
+# ==============================================================================
+elif active_module == T[lang]["mod7_name"]:
+    if not SEC_CORE_AVAILABLE or sec_core is None:
+        st.error(T[lang]["sec_err_missing"])
+        st.stop()
+
+    st.markdown(
+        f"""
+        <div style="background: linear-gradient(90deg, #063e36 0%, #0d5c4d 50%, #04241d 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">
+            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["sec_title"]}</h3>
+            <p style="margin: 4px 0 0 0; color: #BEE3DB; font-size: 13px;">{T[lang]["sec_subtitle"]}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.popover("ℹ️ " + ("Руководство: Эксклюзионная хроматография (SEC / GPC) в анализе РОВ и лигнина" if lang == "ru" else "Guide: Size-Exclusion Chromatography (SEC / GPC) in NOM & Lignin Analysis"), width="stretch"):
+        st.markdown(r"""
+### 🔬 Физико-химические основы гель-проникающей хроматографии (SEC / GPC) природного и техногенного органического вещества
+
+**Эксклюзионная хроматография (HPSEC / GPC)** — фундаментальный физико-химический метод оценки молекулярно-массового распределения (ММР / MWD), полидисперсности и надмолекулярной ассоциации природного органического вещества (РОВ/DOM, гуминовые и фульвокислоты) и техногенных лигносульфонатов и шлам-лигнина.
+
+Разделение компонентов происходит по их гидродинамическому объему ($V_h$) в порах неподвижной фазы при отсутствии сорбционных энтальпийных взаимодействий:
+
+| Молекулярная фракция | Диапазон масс (MW) | Типичные компоненты биогеохимического пула | Экологическое / биосферное значение |
+| :--- | :--- | :--- | :--- |
+| **Фракция I (HMW)** | $> 20$ кДа | Высококонденсированные полимеры шлам-лигнина, биоколлоиды | Техногенный маркер стоков БЦБК, концентрированные комплексы |
+| **Фракция II (MHMW)** | $5\text{--}20$ кДа | Гуминовые кислоты (HA), агрегаты ароматических доменов | Устойчивый гумусовый матрикс, связывание тяжелых металлов |
+| **Фракция III (MMW)** | $1\text{--}5$ кДа | Фульвокислоты (FA), гидролизованный окисленный лигнин | Растворимый подвижный миграционный пул в воде озера Байкал |
+| **Фракция IV (LMW)** | $< 1$ кДа | Низкомолекулярные мономеры, танины, простые органические кислоты | Биодоступный субстрат автохтонной микробиоты, микробный рециклинг |
+
+---
+
+### 📊 Среднемолекулярные массы и коэффициенты полидисперсности:
+* **Среднечисловая масса ($M_n$):** $M_n = \frac{\sum h_i}{\sum (h_i / M_i)}$ — чувствительна к низкомолекулярным олигомерам и мономерам.
+* **Среднемассовая масса ($M_w$):** $M_w = \frac{\sum (h_i \cdot M_i)}{\sum h_i}$ — отражает основной гидродинамический объем макромолекул.
+* **z-Средняя масса ($M_z$):** $M_z = \frac{\sum (h_i \cdot M_i^2)}{\sum (h_i \cdot M_i)}$ — чувствительна к крупным полимерным сеткам и коллоидным агрегатам.
+* **Индекс полидисперсности ($Đ$ или PDI):** $Đ = \frac{M_w}{M_n}$. Для монодисперсных биополимеров $Đ \approx 1.0$; для природных фульвокислот $Đ \approx 1.3–2.2$; для техногенного поликонденсированного лигнина $Đ > 3.0–8.0$.
+* **Отношение $HMW/LMW$:** $\frac{\text{Frac I} + \text{Frac II}}{\text{Frac IV}}$ — чувствительный дискриминантный маркер техногенной трансформации водной экосистемы.
+""" if lang == "ru" else r"""
+### 🔬 Physicochemical Principles of Size-Exclusion Chromatography (SEC / GPC) in NOM & Lignin Analysis
+
+**Size-Exclusion Chromatography (HPSEC / GPC)** separates macromolecules according to their hydrodynamic volume ($V_h$) in porous stationary phase pores without non-size interactions:
+
+| Molecular Fraction | Mass Range (MW) | Representative Natural/Anthropogenic Components | Environmental & Geochemical Relevance |
+| :--- | :--- | :--- | :--- |
+| **Fraction I (HMW)** | $> 20$ kDa | Supramolecular kraft lignin clusters, biocolloids | Pulp mill sludge lignin marker, high persistence |
+| **Fraction II (MHMW)**| $5\text{--}20$ kDa | Humic acids (HA), condensed polyphenolic networks | Stable soil/sediment humic pool, metal chelation |
+| **Fraction III (MMW)**| $1\text{--}5$ kDa | Fulvic acids (FA), oxidized polyphenol fragments | Dominant mobile NOM fraction in Lake Baikal pelagic water |
+| **Fraction IV (LMW)** | $< 1$ kDa | Low-MW organic acids, tannins, monomeric phenols | Labile autochthonous substrate for microbial uptake |
+
+---
+
+### 📊 Average Molecular Weights & Polydispersity Metrics:
+* **Number-Average MW ($M_n$):** $M_n = \frac{\sum h_i}{\sum (h_i / M_i)}$ — sensitive to low-molecular weight oligomers.
+* **Weight-Average MW ($M_w$):** $M_w = \frac{\sum (h_i \cdot M_i)}{\sum h_i}$ — represents average hydrodynamic bulk mass.
+* **z-Average MW ($M_z$):** $M_z = \frac{\sum (h_i \cdot M_i^2)}{\sum (h_i \cdot M_i)}$ — sensitive to ultra-high mass supramolecular aggregates.
+* **Polydispersity Index ($Đ$ or PDI):** $Đ = \frac{M_w}{M_n}$. Monodisperse standards $Đ \approx 1.0$; natural fulvic acids $Đ \approx 1.4–2.2$; industrial kraft lignin $Đ > 3.5–8.0$.
+* **$HMW/LMW$ Ratio:** $\frac{\text{Frac I} + \text{Frac II}}{\text{Frac IV}}$ — primary discriminator of anthropogenic lignin pollution.
+""")
+
+    with st.sidebar:
+        st.markdown(f"### {T[lang]['sec_sidebar_hdr']}")
+        sec_src = st.radio(
+            T[lang]["sec_src_label"],
+            [T[lang]["sec_src_upload"], T[lang]["sec_src_synth"]],
+            index=0,
+            key="sec_data_source_radio"
+        )
+
+        if st.session_state.get("_prev_sec_src") != sec_src:
+            st.session_state["_prev_sec_src"] = sec_src
+            st.session_state["sec_samples"] = {}
+
+        # Настройки хроматографической колонки
+        with st.expander("⚙️ " + ("Параметры колонки и калибровки" if lang == "ru" else "Column & Calibration Settings"), expanded=False):
+            calib_preset_choices = list(sec_core.CALIBRATION_PRESETS.keys())
+            calib_preset = st.selectbox(
+                T[lang]["sec_calib_preset_label"],
+                calib_preset_choices,
+                index=0,
+                format_func=lambda k: sec_core.CALIBRATION_PRESETS[k]["name_ru" if lang == "ru" else "name_en"],
+                key="sec_calib_preset_select"
+            )
+            flow_rate = st.number_input(
+                T[lang]["sec_flow_rate_label"],
+                min_value=0.1,
+                max_value=5.0,
+                value=0.5,
+                step=0.1,
+                key="sec_flow_rate_input"
+            )
+
+        if sec_src == T[lang]["sec_src_upload"]:
+            up_sec_files = st.file_uploader(
+                T[lang]["sec_up_label"],
+                type=["csv", "txt", "tsv"],
+                accept_multiple_files=True,
+                key="sec_up_files"
+            )
+            if up_sec_files:
+                for uf in up_sec_files:
+                    b_content = uf.getvalue()
+                    s_id = uf.name.rsplit(".", 1)[0].replace("_SEC", "").replace("_sec", "")
+                    try:
+                        s_obj = sec_core.parse_sec_file(
+                            b_content,
+                            sample_id=s_id,
+                            flow_rate_ml_min=flow_rate,
+                            calibration_preset=calib_preset
+                        )
+                        st.session_state["sec_samples"][s_id] = s_obj
+                    except Exception as e_sec:
+                        st.warning(f"SEC error ({uf.name}): {e_sec}")
+        else:
+            if not st.session_state["sec_samples"]:
+                demo_sec_dir = os.path.join("demo_data", "sec")
+                if os.path.exists(demo_sec_dir) and any(f.endswith(".csv") for f in os.listdir(demo_sec_dir)):
+                    all_files = os.listdir(demo_sec_dir)
+                    sample_map = {}
+                    for fn in all_files:
+                        if not fn.endswith(".csv") or fn == "sec_descriptors_matrix.csv":
+                            continue
+                        fpath = os.path.join(demo_sec_dir, fn)
+                        with open(fpath, "rb") as f:
+                            b_content = f.read()
+                        s_id = fn.replace("_SEC.csv", "").replace(".csv", "")
+                        sample_map[s_id] = sec_core.parse_sec_file(
+                            b_content,
+                            sample_id=s_id,
+                            flow_rate_ml_min=flow_rate,
+                            calibration_preset=calib_preset
+                        )
+                    st.session_state["sec_samples"] = sample_map
+                else:
+                    synth_samples, _ = sec_core.generate_synthetic_sec_dataset(n_samples_per_class=6, save_dir=demo_sec_dir)
+                    st.session_state["sec_samples"] = synth_samples
+
+    if not st.session_state["sec_samples"]:
+        st.info(T[lang]["sec_no_samples"])
+    else:
+        # Сборка матрицы дескрипторов по всем образцам
+        sec_rows = []
+        for s_id, s_obj in st.session_state["sec_samples"].items():
+            row = {"Sample_ID": s_id}
+            row.update(sec_core.extract_sec_descriptors(s_obj))
+            row["Class_Target"] = 1 if any(k in str(s_id).lower() for k in ["lignin", "sludge", "шлам"]) else 0
+            sec_rows.append(row)
+        df_sec_desc = pd.DataFrame(sec_rows)
+
+        sample_list = list(st.session_state["sec_samples"].keys())
+        col_sel1, col_sel2 = st.columns([3, 2])
+        with col_sel1:
+            active_s_id = st.selectbox(
+                T[lang]["sec_active_sample"],
+                sample_list,
+                index=0,
+                key="select_active_sec_sample"
+            )
+        active_sample = st.session_state["sec_samples"][active_s_id]
+
+        with col_sel2:
+            mw_val = active_sample.indices.get("SEC_Mw", 0.0)
+            pdi_val = active_sample.indices.get("SEC_Polydispersity", active_sample.indices.get("SEC_PDI", 1.0))
+            n_peaks = len(active_sample.peaks)
+            st.markdown(
+                f"<div style='padding-top: 28px;'>"
+                f"<span style='background: #008080; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Mw: {mw_val:,.0f} Da</span>"
+                f"<span style='background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Đ: {pdi_val:.2f}</span>"
+                f"<span style='background: #2980b9; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;'>Peaks: {n_peaks}</span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+        tab_sec1, tab_sec2, tab_sec3, tab_sec4 = st.tabs([
+            T[lang]["sec_tab1_title"],
+            T[lang]["sec_tab2_title"],
+            T[lang]["sec_tab3_title"],
+            T[lang]["sec_tab4_title"],
+        ])
+
+        # ----------------------------------------------------------------------
+        # ТАБ 1: Хроматограмма элюирования и пики
+        # ----------------------------------------------------------------------
+        with tab_sec1:
+            st.write(f"#### {T[lang]['sec_tab1_title']} — **{active_s_id}**")
+
+            col_c1, col_c2 = st.columns([2, 2])
+            with col_c1:
+                x_axis_mode = st.radio(
+                    T[lang]["sec_xaxis_label"],
+                    [T[lang]["sec_xaxis_vol"], T[lang]["sec_xaxis_time"]],
+                    horizontal=True,
+                    key="sec_xaxis_toggle"
+                )
+            use_vol = (x_axis_mode == T[lang]["sec_xaxis_vol"])
+
+            x_data = active_sample.elution_volume if use_vol else active_sample.retention_times
+            x_title = "Elution Volume Ve (mL)" if use_vol else "Retention Time tR (min)"
+            if lang == "ru":
+                x_title = "Элюционный объем Ve (мл)" if use_vol else "Время удерживания tR (мин)"
+
+            fig_chrom = go.Figure()
+
+            # Сырой сигнал
+            if len(active_sample.signal_raw) > 0 and len(x_data) == len(active_sample.signal_raw):
+                fig_chrom.add_trace(go.Scatter(
+                    x=x_data,
+                    y=active_sample.signal_raw,
+                    mode="lines",
+                    line=dict(color="#95a5a6", width=1.2, dash="dash"),
+                    name="Raw Signal (UV/RI)" if lang == "en" else "Сырой сигнал",
+                ))
+
+            # Базовая линия ALS
+            if active_sample.baseline is not None and len(active_sample.baseline) == len(x_data):
+                fig_chrom.add_trace(go.Scatter(
+                    x=x_data,
+                    y=active_sample.baseline,
+                    mode="lines",
+                    line=dict(color="#e74c3c", width=1.0, dash="dot"),
+                    name="ALS Baseline" if lang == "en" else "Базовая линия ALS",
+                ))
+
+            # Скорректированный профиль
+            if len(active_sample.signal_corrected) > 0 and len(x_data) == len(active_sample.signal_corrected):
+                fig_chrom.add_trace(go.Scatter(
+                    x=x_data,
+                    y=active_sample.signal_corrected,
+                    mode="lines",
+                    line=dict(color="#008080", width=2.4),
+                    name="Corrected Signal" if lang == "en" else "Скорректированный сигнал",
+                ))
+
+            # Идентифицированные пики
+            fraction_palette = {
+                "HMW (>20 kDa)": "#e74c3c",
+                "MHMW (5-20 kDa)": "#e67e22",
+                "MMW (1-5 kDa)": "#3498db",
+                "LMW (<1 kDa)": "#2ecc71",
+            }
+
+            if active_sample.peaks:
+                for p in active_sample.peaks:
+                    p_x = p.elution_volume if use_vol else p.retention_time
+                    p_color = fraction_palette.get(p.fraction_name, "#16a085")
+                    fig_chrom.add_trace(go.Scatter(
+                        x=[p_x],
+                        y=[p.height],
+                        mode="markers+text",
+                        marker=dict(size=10, color=p_color, symbol="diamond", line=dict(width=1, color="black")),
+                        text=[f"P{p.peak_id}: {p.peak_mw:,.0f} Da"],
+                        textposition="top center",
+                        name=p.fraction_name,
+                        hoverinfo="text",
+                        hovertext=(
+                            f"Peak {p.peak_id} ({p.fraction_name})<br>"
+                            f"Ve: {p.elution_volume:.3f} mL | tR: {p.retention_time:.2f} min<br>"
+                            f"Mp: {p.peak_mw:,.1f} Da<br>"
+                            f"Area: {p.area:.2f} ({p.area_pct:.1f}%)"
+                        )
+                    ))
+
+            fig_chrom.update_layout(
+                xaxis_title=x_title,
+                yaxis_title="Detector Response (mAU / mV)" if lang == "en" else "Отклик детектора (mAU / mV)",
+                template="plotly_white",
+                height=460,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=40, t=40, b=40)
+            )
+            st_plotly(fig_chrom)
+
+            # Таблица пиков
+            st.markdown(f"##### {T[lang]['sec_peaks_hdr']}")
+            if active_sample.peaks:
+                peak_records = []
+                for p in active_sample.peaks:
+                    peak_records.append({
+                        "Peak_ID": p.peak_id,
+                        "Retention_Time_min": p.retention_time,
+                        "Elution_Volume_ml": p.elution_volume,
+                        "Peak_MW_Mp_Da": p.peak_mw,
+                        "Peak_Height": p.height,
+                        "Peak_Area": p.area,
+                        "Area_pct": p.area_pct,
+                        "Fraction": p.fraction_name,
+                    })
+                df_peaks = pd.DataFrame(peak_records)
+                st_df(df_peaks)
+
+                st.download_button(
+                    label=T[lang]["sec_peaks_dl_btn"],
+                    data=df_peaks.to_csv(index=False).encode("utf-8"),
+                    file_name=f"{active_s_id}_SEC_Peaks.csv",
+                    mime="text/csv",
+                    key=f"dl_sec_peaks_{active_s_id}",
+                )
+            else:
+                st.info("Пики не обнаружены выше установленного порога высоты." if lang == "ru" else "No peaks detected above the threshold.")
+
+        # ----------------------------------------------------------------------
+        # ТАБ 2: Молекулярно-массовое распределение (ММР / MWD)
+        # ----------------------------------------------------------------------
+        with tab_sec2:
+            st.write(f"#### {T[lang]['sec_tab2_title']} — **{active_s_id}**")
+
+            if len(active_sample.log_mw) > 0 and len(active_sample.mwd_diff) > 0:
+                fig_mwd = make_subplots(specs=[[{"secondary_y": True}]])
+
+                # Цветовые зоны фракций по молекулярным массам
+                fig_mwd.add_vrect(x0=math.log10(20000), x1=math.log10(200000), fillcolor="#e74c3c", opacity=0.08, layer="below", line_width=0,
+                                  annotation_text="Frac I: HMW (>20 kDa)" if lang == "en" else "Фракция I: HMW (>20 кДа)", annotation_position="top left")
+                fig_mwd.add_vrect(x0=math.log10(5000), x1=math.log10(20000), fillcolor="#e67e22", opacity=0.10, layer="below", line_width=0,
+                                  annotation_text="Frac II: MHMW (5-20 kDa)" if lang == "en" else "Фракция II: MHMW (5–20 кДа)", annotation_position="top left")
+                fig_mwd.add_vrect(x0=math.log10(1000), x1=math.log10(5000), fillcolor="#3498db", opacity=0.08, layer="below", line_width=0,
+                                  annotation_text="Frac III: MMW (1-5 kDa)" if lang == "en" else "Фракция III: MMW (1–5 кДа)", annotation_position="top left")
+                fig_mwd.add_vrect(x0=math.log10(200), x1=math.log10(1000), fillcolor="#2ecc71", opacity=0.10, layer="below", line_width=0,
+                                  annotation_text="Frac IV: LMW (<1 kDa)" if lang == "en" else "Фракция IV: LMW (<1 кДа)", annotation_position="top left")
+
+                # Дифференциальная кривая ММР w(log M)
+                fig_mwd.add_trace(
+                    go.Scatter(
+                        x=active_sample.log_mw,
+                        y=active_sample.mwd_diff,
+                        mode="lines",
+                        line=dict(color="#008080", width=2.6),
+                        name="Differential MWD w(log M)" if lang == "en" else "Дифференциальное ММР w(log M)",
+                    ),
+                    secondary_y=False
+                )
+
+                # Интегральная кривая ММР W(M)
+                if len(active_sample.mwd_cum) == len(active_sample.log_mw):
+                    fig_mwd.add_trace(
+                        go.Scatter(
+                            x=active_sample.log_mw,
+                            y=active_sample.mwd_cum,
+                            mode="lines",
+                            line=dict(color="#8e44ad", width=2.0, dash="dash"),
+                            name="Cumulative MWD W(M) %" if lang == "en" else "Интегральное ММР W(M) %",
+                        ),
+                        secondary_y=True
+                    )
+
+                # Линии средних масс: Mn, Mw, Mz, Mp
+                mn_val = active_sample.indices.get("SEC_Mn", 0.0)
+                mw_val = active_sample.indices.get("SEC_Mw", 0.0)
+                mz_val = active_sample.indices.get("SEC_Mz", 0.0)
+                mp_val = active_sample.indices.get("SEC_Mp", 0.0)
+
+                if mn_val > 0:
+                    fig_mwd.add_vline(x=math.log10(mn_val), line_width=1.5, line_dash="dash", line_color="#2980b9",
+                                      annotation_text=f"Mn={mn_val:,.0f}", annotation_position="bottom left")
+                if mw_val > 0:
+                    fig_mwd.add_vline(x=math.log10(mw_val), line_width=2.0, line_dash="solid", line_color="#c0392b",
+                                      annotation_text=f"Mw={mw_val:,.0f}", annotation_position="top left")
+                if mz_val > 0:
+                    fig_mwd.add_vline(x=math.log10(mz_val), line_width=1.5, line_dash="dot", line_color="#8e44ad",
+                                      annotation_text=f"Mz={mz_val:,.0f}", annotation_position="top right")
+
+                fig_mwd.update_xaxes(
+                    title_text="log₁₀(Molecular Weight, Da)" if lang == "en" else "log₁₀(Молекулярная масса, Да)",
+                )
+                fig_mwd.update_yaxes(title_text="Differential Weight w(log M)" if lang == "en" else "Дифференциальная доля w(log M)", secondary_y=False)
+                fig_mwd.update_yaxes(title_text="Cumulative Fraction (%)" if lang == "en" else "Кумулятивная доля (%)", secondary_y=True, range=[0, 105])
+                fig_mwd.update_layout(template="plotly_white", height=470, margin=dict(l=40, r=40, t=30, b=40))
+                st_plotly(fig_mwd)
+            else:
+                st.info("Недостаточно данных для расчета кривой ММР." if lang == "ru" else "Insufficient data to compute MWD curve.")
+
+        # ----------------------------------------------------------------------
+        # ТАБ 3: Полидисперсность и фракционирование
+        # ----------------------------------------------------------------------
+        with tab_sec3:
+            st.write(f"#### {T[lang]['sec_tab3_title']}")
+
+            col_km1, col_km2, col_km3, col_km4 = st.columns(4)
+            col_km1.metric(T[lang]["sec_kpi_mn"], f"{active_sample.indices.get('SEC_Mn', 0.0):,.0f} Da", help="Среднечисловая масса")
+            col_km2.metric(T[lang]["sec_kpi_mw"], f"{active_sample.indices.get('SEC_Mw', 0.0):,.0f} Da", help="Среднемассовая масса")
+            col_km3.metric(T[lang]["sec_kpi_mz"], f"{active_sample.indices.get('SEC_Mz', 0.0):,.0f} Da", help="z-Средняя масса")
+            col_km4.metric(T[lang]["sec_kpi_mp"], f"{active_sample.indices.get('SEC_Mp', 0.0):,.0f} Da", help="Пиковая масса главного пика")
+
+            col_kp1, col_kp2, col_kp3, col_kp4 = st.columns(4)
+            col_kp1.metric(T[lang]["sec_kpi_pdi"], f"{active_sample.indices.get('SEC_Polydispersity', active_sample.indices.get('SEC_PDI', 1.0)):.2f}", help="Đ = Mw / Mn")
+            col_kp2.metric(T[lang]["sec_kpi_hmw_ratio"], f"{active_sample.indices.get('SEC_HMW_LMW_ratio', 0.0):.2f}", help="(Frac I + II) / Frac IV")
+            col_kp3.metric(T[lang]["sec_kpi_frac1"], f"{active_sample.indices.get('SEC_Fraction_I_pct', 0.0):.1f}%", help="Высокомолекулярная фракция (>20 кДа)")
+            col_kp4.metric(T[lang]["sec_kpi_frac4"], f"{active_sample.indices.get('SEC_Fraction_IV_pct', 0.0):.1f}%", help="Низкомолекулярная фракция (<1 кДа)")
+
+            st.markdown("---")
+
+            col_diag1, col_diag2 = st.columns(2)
+            with col_diag1:
+                st.write("##### " + ("Распределение молекулярных фракций (Активный образец)" if lang == "ru" else "Molecular Fraction Distribution (Active Sample)"))
+                labels_frac = ["HMW (>20 kDa)", "MHMW (5-20 kDa)", "MMW (1-5 kDa)", "LMW (<1 kDa)"]
+                vals_frac = [
+                    active_sample.indices.get("SEC_Fraction_I_pct", 0.0),
+                    active_sample.indices.get("SEC_Fraction_II_pct", 0.0),
+                    active_sample.indices.get("SEC_Fraction_III_pct", 0.0),
+                    active_sample.indices.get("SEC_Fraction_IV_pct", 0.0),
+                ]
+                fig_donut_sec = go.Figure(data=[go.Pie(
+                    labels=labels_frac,
+                    values=vals_frac,
+                    hole=0.45,
+                    marker=dict(colors=["#e74c3c", "#e67e22", "#3498db", "#2ecc71"]),
+                )])
+                fig_donut_sec.update_layout(height=360, margin=dict(l=20, r=20, t=20, b=20))
+                st_plotly(fig_donut_sec)
+
+            with col_diag2:
+                st.write("##### " + ("Сравнение фракций по образцам сессии" if lang == "ru" else "Fraction Comparison Across All Samples"))
+                if len(df_sec_desc) > 0:
+                    fig_bar_frac = go.Figure()
+                    fig_bar_frac.add_trace(go.Bar(name="HMW (>20 kDa)", x=df_sec_desc["Sample_ID"], y=df_sec_desc["SEC_Fraction_I_pct"], marker_color="#e74c3c"))
+                    fig_bar_frac.add_trace(go.Bar(name="MHMW (5-20 kDa)", x=df_sec_desc["Sample_ID"], y=df_sec_desc["SEC_Fraction_II_pct"], marker_color="#e67e22"))
+                    fig_bar_frac.add_trace(go.Bar(name="MMW (1-5 kDa)", x=df_sec_desc["Sample_ID"], y=df_sec_desc["SEC_Fraction_III_pct"], marker_color="#3498db"))
+                    fig_bar_frac.add_trace(go.Bar(name="LMW (<1 kDa)", x=df_sec_desc["Sample_ID"], y=df_sec_desc["SEC_Fraction_IV_pct"], marker_color="#2ecc71"))
+                    fig_bar_frac.update_layout(barmode="stack", height=360, template="plotly_white", margin=dict(l=20, r=20, t=20, b=20),
+                                               yaxis_title="Fraction Share (%)" if lang == "en" else "Доля фракции (%)")
+                    st_plotly(fig_bar_frac)
+
+        # ----------------------------------------------------------------------
+        # ТАБ 4: Мультимодальная интеграция и экспорт
+        # ----------------------------------------------------------------------
+        with tab_sec4:
+            st.write(f"#### {T[lang]['sec_tab4_title']}")
+
+            if len(df_sec_desc) > 1 and "SEC_Mw" in df_sec_desc.columns and "SEC_Polydispersity" in df_sec_desc.columns:
+                df_plot_sec = df_sec_desc.copy()
+                df_plot_sec["_size"] = df_plot_sec["SEC_Fraction_I_pct"].apply(lambda v: max(float(v), 4.0) if pd.notnull(v) else 8.0)
+                fig_scatter_sec = px.scatter(
+                    df_plot_sec,
+                    x="SEC_Mw",
+                    y="SEC_Polydispersity",
+                    text="Sample_ID" if "Sample_ID" in df_plot_sec.columns else None,
+                    size="_size",
+                    color="Class_Target" if "Class_Target" in df_plot_sec.columns else None,
+                    color_continuous_scale="Teal",
+                    title="Molecular Weight (Mw) vs Polydispersity Index (Đ)" if lang == "en" else "Молекулярная масса (Mw) vs Полидисперсность (Đ)",
+                    labels={
+                        "SEC_Mw": "Weight-Average MW Mw (Da)",
+                        "SEC_Polydispersity": "Polydispersity Index Đ (Mw/Mn)",
+                        "Class_Target": "Class"
+                    }
+                )
+                fig_scatter_sec.update_layout(height=420, template="plotly_white")
+                st_plotly(fig_scatter_sec)
+
+            st.write("##### " + ("Сводная матрица дескрипторов SEC/GPC по всем пробам" if lang == "ru" else "Summary Matrix of SEC/GPC Descriptors Across All Samples"))
+            st_df(df_sec_desc)
+
+            c_sd1, c_sd2, c_sd3 = st.columns([1.5, 1.5, 2.5])
+            with c_sd1:
+                st.download_button(
+                    label=T[lang]["sec_dl_csv"],
+                    data=df_sec_desc.to_csv(index=False).encode("utf-8"),
+                    file_name="ChemoSuite_SEC_Descriptors.csv",
+                    mime="text/csv",
+                    key="dl_sec_descriptors_csv",
+                )
+            with c_sd2:
+                excel_sec_buf = io.BytesIO()
+                with pd.ExcelWriter(excel_sec_buf, engine="openpyxl") as writer:
+                    df_sec_desc.to_excel(writer, index=False, sheet_name="SEC_Descriptors")
+                st.download_button(
+                    label=T[lang]["sec_dl_excel"],
+                    data=excel_sec_buf.getvalue(),
+                    file_name="ChemoSuite_SEC_Descriptors.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_sec_descriptors_excel",
+                )
+            with c_sd3:
+                if st.button(T[lang]["sec_sync_ml_btn"], type="primary", key="btn_sync_sec_ml_descriptors"):
+                    st.session_state["sec_ml_descriptors"] = df_sec_desc
+                    st.toast(T[lang]["sec_sync_success"].format(n=len(df_sec_desc)), icon="✅")
+                    st.rerun()
+
 
 
 

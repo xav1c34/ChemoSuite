@@ -18,7 +18,9 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
     mapping = {}
     for c in columns:
         c_low = c.lower()
-        if any(k in c_low for k in ["a254", "a280", "a365", "a465", "a665", "e2_e3", "e4_e6", "s_r", "sr", "s_275", "s_350", "d2a", "mw_est", "uv_mw", "absorbance"]):
+        if c.startswith("SEC_") or c.startswith("GPC_") or any(k in c_low for k in ["sec_", "gpc_", "polydispersity", "hmw_lmw", "fraction_i", "fraction_ii", "fraction_iii", "fraction_iv"]):
+            mapping[c] = "SEC/GPC"
+        elif any(k in c_low for k in ["a254", "a280", "a365", "a465", "a665", "e2_e3", "e4_e6", "s_r", "sr", "s_275", "s_350", "d2a", "mw_est", "uv_mw", "absorbance"]):
             mapping[c] = "UV-Vis"
         elif c.startswith("VK_") or any(k in c_low for k in ["mn", "mw", "dbe", "ai", "nosc", "cho_", "chon_", "chos_", "chons_"]):
             mapping[c] = "FT-ICR MS"
@@ -128,10 +130,11 @@ def merge_feature_blocks(
     df_ftir: Optional[pd.DataFrame] = None,
     df_nmr: Optional[pd.DataFrame] = None,
     df_thermal: Optional[pd.DataFrame] = None,
+    df_sec: Optional[pd.DataFrame] = None,
     on_col: str = "Sample_ID",
 ) -> pd.DataFrame:
-    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis, FTIR, NMR и Thermal по идентификаторам образцов."""
-    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr, df_thermal] if df is not None and not df.empty]
+    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis, FTIR, NMR, Thermal и SEC/GPC по идентификаторам образцов."""
+    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr, df_thermal, df_sec] if df is not None and not df.empty]
     if not dfs:
         return pd.DataFrame()
     for d in dfs:

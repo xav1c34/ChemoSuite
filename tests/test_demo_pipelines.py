@@ -279,3 +279,75 @@ def test_demo_thermal_pipeline_and_6modal_data_fusion():
     assert "thermal_ml_descriptors" in loaded
     assert len(loaded["thermal_ml_descriptors"]) == len(df_thermal_aligned)
 
+
+def test_demo_sec_pipeline_and_7modal_data_fusion():
+    """Тест полного сквозного цикла Модуля 7 (SEC/GPC) и 7-модального Data Fusion."""
+    import sec_core
+    sec_dir = os.path.join(os.path.dirname(__file__), "..", "demo_data", "sec")
+    assert os.path.exists(sec_dir)
+    sec_files = [f for f in os.listdir(sec_dir) if f.endswith("_SEC.csv")]
+    assert len(sec_files) == 12
+
+    # 1. Парсинг первого образца
+    with open(os.path.join(sec_dir, sec_files[0]), "rb") as f:
+        s0 = sec_core.parse_sec_file(f.read(), sample_id="Test_SEC_Pipe")
+    assert len(s0.elution_volume) > 50
+    assert "SEC_Mw" in s0.indices
+    assert "SEC_Fraction_I_pct" in s0.indices
+    assert s0.indices["SEC_Mw"] > 0
+
+    # 2. Загрузка матрицы дескрипторов SEC
+    mat_file = os.path.join(sec_dir, "sec_descriptors_matrix.csv")
+    assert os.path.exists(mat_file)
+    df_sec = pd.read_csv(mat_file)
+    assert len(df_sec) == 12
+    assert "SEC_Mw" in df_sec.columns
+
+    # 3. 7-модальное слияние данных в chemo_ml
+    fused_path = os.path.join(os.path.dirname(__file__), "..", "demo_data", "multimodal_ml", "chemo_unified_multimodal.csv")
+    df_fused = pd.read_csv(fused_path)
+
+    th_path = os.path.join(os.path.dirname(__file__), "..", "demo_data", "thermal", "thermal_descriptors_matrix.csv")
+    df_thermal = pd.read_csv(th_path)
+    df_thermal_aligned = df_thermal.copy()
+    df_thermal_aligned["Sample_ID"] = df_fused["Sample_ID"].iloc[:len(df_thermal_aligned)].values
+
+    df_sec_aligned = df_sec.copy()
+    df_sec_aligned["Sample_ID"] = df_fused["Sample_ID"].iloc[:len(df_sec_aligned)].values
+
+    merged_7m = chemo_ml.merge_feature_blocks(df_fused, None, df_thermal=df_thermal_aligned, df_sec=df_sec_aligned)
+    assert not merged_7m.empty
+    blocks = chemo_ml.classify_feature_blocks(merged_7m)
+    assert "SEC/GPC" in blocks.values()
+    assert "Thermal" in blocks.values()
+
+    # 4. Обучение модели PLS-DA на 7 модальностях
+    feat_cols = [c for c in merged_7m.columns if c not in ["Sample_ID", "Class_Target"]]
+    X = merged_7m[feat_cols]
+    y = merged_7m["Class_Target"].values
+    pls_res = chemo_ml.train_plsda_model(X, y, n_components=2)
+    assert pls_res["Q2"] > 0
+    assert "VIP_df" in pls_res
+    assert any(pls_res["VIP_df"]["Block"] == "SEC/GPC")
+
+    # 5. Экспорт аналитического паспорта Excel на 7 модальностях
+    rep_bytes = report_generator.generate_excel_passport(
+        merged_7m,
+        model_results=pls_res,
+        metadata={"project_name": "7-Modal ChemoSuite Passport", "operator": "Pytest"},
+        lang="ru"
+    )
+    assert len(rep_bytes) > 2000
+
+    # 6. Сохранение и загрузка .chemo проекта
+    session_data = {
+        "fused_data": merged_7m,
+        "pls_results": pls_res,
+        "thermal_ml_descriptors": df_thermal_aligned,
+        "sec_ml_descriptors": df_sec_aligned,
+    }
+    proj_bytes = project_io.save_chemo_project(session_data, project_name="Test_7M_Project")
+    loaded = project_io.load_chemo_project(proj_bytes)
+    assert "sec_ml_descriptors" in loaded
+    assert len(loaded["sec_ml_descriptors"]) == len(df_sec_aligned)
+

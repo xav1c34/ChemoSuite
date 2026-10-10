@@ -89,6 +89,7 @@ def generate_excel_passport(
     ftir_cols = [c for c in feature_cols if block_map.get(c) == "FTIR"]
     nmr_cols = [c for c in feature_cols if block_map.get(c) == "NMR"]
     thermal_cols = [c for c in feature_cols if block_map.get(c) == "Thermal"]
+    sec_cols = [c for c in feature_cols if block_map.get(c) == "SEC/GPC"]
     other_cols = [c for c in feature_cols if block_map.get(c) == "Other"]
 
     is_en = (lang == "en")
@@ -121,6 +122,8 @@ def generate_excel_passport(
         ("UV-Vis Descriptors:" if is_en else "Дескрипторов UV-Vis:", len(uv_cols)),
         ("FTIR Descriptors:" if is_en else "Дескрипторов FTIR:", len(ftir_cols)),
         ("NMR Descriptors:" if is_en else "Дескрипторов NMR:", len(nmr_cols)),
+        ("Thermal Descriptors:" if is_en else "Дескрипторов Thermal:", len(thermal_cols)),
+        ("SEC/GPC Descriptors:" if is_en else "Дескрипторов SEC/GPC:", len(sec_cols)),
     ]
 
     for idx, (lbl, val) in enumerate(meta_info, start=5):
@@ -276,7 +279,15 @@ def generate_excel_passport(
         populate_table_sheet(ws_therm, fused_df[thermal_export_cols], header_fill="C0392B")
 
     # =========================================================================
-    # ЛИСТ 9: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
+    # ЛИСТ 9: SEC / GPC дескрипторы (SEC-GPC Descriptors)
+    # =========================================================================
+    sec_export_cols = [c for c in ["Sample_ID", "Class_Target"] if c in fused_df.columns] + sec_cols
+    if len(sec_cols) > 0:
+        ws_sec = wb.create_sheet(title="SEC-GPC Descriptors")
+        populate_table_sheet(ws_sec, fused_df[sec_export_cols], header_fill="16A085")
+
+    # =========================================================================
+    # ЛИСТ 10: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
     # =========================================================================
     if model_results and "VIP_df" in model_results:
         vip_df = model_results["VIP_df"].copy()

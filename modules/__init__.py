@@ -10,6 +10,7 @@ modules — Вычислительные и хемометрические мо�
 - ftir_core: Аналитическое ядро колебательной спектроскопии (ATR-FTIR & Raman).
 - nmr_core: Аналитическое ядро спектроскопии ЯМР (13C / 1H NMR).
 - thermal_core: Аналитическое ядро термического анализа и пиролиза (Py-GC-MS & TGA/DTG/DSC).
+- sec_core: Аналитическое ядро эксклюзионной хроматографии (SEC / GPC).
 """
 
 from . import fticr_core
@@ -21,6 +22,7 @@ from . import report_generator
 from . import ftir_core
 from . import nmr_core
 from . import thermal_core
+from . import sec_core
 
 __all__ = [
     "fticr_core",
@@ -32,4 +34,5 @@ __all__ = [
     "ftir_core",
     "nmr_core",
     "thermal_core",
+    "sec_core",
 ]
