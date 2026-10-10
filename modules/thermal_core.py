@@ -347,6 +347,56 @@ class PyGCMSPeak:
     cas: Optional[str] = None
     formula: Optional[str] = None
     similarity: float = 1.0
+    mw: float = 0.0
+    area_pct: float = 0.0
+    monomer_type: str = ""
+    name_en: str = ""
+    name_ru: str = ""
+
+    def __post_init__(self):
+        if not self.name_en:
+            self.name_en = self.compound_name
+        if not self.name_ru:
+            self.name_ru = self.compound_name
+        if not self.monomer_type:
+            self.monomer_type = self.chemical_class
+
+    @property
+    def rt(self) -> float:
+        return self.retention_time
+
+    @rt.setter
+    def rt(self, val: float):
+        self.retention_time = val
+
+    @property
+    def peak_area(self) -> float:
+        return self.area
+
+    @peak_area.setter
+    def peak_area(self, val: float):
+        self.area = val
+
+    @property
+    def compound_class(self) -> str:
+        mapping = {
+            "G_Lignin": "Guaiacyl",
+            "S_Lignin": "Syringyl",
+            "H_Lignin": "p-Hydroxyphenyl",
+            "Carbohydrate": "Carbohydrate",
+            "Nitrogen_Protein": "Nitrogen",
+            "Aliphatic_Lipid": "Aliphatic",
+            "Guaiacyl": "Guaiacyl",
+            "Syringyl": "Syringyl",
+            "p-Hydroxyphenyl": "p-Hydroxyphenyl",
+            "Nitrogen": "Nitrogen",
+            "Aliphatic": "Aliphatic",
+        }
+        return mapping.get(self.chemical_class, "Other")
+
+    @compound_class.setter
+    def compound_class(self, val: str):
+        self.chemical_class = val
 
 
 @dataclass
@@ -407,16 +457,24 @@ def match_py_compound(
         sim = max(0.5, 1.0 - (min_diff / window) * 0.5)
         return {
             "name": name,
+            "name_en": best_match["name_en"],
+            "name_ru": best_match["name_ru"],
             "class": best_match["class"],
+            "subclass": best_match.get("subclass", ""),
             "cas": best_match["cas"],
             "formula": best_match["formula"],
+            "mw": float(best_match.get("mw", 0.0)),
             "similarity": float(sim),
         }
     return {
         "name": f"Unknown @ {rt:.2f} min" if lang == "en" else f"Неизвестный @ {rt:.2f} мин",
+        "name_en": f"Unknown @ {rt:.2f} min",
+        "name_ru": f"Неизвестный @ {rt:.2f} мин",
         "class": "Unclassified",
+        "subclass": "Unclassified",
         "cas": None,
         "formula": None,
+        "mw": 0.0,
         "similarity": 0.0,
     }
 
@@ -538,6 +596,10 @@ def parse_py_gcms_file(
                 cas=match_info["cas"],
                 formula=match_info["formula"],
                 similarity=match_info["similarity"],
+                mw=match_info.get("mw", 0.0),
+                monomer_type=match_info.get("subclass", match_info["class"]),
+                name_en=match_info.get("name_en", match_info["name"]),
+                name_ru=match_info.get("name_ru", match_info["name"]),
             ))
 
     # ВАРИАНТ Б: Файл уже представляет собой таблицу интегрированных пиков
@@ -565,13 +627,20 @@ def parse_py_gcms_file(
                 elif any(k in c_low for k in ["indol", "индол", "pyridin", "пиридин", "pyrrol", "пиррол"]):
                     chem_class = "Nitrogen_Protein"
                 
+                match_info = match_py_compound(p_rt, window=rt_window, lang=lang)
                 peaks_list.append(PyGCMSPeak(
                     retention_time=round(p_rt, 3),
                     area=max(0.0, p_area),
                     height=max(0.0, p_height),
                     compound_name=c_name,
                     chemical_class=chem_class,
+                    cas=match_info.get("cas"),
+                    formula=match_info.get("formula"),
                     similarity=1.0,
+                    mw=match_info.get("mw", 0.0),
+                    monomer_type=match_info.get("subclass", chem_class),
+                    name_en=c_name,
+                    name_ru=c_name,
                 ))
             else:
                 match_info = match_py_compound(p_rt, window=rt_window, lang=lang)
@@ -584,7 +653,16 @@ def parse_py_gcms_file(
                     cas=match_info["cas"],
                     formula=match_info["formula"],
                     similarity=match_info["similarity"],
+                    mw=match_info.get("mw", 0.0),
+                    monomer_type=match_info.get("subclass", match_info["class"]),
+                    name_en=match_info.get("name_en", match_info["name"]),
+                    name_ru=match_info.get("name_ru", match_info["name"]),
                 ))
+
+    # Рассчитываем относительные площади (area_pct)
+    tot_area = sum(p.area for p in peaks_list)
+    for p in peaks_list:
+        p.area_pct = round((p.area / tot_area) * 100.0, 2) if tot_area > 0 else 0.0
 
     # Рассчитываем хемометрические индексы
     indices = calculate_py_gcms_indices(peaks_list)
@@ -675,6 +753,12 @@ def calculate_py_gcms_indices(peaks: List[PyGCMSPeak]) -> Dict[str, float]:
         "Py_Carbohydrate_pct": round(float(carb_pct), 2),
         "Py_Nitrogen_pct": round(float(n_pct), 2),
         "Py_Aromaticity_pct": round(float(aromatic_pct), 2),
+        "Py_Acid_Aldehyde_G": round(float(ac_al_g), 3),
+        "Py_Acid_Aldehyde_S": round(float(ac_al_s), 3),
+        "Py_Total_Lignin_Area_pct": round(float(total_lignin_pct), 2),
+        "Py_Carbohydrate_Area_pct": round(float(carb_pct), 2),
+        "Py_Nitrogen_Area_pct": round(float(n_pct), 2),
+        "Py_Aromaticity_Area_pct": round(float(aromatic_pct), 2),
     }
 
 
@@ -1039,7 +1123,15 @@ def generate_synthetic_thermal_dataset(
                 cas=ref["cas"],
                 formula=ref["formula"],
                 similarity=round(float(rng.uniform(0.92, 0.99)), 3),
+                mw=float(ref.get("mw", 0.0)),
+                monomer_type=ref.get("subclass", ref["class"]),
+                name_en=ref["name_en"],
+                name_ru=ref["name_ru"],
             ))
+
+        tot_area_nom = sum(p.area for p in peaks_nom)
+        for p in peaks_nom:
+            p.area_pct = round((p.area / tot_area_nom) * 100.0, 2) if tot_area_nom > 0 else 0.0
 
         py_indices_nom = calculate_py_gcms_indices(peaks_nom)
         py_obj_nom = PyGCMSSample(
@@ -1119,7 +1211,15 @@ def generate_synthetic_thermal_dataset(
                 cas=ref["cas"],
                 formula=ref["formula"],
                 similarity=round(float(rng.uniform(0.94, 0.99)), 3),
+                mw=float(ref.get("mw", 0.0)),
+                monomer_type=ref.get("subclass", ref["class"]),
+                name_en=ref["name_en"],
+                name_ru=ref["name_ru"],
             ))
+
+        tot_area_lig = sum(p.area for p in peaks_lignin)
+        for p in peaks_lignin:
+            p.area_pct = round((p.area / tot_area_lig) * 100.0, 2) if tot_area_lig > 0 else 0.0
 
         py_indices_lignin = calculate_py_gcms_indices(peaks_lignin)
         py_obj_lignin = PyGCMSSample(

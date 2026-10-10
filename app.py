@@ -5694,29 +5694,40 @@ Decomposition is separated into 4 kinetic temperature zones:
                 }
 
                 if py_data.peaks:
+                    total_peak_area = sum(getattr(p, "area", getattr(p, "peak_area", 0.0)) for p in py_data.peaks)
                     # Разметка пиков цветными маркерами
                     for p in py_data.peaks:
-                        p_color = class_palette.get(p.compound_class, "#7f8c8d")
-                        p_name = p.name_ru if lang == "ru" else p.name_en
+                        p_cls = getattr(p, "compound_class", getattr(p, "chemical_class", "Other"))
+                        p_color = class_palette.get(p_cls, "#7f8c8d")
+                        p_name = (getattr(p, "name_ru", None) if lang == "ru" else getattr(p, "name_en", None)) or getattr(p, "compound_name", "Peak")
+                        p_rt = getattr(p, "rt", getattr(p, "retention_time", 0.0))
+                        p_area = getattr(p, "area", getattr(p, "peak_area", 0.0))
+                        p_area_pct = getattr(p, "area_pct", 0.0)
+                        if p_area_pct <= 0.0 and total_peak_area > 0:
+                            p_area_pct = (p_area / total_peak_area) * 100.0
+                        p_monomer = getattr(p, "monomer_type", p_cls)
+                        p_mw = getattr(p, "mw", 0.0)
+                        p_formula = getattr(p, "formula", "") or "—"
+
                         fig_tic.add_trace(go.Scatter(
-                            x=[p.rt],
-                            y=[p.peak_area if (len(py_data.tic_intensity) == 0) else np.interp(p.rt, py_data.retention_times, py_data.tic_intensity)],
+                            x=[p_rt],
+                            y=[p_area if (len(py_data.tic_intensity) == 0) else np.interp(p_rt, py_data.retention_times, py_data.tic_intensity)],
                             mode="markers",
                             marker=dict(size=9, color=p_color, symbol="diamond", line=dict(width=1, color="black")),
-                            name=p.compound_class,
-                            legendgroup=p.compound_class,
+                            name=p_cls,
+                            legendgroup=p_cls,
                             showlegend=False,
                             hoverinfo="text",
                             hovertext=(
                                 f"<b>{p_name}</b><br>"
-                                f"Класс: {p.compound_class} ({p.monomer_type})<br>"
-                                f"RT: {p.rt:.2f} мин | Площадь: {p.area_pct:.2f}%<br>"
-                                f"Формула: {p.formula} (MW {p.mw:.1f})"
+                                f"Класс: {p_cls} ({p_monomer})<br>"
+                                f"RT: {p_rt:.2f} мин | Площадь: {p_area_pct:.2f}%<br>"
+                                f"Формула: {p_formula} (MW {p_mw:.1f})"
                                 if lang == "ru" else
                                 f"<b>{p_name}</b><br>"
-                                f"Class: {p.compound_class} ({p.monomer_type})<br>"
-                                f"RT: {p.rt:.2f} min | Area: {p.area_pct:.2f}%<br>"
-                                f"Formula: {p.formula} (MW {p.mw:.1f})"
+                                f"Class: {p_cls} ({p_monomer})<br>"
+                                f"RT: {p_rt:.2f} min | Area: {p_area_pct:.2f}%<br>"
+                                f"Formula: {p_formula} (MW {p_mw:.1f})"
                             )
                         ))
 
@@ -5736,8 +5747,8 @@ Decomposition is separated into 4 kinetic temperature zones:
                         "Guaiacyl (G)": py_data.indices.get("Py_G_pct", 0.0),
                         "Syringyl (S)": py_data.indices.get("Py_S_pct", 0.0),
                         "p-Hydroxyphenyl (H)": py_data.indices.get("Py_H_pct", 0.0),
-                        "Carbohydrate": py_data.indices.get("Py_Carbohydrate_Area_pct", 0.0),
-                        "Nitrogen / Protein": py_data.indices.get("Py_Nitrogen_Area_pct", 0.0),
+                        "Carbohydrate": py_data.indices.get("Py_Carbohydrate_Area_pct", py_data.indices.get("Py_Carbohydrate_pct", 0.0)),
+                        "Nitrogen / Protein": py_data.indices.get("Py_Nitrogen_Area_pct", py_data.indices.get("Py_Nitrogen_pct", 0.0)),
                         "Aliphatic / Lipid": py_data.indices.get("Py_Aliphatic_Area_pct", 0.0),
                         "Unassigned": py_data.indices.get("Py_Unassigned_Area_pct", 0.0),
                     }
@@ -5756,12 +5767,18 @@ Decomposition is separated into 4 kinetic temperature zones:
                 with col_p2:
                     st.write(f"**{T[lang]['thermal_monomers_bar_title']}**")
                     if py_data.peaks:
-                        top_peaks = sorted(py_data.peaks, key=lambda x: x.area_pct, reverse=True)[:10]
+                        def _get_pk_pct(pk):
+                            pct = getattr(pk, "area_pct", 0.0)
+                            if pct <= 0.0 and total_peak_area > 0:
+                                pct = (getattr(pk, "area", getattr(pk, "peak_area", 0.0)) / total_peak_area) * 100.0
+                            return pct
+
+                        top_peaks = sorted(py_data.peaks, key=_get_pk_pct, reverse=True)[:10]
                         df_top = pd.DataFrame([
                             {
-                                "Compound": (p.name_ru if lang == "ru" else p.name_en),
-                                "Class": p.compound_class,
-                                "Area_%": p.area_pct
+                                "Compound": (getattr(p, "name_ru", None) if lang == "ru" else getattr(p, "name_en", None)) or getattr(p, "compound_name", "Peak"),
+                                "Class": getattr(p, "compound_class", getattr(p, "chemical_class", "Other")),
+                                "Area_%": round(_get_pk_pct(p), 2)
                             }
                             for p in top_peaks
                         ])
@@ -5787,15 +5804,25 @@ Decomposition is separated into 4 kinetic temperature zones:
                     if py_data.peaks:
                         peaks_table = []
                         for p in py_data.peaks:
+                            c_name = (getattr(p, "name_ru", None) if lang == "ru" else getattr(p, "name_en", None)) or getattr(p, "compound_name", "Peak")
+                            c_class = getattr(p, "compound_class", getattr(p, "chemical_class", "Other"))
+                            c_rt = getattr(p, "rt", getattr(p, "retention_time", 0.0))
+                            c_pct = getattr(p, "area_pct", 0.0)
+                            if c_pct <= 0.0 and total_peak_area > 0:
+                                c_pct = (getattr(p, "area", getattr(p, "peak_area", 0.0)) / total_peak_area) * 100.0
+                            c_monomer = getattr(p, "monomer_type", c_class)
+                            c_mw = getattr(p, "mw", 0.0)
+                            c_formula = getattr(p, "formula", "") or "—"
+                            c_cas = getattr(p, "cas", "") or "—"
                             peaks_table.append({
-                                "RT (min)": round(p.rt, 2),
-                                "Compound": p.name_ru if lang == "ru" else p.name_en,
-                                "Class": p.compound_class,
-                                "Monomer": p.monomer_type,
-                                "Area (%)": round(p.area_pct, 2),
-                                "Formula": p.formula,
-                                "MW": round(p.mw, 1),
-                                "CAS": p.cas,
+                                "RT (min)": round(c_rt, 2),
+                                "Compound": c_name,
+                                "Class": c_class,
+                                "Monomer": c_monomer,
+                                "Area (%)": round(c_pct, 2),
+                                "Formula": c_formula,
+                                "MW": round(c_mw, 1) if c_mw > 0 else "—",
+                                "CAS": c_cas,
                             })
                         df_p_tbl = pd.DataFrame(peaks_table)
                         st_df(df_p_tbl)
@@ -5889,9 +5916,9 @@ Decomposition is separated into 4 kinetic temperature zones:
             sg_val = active_sample.py_gcms.indices.get("Py_S_G_ratio", 0.0) if has_py else 0.0
             hg_val = active_sample.py_gcms.indices.get("Py_H_G_ratio", 0.0) if has_py else 0.0
             lc_val = active_sample.py_gcms.indices.get("Py_L_C_ratio", 0.0) if has_py else 0.0
-            ox_val = active_sample.py_gcms.indices.get("Py_Acid_Aldehyde_G", 0.0) if has_py else 0.0
-            ti_val = active_sample.tga.indices.get("TGA_Thermal_Index_TI", 0.0) if has_tga else 0.0
-            t50_val = active_sample.tga.indices.get("TGA_T50_degC", 0.0) if has_tga else 0.0
+            ox_val = (active_sample.py_gcms.indices.get("Py_Acid_Aldehyde_G", active_sample.py_gcms.indices.get("Py_Ac_Al_G", 0.0))) if has_py else 0.0
+            ti_val = (active_sample.tga.indices.get("TGA_Thermal_Index_TI", active_sample.tga.indices.get("TGA_Thermostability_Index", 0.0))) if has_tga else 0.0
+            t50_val = (active_sample.tga.indices.get("TGA_T50_degC", active_sample.tga.indices.get("TGA_T_50pct", 0.0))) if has_tga else 0.0
 
             col_k1.metric("S/G Ratio", f"{sg_val:.3f}" if has_py else "—")
             col_k2.metric("H/G Ratio", f"{hg_val:.3f}" if has_py else "—")
@@ -5907,17 +5934,30 @@ Decomposition is separated into 4 kinetic temperature zones:
             # Радар-диаграмма сравнения активного образца со средней картиной
             if len(df_thermal_desc) > 1 and has_py and has_tga:
                 st.write("##### " + ("Мультипараметрический профиль образца (Fingerprint Radar)" if lang == "ru" else "Sample Thermal Fingerprint Radar"))
-                radar_metrics = ["Py_S_G_ratio", "Py_L_C_ratio", "Py_Acid_Aldehyde_G", "TGA_Thermal_Index_TI", "Py_Total_Lignin_Area_pct"]
+                radar_metrics = ["Py_S_G_ratio", "Py_L_C_ratio", "Py_Ac_Al_G", "TGA_Thermal_Index_TI", "Py_Total_Lignin_pct"]
                 labels = ["S/G Ratio", "L/C Ratio", "(Ac/Al)_G", "Thermal Index TI", "Lignin Area (%)"]
 
                 # Нормализация для радара [0, 1]
                 vals_sample = []
                 vals_mean = []
                 for m in radar_metrics:
-                    col_vals = df_thermal_desc[m] if m in df_thermal_desc.columns else pd.Series([0.0])
+                    m_lookup = m
+                    if m not in df_thermal_desc.columns:
+                        if m == "Py_Ac_Al_G" and "Py_Acid_Aldehyde_G" in df_thermal_desc.columns:
+                            m_lookup = "Py_Acid_Aldehyde_G"
+                        elif m == "TGA_Thermal_Index_TI" and "TGA_Thermostability_Index" in df_thermal_desc.columns:
+                            m_lookup = "TGA_Thermostability_Index"
+                        elif m == "Py_Total_Lignin_pct" and "Py_Total_Lignin_Area_pct" in df_thermal_desc.columns:
+                            m_lookup = "Py_Total_Lignin_Area_pct"
+                    col_vals = df_thermal_desc[m_lookup] if m_lookup in df_thermal_desc.columns else pd.Series([0.0])
                     v_min, v_max = col_vals.min(), col_vals.max()
                     denom = (v_max - v_min) if (v_max - v_min) > 1e-6 else 1.0
-                    v_s = (active_sample.py_gcms.indices.get(m, active_sample.tga.indices.get(m, 0.0)) - v_min) / denom
+                    val_from_sample = (
+                        active_sample.py_gcms.indices.get(m, active_sample.py_gcms.indices.get(m_lookup, 0.0))
+                        if active_sample.py_gcms else
+                        active_sample.tga.indices.get(m, active_sample.tga.indices.get(m_lookup, 0.0))
+                    )
+                    v_s = (val_from_sample - v_min) / denom
                     v_m = (col_vals.mean() - v_min) / denom
                     vals_sample.append(float(np.clip(v_s, 0.0, 1.0)))
                     vals_mean.append(float(np.clip(v_m, 0.0, 1.0)))
@@ -5952,20 +5992,26 @@ Decomposition is separated into 4 kinetic temperature zones:
         with tab_th4:
             st.write(f"#### {T[lang]['thermal_tab4_title']}")
 
-            if len(df_thermal_desc) > 1 and "TGA_Thermal_Index_TI" in df_thermal_desc.columns and "Py_L_C_ratio" in df_thermal_desc.columns:
+            tga_col = "TGA_Thermal_Index_TI" if "TGA_Thermal_Index_TI" in df_thermal_desc.columns else ("TGA_Thermostability_Index" if "TGA_Thermostability_Index" in df_thermal_desc.columns else None)
+            lig_col = "Py_Total_Lignin_Area_pct" if "Py_Total_Lignin_Area_pct" in df_thermal_desc.columns else ("Py_Total_Lignin_pct" if "Py_Total_Lignin_pct" in df_thermal_desc.columns else None)
+
+            if len(df_thermal_desc) > 1 and tga_col and "Py_L_C_ratio" in df_thermal_desc.columns:
                 df_plot = df_thermal_desc.copy()
-                df_plot["_size"] = df_plot["Py_Total_Lignin_Area_pct"].apply(lambda v: max(float(v), 5.0) if pd.notnull(v) else 10.0)
+                if lig_col:
+                    df_plot["_size"] = df_plot[lig_col].apply(lambda v: max(float(v), 5.0) if pd.notnull(v) else 10.0)
+                else:
+                    df_plot["_size"] = 10.0
                 fig_scatter = px.scatter(
                     df_plot,
-                    x="TGA_Thermal_Index_TI",
+                    x=tga_col,
                     y="Py_L_C_ratio",
-                    text="Sample_ID",
+                    text="Sample_ID" if "Sample_ID" in df_plot.columns else None,
                     size="_size",
-                    color="Class_Target",
+                    color="Class_Target" if "Class_Target" in df_plot.columns else None,
                     color_continuous_scale="Reds",
                     title="Thermal Stability (TI) vs Lignin/Carbohydrate Ratio (L/C)" if lang == "en" else "Термический индекс (TI) vs Лигнин/Углеводы (L/C)",
                     labels={
-                        "TGA_Thermal_Index_TI": "Thermal Index TI (Zone III / Zone II)",
+                        tga_col: "Thermal Index TI (Zone III / Zone II)",
                         "Py_L_C_ratio": "Lignin / Carbohydrate Ratio (L/C)",
                         "Class_Target": "Class"
                     }

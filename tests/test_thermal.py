@@ -246,3 +246,32 @@ def test_adversarial_thermal_degraded_inputs():
     iso_csv = "Temperature,Weight\n200.0,100.0\n200.0,99.0\n200.0,98.0\n"
     iso_tga = thermal_core.parse_tga_file(iso_csv)
     assert iso_tga.indices["TGA_Thermostability_Index"] >= 0.0
+
+
+def test_py_gcms_peak_attributes_and_ui_compatibility():
+    """Проверка доступности свойств и атрибутов PyGCMSPeak для интерфейса Streamlit."""
+    peak = thermal_core.PyGCMSPeak(
+        retention_time=12.5,
+        area=500.0,
+        height=100.0,
+        compound_name="Guaiacol",
+        chemical_class="G_Lignin",
+    )
+    # 1. Проверка алиасов свойств
+    assert peak.rt == 12.5
+    assert peak.peak_area == 500.0
+    assert peak.compound_class == "Guaiacyl"
+    assert peak.name_en == "Guaiacol"
+    assert peak.name_ru == "Guaiacol"
+    assert peak.monomer_type == "G_Lignin"
+
+    # 2. Проверка работы с синтетическим датасетом
+    samples, _ = thermal_core.generate_synthetic_thermal_dataset(n_samples_per_class=2, random_state=42)
+    s = list(samples.values())[0]
+    assert len(s.py_gcms.peaks) > 0
+    for p in s.py_gcms.peaks:
+        assert hasattr(p, "compound_class")
+        assert hasattr(p, "rt")
+        assert hasattr(p, "peak_area")
+        assert hasattr(p, "area_pct")
+        assert p.compound_class in ["Guaiacyl", "Syringyl", "p-Hydroxyphenyl", "Carbohydrate", "Nitrogen", "Aliphatic", "Other"]
