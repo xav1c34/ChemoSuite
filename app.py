@@ -1,6 +1,7 @@
 # app.py — ChemoSuite Unified Analytical Platform
 import inspect
 import io
+import math
 import os
 from pathlib import Path
 import sys
@@ -6465,13 +6466,13 @@ elif active_module == T[lang]["mod7_name"]:
                 fig_mwd = make_subplots(specs=[[{"secondary_y": True}]])
 
                 # Цветовые зоны фракций по молекулярным массам
-                fig_mwd.add_vrect(x0=math.log10(20000), x1=math.log10(200000), fillcolor="#e74c3c", opacity=0.08, layer="below", line_width=0,
+                fig_mwd.add_vrect(x0=float(np.log10(20000)), x1=float(np.log10(200000)), fillcolor="#e74c3c", opacity=0.08, layer="below", line_width=0,
                                   annotation_text="Frac I: HMW (>20 kDa)" if lang == "en" else "Фракция I: HMW (>20 кДа)", annotation_position="top left")
-                fig_mwd.add_vrect(x0=math.log10(5000), x1=math.log10(20000), fillcolor="#e67e22", opacity=0.10, layer="below", line_width=0,
+                fig_mwd.add_vrect(x0=float(np.log10(5000)), x1=float(np.log10(20000)), fillcolor="#e67e22", opacity=0.10, layer="below", line_width=0,
                                   annotation_text="Frac II: MHMW (5-20 kDa)" if lang == "en" else "Фракция II: MHMW (5–20 кДа)", annotation_position="top left")
-                fig_mwd.add_vrect(x0=math.log10(1000), x1=math.log10(5000), fillcolor="#3498db", opacity=0.08, layer="below", line_width=0,
+                fig_mwd.add_vrect(x0=float(np.log10(1000)), x1=float(np.log10(5000)), fillcolor="#3498db", opacity=0.08, layer="below", line_width=0,
                                   annotation_text="Frac III: MMW (1-5 kDa)" if lang == "en" else "Фракция III: MMW (1–5 кДа)", annotation_position="top left")
-                fig_mwd.add_vrect(x0=math.log10(200), x1=math.log10(1000), fillcolor="#2ecc71", opacity=0.10, layer="below", line_width=0,
+                fig_mwd.add_vrect(x0=float(np.log10(200)), x1=float(np.log10(1000)), fillcolor="#2ecc71", opacity=0.10, layer="below", line_width=0,
                                   annotation_text="Frac IV: LMW (<1 kDa)" if lang == "en" else "Фракция IV: LMW (<1 кДа)", annotation_position="top left")
 
                 # Дифференциальная кривая ММР w(log M)
@@ -6506,13 +6507,13 @@ elif active_module == T[lang]["mod7_name"]:
                 mp_val = active_sample.indices.get("SEC_Mp", 0.0)
 
                 if mn_val > 0:
-                    fig_mwd.add_vline(x=math.log10(mn_val), line_width=1.5, line_dash="dash", line_color="#2980b9",
+                    fig_mwd.add_vline(x=float(np.log10(max(mn_val, 1.0))), line_width=1.5, line_dash="dash", line_color="#2980b9",
                                       annotation_text=f"Mn={mn_val:,.0f}", annotation_position="bottom left")
                 if mw_val > 0:
-                    fig_mwd.add_vline(x=math.log10(mw_val), line_width=2.0, line_dash="solid", line_color="#c0392b",
+                    fig_mwd.add_vline(x=float(np.log10(max(mw_val, 1.0))), line_width=2.0, line_dash="solid", line_color="#c0392b",
                                       annotation_text=f"Mw={mw_val:,.0f}", annotation_position="top left")
                 if mz_val > 0:
-                    fig_mwd.add_vline(x=math.log10(mz_val), line_width=1.5, line_dash="dot", line_color="#8e44ad",
+                    fig_mwd.add_vline(x=float(np.log10(max(mz_val, 1.0))), line_width=1.5, line_dash="dot", line_color="#8e44ad",
                                       annotation_text=f"Mz={mz_val:,.0f}", annotation_position="top right")
 
                 fig_mwd.update_xaxes(
