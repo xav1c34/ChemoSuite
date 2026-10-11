@@ -130,6 +130,39 @@ except ImportError:
         sec_core = None
         SEC_CORE_AVAILABLE = False
 
+try:
+    import elemental_core
+    ELEMENTAL_CORE_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import elemental_core
+        ELEMENTAL_CORE_AVAILABLE = True
+    except ImportError:
+        elemental_core = None
+        ELEMENTAL_CORE_AVAILABLE = False
+
+try:
+    import cross_correlation
+    CROSS_CORR_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import cross_correlation
+        CROSS_CORR_AVAILABLE = True
+    except ImportError:
+        cross_correlation = None
+        CROSS_CORR_AVAILABLE = False
+
+try:
+    import batch_screener
+    BATCH_SCREENER_AVAILABLE = True
+except ImportError:
+    try:
+        from modules import batch_screener
+        BATCH_SCREENER_AVAILABLE = True
+    except ImportError:
+        batch_screener = None
+        BATCH_SCREENER_AVAILABLE = False
+
 
 # ==============================================================================
 # КОНФИГУРАЦИЯ СТРАНИЦЫ И СТИЛИЗАЦИЯ
@@ -144,37 +177,96 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .platform-header {
-        background: linear-gradient(90deg, #0b2545 0%, #134074 100%);
-        padding: 16px 22px;
-        border-radius: 8px;
+    /* Компактный заголовок ChemoSuite */
+    .platform-header-compact {
+        background: linear-gradient(135deg, #091e36 0%, #103763 60%, #1a4f8b 100%);
+        padding: 10px 18px;
+        border-radius: 10px;
         color: white;
-        margin-bottom: 18px;
+        margin-bottom: 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+        border: 1px solid rgba(255,255,255,0.08);
     }
-    .platform-header h2 {
-        color: #eef4f8;
-        font-size: 24px;
+    .platform-header-compact h2 {
+        color: #ffffff;
+        font-size: 19px;
         margin: 0;
-        padding-bottom: 4px;
+        font-weight: 700;
+        letter-spacing: -0.3px;
+        line-height: 1.25;
     }
-    .platform-header p {
-        color: #8da9c4;
-        margin: 0;
-        font-size: 13px;
+    .platform-header-compact p {
+        color: #9cbdd9;
+        margin: 2px 0 0 0;
+        font-size: 11.5px;
+        letter-spacing: 0.1px;
+    }
+    .header-badge-container {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    .header-badge {
+        background: rgba(255, 255, 255, 0.14);
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 500;
+        color: #e2edff;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
     .metric-card {
         background-color: #f8f9fa;
         border-radius: 8px;
-        padding: 15px;
-        border-left: 5px solid #2e7bcf;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        padding: 12px 15px;
+        border-left: 4px solid #2e7bcf;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.07);
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
     }
     .stTabs [data-baseweb="tab"] {
+        padding: 7px 14px;
+        border-radius: 6px;
+        font-size: 13.5px;
+    }
+    /* Панель активного образца (Sample Toolbar) */
+    .sample-toolbar {
+        background: #fdfdfd;
+        border: 1px solid #e1e7ec;
+        border-radius: 8px;
         padding: 8px 14px;
-        border-radius: 4px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .sample-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: #eef4fb;
+        border: 1px solid #d0e1f9;
+        color: #1a4f8b;
+        padding: 3px 9px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .sample-chip.green {
+        background: #edf7ed;
+        border-color: #c8e6c9;
+        color: #2e7d32;
+    }
+    .sample-chip.orange {
+        background: #fff8e1;
+        border-color: #ffecb3;
+        color: #f57f17;
     }
     </style>
     """,
@@ -192,8 +284,16 @@ T = {
         # Платформа
         "header_title": "⚗️ ChemoSuite: Анализ РОВ и Шлам-лигнина",
         "header_subtitle": "Кафедра аналитической химии & Лаборатория природных гуминовых систем химфака МГУ",
-        "nav_title": "### ⚗️ Платформа ChemoSuite",
+        "nav_title": "### ⚗️ ChemoSuite",
         "nav_module_label": "Аналитический модуль:",
+        "nav_cat_ms": "🔬 Масс-спектрометрия",
+        "nav_cat_optics": "🌈 Оптическая спектроскопия",
+        "nav_cat_resonance": "🧲 Резонанс и термика",
+        "nav_cat_chrom": "📏 Хроматография и состав",
+        "nav_cat_ml": "🧬 Многоблочный ML & Синтез",
+        "proj_modal_btn": "💼 Управление проектом (.chemo)",
+        "proj_modal_title": "💼 Управление сессией и проектом ChemoSuite",
+        "proj_modal_desc": "Экспорт текущего рабочего пространства или загрузка ранее сохраненного мультимодального анализа.",
         "mod1_name": "🧪 NOM-Spectra FT-ICR MS",
         "mod2_name": "💡 EEM-PARAFAC (Флуоресценция)",
         "mod3_name": "🧬 ChemoSuite ML (Data Fusion)",
@@ -231,7 +331,10 @@ T = {
         "mz_range": "Диапазон m/z (Да):",
         "cutoff_int": "Порог отсечения шума (мин. интенсивность):",
         "loaded_peaks_success": "Загружено и отфильтровано пиков: {n:,}",
-        "no_spectra_info": "Нет загруженных спектров. Перетащите файлы выше или импортируйте папку.",
+        "no_spectra_info": "Спектры не загружены. Перетащите файлы выше или импортируйте локальную папку.",
+        "tab_stage1": "📥 1. Первичный спектр & Обработка",
+        "tab_stage2": "🧬 2. Идентификация & Хемотипирование",
+        "tab_stage3": "⚖️ 3. Сравнительный анализ & Сети",
         "tab_stick": "📈 Масс-спектр (Stick Plot)",
         "tab_recal": "🎯 Рекалибровка m/z",
         "tab_assign": "🧬 Приписывание формул",
@@ -637,6 +740,34 @@ T = {
         "sec_sync_success": "Дескрипторы SEC/GPC ({n} образцов) успешно переданы в Модуль 3!",
         "sec_dl_csv": "📥 Скачать дескрипторы SEC (CSV)",
         "sec_dl_excel": "📊 Экспорт в Excel (.xlsx)",
+        "ml_up_sec": "Таблица дескрипторов SEC/GPC (CSV):",
+        "ml_up_elemental": "Таблица дескрипторов Elemental CHNS-O (CSV):",
+        # Модуль 8: Элементный анализ и валовая стехиометрия (CHNS-O)
+        "mod8_name": "⚗️ Элементный анализ и стехиометрия (CHNS-O)",
+        "elem_title": "⚗️ Элементный микроанализ и валовая стехиометрия (CHNS-O)",
+        "elem_subtitle": "Атомные соотношения (H/C, O/C, N/C, S/C), диаграммы Ван Кревелена, степень окисления углерода (NOSC) и валидация FT-ICR MS",
+        "elem_err_missing": "⚠️ Вычислительное ядро elemental_core.py не найдено в директории modules!",
+        "elem_sidebar_hdr": "📁 Менеджер CHNS-O",
+        "elem_src_label": "Источник данных CHNS-O:",
+        "elem_src_upload": "Загрузить файл CHNS-O (.csv, .txt)",
+        "elem_src_synth": "Эталонный бенчмарк (12 проб)",
+        "elem_up_label": "Загрузите таблицу элементного состава (.csv, .tsv):",
+        "elem_tab1_title": "📊 Валовая стехиометрия и индексы",
+        "elem_tab2_title": "🗺️ Валовая диаграмма Ван Кревелена",
+        "elem_tab3_title": "🔬 Кросс-валидация со спектрами FT-ICR MS",
+        "elem_tab4_title": "🧬 Экспорт дескрипторов и синхронизация ML",
+        "elem_no_samples": "Нет загруженных данных CHNS-O. Загрузите файл или выберите 'Эталонный бенчмарк'.",
+        "elem_active_sample": "Активный образец:",
+        "elem_kpi_hc": "H/C (Атомное)",
+        "elem_kpi_oc": "O/C (Атомное)",
+        "elem_kpi_nc": "N/C (Атомное)",
+        "elem_kpi_sc": "S/C (Атомное)",
+        "elem_kpi_nosc": "NOSC (Окисление C)",
+        "elem_kpi_ai": "AI_bulk (Ароматичность)",
+        "elem_sync_ml_btn": "🧬 Синхронизировать дескрипторы с Модулем 3 (ChemoSuite ML)",
+        "elem_sync_success": "Дескрипторы CHNS-O ({n} образцов) успешно переданы в Модуль 3!",
+        "elem_dl_csv": "📥 Скачать дескрипторы CHNS-O (CSV)",
+        "elem_dl_excel": "📊 Экспорт в Excel (.xlsx)",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -672,7 +803,26 @@ T = {
         "ml_info_no_data": "💡 Нажмите кнопку выше, чтобы загрузить согласованный датасет дескрипторов.",
         "ml_src_session": "🔄 Собрать из сессии (Модули 1 и 2)",
         "ml_src_files": "📂 Загрузка внешних CSV файлов",
+        "ml_src_batch": "⚡ Пакетный скрининг папок (Batch Screening)",
         "ml_src_benchmark": "🧪 Синтетический бенчмарк",
+        "batch_screener_title": "🚀 Автономный пакетный скрининг директорий (8 модальностей)",
+        "batch_screener_desc": "Интеллектуальное сканирование файлов спектров и матриц, автоматическая детекция аналитических методов (FT-ICR MS, EEM, UV-Vis, FTIR, NMR, TGA/Py-GC-MS, SEC/GPC, CHNS-O), извлечение дескрипторов и сборка единой мультимодальной матрицы Data Staging в один клик.",
+        "batch_source_type_label": "Источник файлов для скрининга:",
+        "batch_src_folder": "📁 Сканировать локальную директорию на сервере / компьютере",
+        "batch_src_upload": "📤 Загрузить группу файлов через браузер",
+        "batch_dir_label": "Путь к директории спектров:",
+        "batch_recursive_label": "Рекурсивное сканирование всех поддиректорий",
+        "batch_upload_label": "Перетащите файлы спектров (CSV, TSV, TXT, DX):",
+        "batch_run_btn": "🚀 Запустить автономный пакетный скрининг",
+        "batch_files_count": "Всего файлов",
+        "batch_success_count": "Успешно распознано",
+        "batch_samples_count": "Собрано образцов",
+        "batch_modalities_count": "Аналитических модальностей",
+        "batch_manifest_title": "📋 Сводный манифест распознанных файлов и модальностей:",
+        "batch_use_ml_btn": "🧬 Использовать собранную матрицу в ChemoSuite ML",
+        "batch_dl_zip_btn": "📥 Скачать полный пакет результатов (ZIP)",
+        "batch_no_files_found": "В указанной директории не найдено поддерживаемых аналитических файлов.",
+        "batch_success_msg": "Пакетный скрининг завершен! Обработано файлов: {n_files}, собрано образцов: {n_samples}.",
         "ml_btn_assemble_session": "📥 Собрать объединенную матрицу из открытых спектров",
         "ml_session_status": "Спектров FT-ICR с формулами: **{n_ms}** | Оптических проб EEM: **{n_eem}** | Спектров УФ-Вид: **{n_uv}**",
         "ml_session_need_more": "⚠️ Для интеграции из сессии необходимо приписать формулы в Модуле 1 либо рассчитать оптические дескрипторы (EEM / UV-Vis) в Модуле 2.",
@@ -691,6 +841,20 @@ T = {
         "ml_tab_vips": "📊 Маркеры (VIP Scores)",
         "ml_tab_val": "📈 Валидация и диагностика",
         "ml_tab_blocks": "🧬 Вклад аналитических блоков",
+        "ml_tab_crosscorr": "🌐 Кросс-модальный атлас",
+        "ml_crosscorr_title": "🌐 Кросс-модальный корреляционный атлас (Cross-Omics)",
+        "ml_crosscorr_subtitle": "2D-гетероспектральная корреляция и выявление ко-вариации между аналитическими блоками",
+        "ml_crosscorr_mode_select": "Режим анализа корреляций:",
+        "ml_crosscorr_mode_pairs": "Попарная 2D-гетероспектральная корреляция (Блок A vs Блок B)",
+        "ml_crosscorr_mode_global": "Глобальная мультиблочная матрица всех дескрипторов",
+        "ml_crosscorr_block_a": "Аналитический блок А (Строки / Y):",
+        "ml_crosscorr_block_b": "Аналитический блок B (Столбцы / X):",
+        "ml_crosscorr_method": "Метод расчета:",
+        "ml_crosscorr_threshold": "Минимальный порог значимости (|r|):",
+        "ml_crosscorr_top_pairs_title": "🔝 Топ межблочных корреляций и ко-вариаций дескрипторов",
+        "ml_crosscorr_dl_edges": "📥 Скачать граф связей (Edges CSV)",
+        "ml_crosscorr_dl_top": "📥 Скачать таблицу топ-корреляций (CSV)",
+        "ml_crosscorr_no_data": "Для расчета кросс-корреляций требуется не менее 2 аналитических блоков с несколькими образцами.",
         "ml_cm_title": "Матрица ошибок (Confusion Matrix)",
         "ml_perm_title": "Распределение пермутационного теста (H0: модель случайна)",
         "ml_donut_title": "Относительный вес аналитических блоков в модели (VIP²)",
@@ -715,6 +879,9 @@ T = {
         "ml_m_r2x_ortho": "R²X(ortho)",
         "ml_warn_opls_binary": "ℹ️ OPLS-DA оптимизирован для двух контрастных классов. Для 3+ классов выберите PLS-DA.",
         "ml_dl_passport_btn": "📑 Скачать полный аналитический паспорт (.xlsx)",
+        "ml_dl_html_passport_btn": "📄 Скачать Экологический паспорт (Интерактивный HTML / PDF)",
+        "ml_html_passport_desc": "Автономный интерактивный экологический паспорт: экспертное заключение, матрица 8 методов, VIP-биомаркеры, кросс-корреляции и печать в PDF.",
+        "ml_preview_passport_expander": "👁️ Интерактивный предпросмотр экологического паспорта",
         "ml_sens_label": "Чувствительность (Sensitivity):",
         "ml_spec_label": "Специфичность (Specificity):",
         "ml_bal_acc_label": "Сбалансированная точность (Balanced Accuracy):",
@@ -801,8 +968,16 @@ T = {
         # Platform
         "header_title": "⚗️ ChemoSuite: NOM & Slime-Lignin Analysis",
         "header_subtitle": "Department of Analytical Chemistry & Humic Systems Laboratory, Chemistry Faculty, MSU",
-        "nav_title": "### ⚗️ ChemoSuite Platform",
+        "nav_title": "### ⚗️ ChemoSuite",
         "nav_module_label": "Analytical Module:",
+        "nav_cat_ms": "🔬 Mass Spectrometry",
+        "nav_cat_optics": "🌈 Optical Spectroscopy",
+        "nav_cat_resonance": "🧲 Resonance & Thermal",
+        "nav_cat_chrom": "📏 Chromatography & Composition",
+        "nav_cat_ml": "🧬 Multi-block ML & Data Fusion",
+        "proj_modal_btn": "💼 Project Manager (.chemo)",
+        "proj_modal_title": "💼 ChemoSuite Project & Session Manager",
+        "proj_modal_desc": "Export current workspace state or restore previously saved multi-modal analytical project.",
         "mod1_name": "🧪 NOM-Spectra FT-ICR MS",
         "mod2_name": "💡 EEM-PARAFAC (Fluorescence)",
         "mod3_name": "🧬 ChemoSuite ML (Data Fusion)",
@@ -841,6 +1016,9 @@ T = {
         "cutoff_int": "Noise cutoff (min intensity):",
         "loaded_peaks_success": "Peaks loaded & filtered: {n:,}",
         "no_spectra_info": "No spectra loaded. Drag & drop files above or import a local folder.",
+        "tab_stage1": "📥 1. Raw Spectrum & Processing",
+        "tab_stage2": "🧬 2. Identification & Chemotyping",
+        "tab_stage3": "⚖️ 3. Comparative Analysis & Networks",
         "tab_stick": "📈 Mass Spectrum (Stick Plot)",
         "tab_recal": "🎯 m/z Recalibration",
         "tab_assign": "🧬 Formula Assignment",
@@ -1246,6 +1424,34 @@ T = {
         "sec_sync_success": "SEC/GPC descriptors ({n} samples) successfully synced to Module 3!",
         "sec_dl_csv": "📥 Download SEC Descriptors (CSV)",
         "sec_dl_excel": "📊 Export to Excel (.xlsx)",
+        "ml_up_sec": "SEC/GPC Descriptors Table (CSV):",
+        "ml_up_elemental": "Elemental CHNS-O Descriptors Table (CSV):",
+        # Module 8: Elemental Microanalysis & Bulk Stoichiometry (CHNS-O)
+        "mod8_name": "⚗️ Elemental Analysis & Stoichiometry (CHNS-O)",
+        "elem_title": "⚗️ Elemental Microanalysis & Bulk Stoichiometry (CHNS-O)",
+        "elem_subtitle": "Atomic Ratios (H/C, O/C, N/C, S/C), Van Krevelen Diagrams, Carbon Oxidation State (NOSC) & FT-ICR MS Cross-Validation",
+        "elem_err_missing": "⚠️ Computational core `elemental_core.py` not found in modules directory!",
+        "elem_sidebar_hdr": "📁 CHNS-O Manager",
+        "elem_src_label": "CHNS-O Data Source:",
+        "elem_src_upload": "Upload CHNS-O File (.csv, .tsv)",
+        "elem_src_synth": "Reference Benchmark (12 samples)",
+        "elem_up_label": "Upload Elemental Composition Table (.csv, .tsv):",
+        "elem_tab1_title": "📊 Bulk Stoichiometry & Indices",
+        "elem_tab2_title": "🗺️ Bulk Van Krevelen Diagram",
+        "elem_tab3_title": "🔬 Cross-Validation with FT-ICR MS",
+        "elem_tab4_title": "🧬 Descriptors Export & ML Sync",
+        "elem_no_samples": "No CHNS-O data loaded. Upload a file or select 'Reference Benchmark'.",
+        "elem_active_sample": "Active Sample:",
+        "elem_kpi_hc": "H/C (Atomic)",
+        "elem_kpi_oc": "O/C (Atomic)",
+        "elem_kpi_nc": "N/C (Atomic)",
+        "elem_kpi_sc": "S/C (Atomic)",
+        "elem_kpi_nosc": "NOSC (Carbon Ox. State)",
+        "elem_kpi_ai": "AI_bulk (Aromaticity)",
+        "elem_sync_ml_btn": "🧬 Sync Descriptors to Module 3 (ChemoSuite ML)",
+        "elem_sync_success": "CHNS-O descriptors ({n} samples) successfully synced to Module 3!",
+        "elem_dl_csv": "📥 Download CHNS-O Descriptors (CSV)",
+        "elem_dl_excel": "📊 Export to Excel (.xlsx)",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -1281,7 +1487,26 @@ T = {
         "ml_info_no_data": "💡 Click the button above to load a synchronized feature benchmark.",
         "ml_src_session": "🔄 Assemble from Session (Modules 1 & 2)",
         "ml_src_files": "📂 Upload External CSV Files",
+        "ml_src_batch": "⚡ Folder Batch Screening",
         "ml_src_benchmark": "🧪 Synthetic Benchmark",
+        "batch_screener_title": "🚀 Autonomous Directory Batch Screening (8 Modalities)",
+        "batch_screener_desc": "Intelligent spectral file scanning, automatic detection of analytical techniques (FT-ICR MS, EEM, UV-Vis, FTIR, NMR, TGA/Py-GC-MS, SEC/GPC, CHNS-O), chemometric descriptor extraction, and 1-click multimodal Data Staging assembly.",
+        "batch_source_type_label": "Screening input method:",
+        "batch_src_folder": "📁 Scan local directory on server / computer",
+        "batch_src_upload": "📤 Multi-file upload via browser",
+        "batch_dir_label": "Directory path containing spectra:",
+        "batch_recursive_label": "Recursive scanning of all subdirectories",
+        "batch_upload_label": "Drop spectra files (CSV, TSV, TXT, DX):",
+        "batch_run_btn": "🚀 Run Autonomous Batch Screening",
+        "batch_files_count": "Total Files",
+        "batch_success_count": "Successfully Parsed",
+        "batch_samples_count": "Samples Assembled",
+        "batch_modalities_count": "Modalities Detected",
+        "batch_manifest_title": "📋 Summary Manifest of Recognized Files & Modalities:",
+        "batch_use_ml_btn": "🧬 Use Assembled Matrix in ChemoSuite ML",
+        "batch_dl_zip_btn": "📥 Download Full Screening Package (ZIP)",
+        "batch_no_files_found": "No supported analytical files found in the specified directory.",
+        "batch_success_msg": "Batch screening completed! Files processed: {n_files}, samples assembled: {n_samples}.",
         "ml_btn_assemble_session": "📥 Build merged matrix from active spectra",
         "ml_session_status": "FT-ICR spectra with formulas: **{n_ms}** | EEM optical samples: **{n_eem}** | UV-Vis spectra: **{n_uv}**",
         "ml_session_need_more": "⚠️ Please run formula assignment in Module 1 or calculate optical descriptors (EEM / UV-Vis) in Module 2 first.",
@@ -1300,6 +1525,20 @@ T = {
         "ml_tab_vips": "📊 Biomarkers (VIP Scores)",
         "ml_tab_val": "📈 Validation & Diagnostics",
         "ml_tab_blocks": "🧬 Analytical Block Importance",
+        "ml_tab_crosscorr": "🌐 Cross-Omics Atlas",
+        "ml_crosscorr_title": "🌐 Cross-Omics Correlation Atlas & 2D-COS",
+        "ml_crosscorr_subtitle": "2D Heterospectral correlation and inter-block co-variation discovery",
+        "ml_crosscorr_mode_select": "Correlation Analysis Mode:",
+        "ml_crosscorr_mode_pairs": "Pairwise 2D Heterospectral Correlation (Block A vs Block B)",
+        "ml_crosscorr_mode_global": "Global Multiblock Correlation Matrix",
+        "ml_crosscorr_block_a": "Analytical Block A (Rows / Y):",
+        "ml_crosscorr_block_b": "Analytical Block B (Columns / X):",
+        "ml_crosscorr_method": "Correlation Method:",
+        "ml_crosscorr_threshold": "Significance Threshold (|r|):",
+        "ml_crosscorr_top_pairs_title": "🔝 Top Inter-Block Descriptor Cross-Correlations",
+        "ml_crosscorr_dl_edges": "📥 Download Network Edges (CSV)",
+        "ml_crosscorr_dl_top": "📥 Download Top Correlations (CSV)",
+        "ml_crosscorr_no_data": "Cross-correlation analysis requires at least 2 analytical blocks across multiple samples.",
         "ml_cm_title": "Confusion Matrix",
         "ml_perm_title": "Permutation Test Distribution (H0: Random Model)",
         "ml_donut_title": "Relative Analytical Block Contribution (VIP²)",
@@ -1324,6 +1563,9 @@ T = {
         "ml_m_r2x_ortho": "R²X(ortho)",
         "ml_warn_opls_binary": "ℹ️ OPLS-DA is optimized for binary contrast. For 3+ classes, please select PLS-DA.",
         "ml_dl_passport_btn": "📑 Download Full Analytical Passport (.xlsx)",
+        "ml_dl_html_passport_btn": "📄 Download Ecological Passport (Interactive HTML / PDF)",
+        "ml_html_passport_desc": "Self-contained interactive ecological passport: expert diagnosis, 8 multi-omics methods, VIP biomarkers, cross-correlations and 1-Click PDF print.",
+        "ml_preview_passport_expander": "👁️ Interactive Ecological Passport Live Preview",
         "ml_sens_label": "Sensitivity:",
         "ml_spec_label": "Specificity:",
         "ml_bal_acc_label": "Balanced Accuracy:",
@@ -1588,36 +1830,24 @@ if "sec_samples" not in st.session_state:
     st.session_state["sec_samples"] = {}
 if "sec_ml_descriptors" not in st.session_state:
     st.session_state["sec_ml_descriptors"] = None
+if "elemental_samples" not in st.session_state:
+    st.session_state["elemental_samples"] = {}
+if "elemental_ml_descriptors" not in st.session_state:
+    st.session_state["elemental_ml_descriptors"] = None
 
 # ==============================================================================
-# БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
+# ДИАЛОГ УПРАВЛЕНИЯ ПРОЕКТОМ CHEMOSUITE (.chemo)
 # ==============================================================================
-with st.sidebar:
-    default_lang_idx = 0 if st.session_state.get("lang", "en") == "en" else 1
-    lang_choice = st.selectbox("🌐 Language / Язык", ["English", "Русский"], index=default_lang_idx)
-    lang = "en" if lang_choice == "English" else "ru"
-    st.session_state["lang"] = lang
+if hasattr(st, "dialog") and PROJECT_IO_AVAILABLE and project_io is not None:
+    @st.dialog(T[st.session_state.get("lang", "en")]["proj_modal_title"], width="large")
+    def show_project_manager_dialog():
+        cur_lang = st.session_state.get("lang", "en")
+        st.caption(T[cur_lang]["proj_modal_desc"])
 
-    st.markdown(T[lang]["nav_title"])
-    active_module = st.radio(
-        T[lang]["nav_module_label"],
-        [
-            T[lang]["mod1_name"],
-            T[lang]["mod2_name"],
-            T[lang]["mod3_name"],
-            T[lang]["mod4_name"],
-            T[lang]["mod5_name"],
-            T[lang]["mod6_name"],
-            T[lang]["mod7_name"],
-        ],
-        index=0,
-    )
-    st.markdown("---")
+        col_save, col_load = st.columns([1, 1], gap="medium")
 
-    # Управление проектом ChemoSuite (.chemo)
-    if PROJECT_IO_AVAILABLE and project_io is not None:
-        with st.expander(T[lang]["proj_expander_title"], expanded=False):
-            st.markdown(f"**{T[lang]['proj_save_header']}**")
+        with col_save:
+            st.subheader(T[cur_lang]["proj_save_header"])
             n_spec = len(st.session_state.get("spectra_db", {}))
             has_eem = st.session_state.get("eem_ml_descriptors") is not None
             has_uv = st.session_state.get("uv_ml_descriptors") is not None
@@ -1625,19 +1855,20 @@ with st.sidebar:
             has_nmr = st.session_state.get("nmr_ml_descriptors") is not None
             has_thermal = st.session_state.get("thermal_ml_descriptors") is not None
             has_sec = st.session_state.get("sec_ml_descriptors") is not None
+            has_elem = st.session_state.get("elemental_ml_descriptors") is not None
             has_fused = st.session_state.get("fused_data") is not None
             m_res = st.session_state.get("pls_results")
-            m_type = m_res.get("model_type") if isinstance(m_res, dict) else ("Нет" if lang == "ru" else "None")
+            m_type = m_res.get("model_type") if isinstance(m_res, dict) else ("Нет" if cur_lang == "ru" else "None")
 
-            yes_lbl = "Да" if lang == "ru" else "Yes"
-            no_lbl = "Нет" if lang == "ru" else "No"
-            st.caption(
-                f"{T[lang]['proj_summary_spec'].format(n=n_spec)} | "
-                f"{T[lang]['proj_summary_eem'].format(val=yes_lbl if has_eem else no_lbl)} | "
-                f"{T[lang]['proj_summary_uv'].format(val=yes_lbl if has_uv else no_lbl)} | "
-                f"FTIR: {yes_lbl if has_ftir else no_lbl} | NMR: {yes_lbl if has_nmr else no_lbl} | Therm: {yes_lbl if has_thermal else no_lbl} | SEC: {yes_lbl if has_sec else no_lbl}\n\n"
-                f"{T[lang]['proj_summary_fused'].format(val=yes_lbl if has_fused else no_lbl)} | "
-                f"{T[lang]['proj_summary_model'].format(val=m_type)}"
+            yes_lbl = "✓" if cur_lang == "ru" else "✓"
+            no_lbl = "—" if cur_lang == "ru" else "—"
+
+            st.info(
+                f"📊 **{'Активные данные в сессии' if cur_lang == 'ru' else 'Active Session Data'}:**\n\n"
+                f"• FT-ICR MS: **{n_spec}** {'спектров' if cur_lang == 'ru' else 'spectra'}\n"
+                f"• EEM: **{yes_lbl if has_eem else no_lbl}** | UV-Vis: **{yes_lbl if has_uv else no_lbl}** | FTIR: **{yes_lbl if has_ftir else no_lbl}**\n"
+                f"• NMR: **{yes_lbl if has_nmr else no_lbl}** | Thermal: **{yes_lbl if has_thermal else no_lbl}** | SEC: **{yes_lbl if has_sec else no_lbl}** | CHNS: **{yes_lbl if has_elem else no_lbl}**\n"
+                f"• Data Fusion: **{yes_lbl if has_fused else no_lbl}** | ML Model: **{m_type}**"
             )
 
             try:
@@ -1648,34 +1879,34 @@ with st.sidebar:
                 from datetime import datetime
                 time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
                 st.download_button(
-                    label=T[lang]["proj_save_btn"],
+                    label=T[cur_lang]["proj_save_btn"],
                     data=chemo_proj_bytes,
                     file_name=f"ChemoSuite_Session_{time_str}.chemo",
                     mime="application/octet-stream",
-                    width="stretch",
-                    key="dl_chemo_project_btn",
+                    use_container_width=True,
+                    type="primary",
+                    key="dl_chemo_project_btn_modal",
                 )
             except Exception as e_save:
                 st.caption(f"Ошибка сериализации: {e_save}")
 
-            st.markdown("---")
-            st.markdown(f"**{T[lang]['proj_load_header']}**")
+        with col_load:
+            st.subheader(T[cur_lang]["proj_load_header"])
             proj_file = st.file_uploader(
-                T[lang]["proj_load_label"],
+                T[cur_lang]["proj_load_label"],
                 type=["chemo", "zip"],
-                key="chemo_uploader_input",
+                key="chemo_uploader_input_modal",
             )
             if proj_file is not None:
                 try:
                     p_bytes = proj_file.getvalue()
                     p_sum = project_io.get_chemo_project_summary(p_bytes)
                     st.success(f"✓ {p_sum.get('project_name', 'ChemoSuite Project')} ({p_sum.get('created_at', '')[:10]})")
-                    if st.button(T[lang]["proj_restore_btn"], type="primary", width="stretch", key="btn_restore_chemo"):
+                    if st.button(T[cur_lang]["proj_restore_btn"], type="primary", use_container_width=True, key="btn_restore_chemo_modal"):
                         restored = project_io.load_chemo_project(p_bytes)
                         for k, v in restored.items():
                             if k != "project_metadata":
                                 st.session_state[k] = v
-                        # Восстанавливаем файлы спектров на диск в STORAGE_DIR при необходимости
                         for s_name, s_val in restored.get("spectra_db", {}).items():
                             if isinstance(s_val, dict) and s_val.get("file_bytes"):
                                 local_path = os.path.join(STORAGE_DIR, s_name)
@@ -1685,22 +1916,127 @@ with st.sidebar:
                                     s_val["raw_path"] = local_path
                                 except Exception:
                                     pass
-                        st.toast(T[lang]["proj_restored_success"], icon="✅")
+                        st.toast(T[cur_lang]["proj_restored_success"], icon="✅")
                         st.rerun()
                 except Exception as e_load:
                     st.error(f"Ошибка чтения проекта: {e_load}")
-            st.markdown("---")
 
-# Фирменный баннер платформы
-st.markdown(
-    f"""
-    <div class="platform-header">
-        <h2>{T[lang]["header_title"]}</h2>
-        <p>{T[lang]["header_subtitle"]}</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
+# ==============================================================================
+# БОКОВАЯ ПАНЕЛЬ: ВЫБОР МОДУЛЯ И ПАРАМЕТРОВ
+# ==============================================================================
+with st.sidebar:
+    # 1. Верхний ряд: Язык и кнопка Проекта
+    c_lang, c_proj = st.columns([1.1, 1.4])
+    with c_lang:
+        default_lang_idx = 0 if st.session_state.get("lang", "en") == "en" else 1
+        lang_choice = st.selectbox("🌐", ["English", "Русский"], index=default_lang_idx, label_visibility="collapsed")
+        lang = "en" if lang_choice == "English" else "ru"
+        st.session_state["lang"] = lang
+    with c_proj:
+        if PROJECT_IO_AVAILABLE and project_io is not None:
+            if hasattr(st, "dialog"):
+                if st.button("💼 Project", help=T[lang]["proj_modal_btn"], use_container_width=True):
+                    show_project_manager_dialog()
+            else:
+                pass
+
+    st.markdown(T[lang]["nav_title"])
+
+    # Логическая группировка 8 аналитических модулей
+    module_catalog = [
+        {"cat": T[lang]["nav_cat_ms"], "key": T[lang]["mod1_name"]},
+        {"cat": T[lang]["nav_cat_optics"], "key": T[lang]["mod2_name"]},
+        {"cat": T[lang]["nav_cat_optics"], "key": T[lang]["mod4_name"]},
+        {"cat": T[lang]["nav_cat_resonance"], "key": T[lang]["mod5_name"]},
+        {"cat": T[lang]["nav_cat_resonance"], "key": T[lang]["mod6_name"]},
+        {"cat": T[lang]["nav_cat_chrom"], "key": T[lang]["mod7_name"]},
+        {"cat": T[lang]["nav_cat_chrom"], "key": T[lang]["mod8_name"]},
+        {"cat": T[lang]["nav_cat_ml"], "key": T[lang]["mod3_name"]},
+    ]
+
+    all_module_keys = [
+        T[lang]["mod1_name"],
+        T[lang]["mod2_name"],
+        T[lang]["mod4_name"],
+        T[lang]["mod5_name"],
+        T[lang]["mod6_name"],
+        T[lang]["mod7_name"],
+        T[lang]["mod8_name"],
+        T[lang]["mod3_name"],
+    ]
+
+    if "selected_module_idx" not in st.session_state:
+        st.session_state["selected_module_idx"] = 0
+
+    active_module = st.radio(
+        T[lang]["nav_module_label"],
+        all_module_keys,
+        index=st.session_state.get("selected_module_idx", 0),
+        format_func=lambda m: m,
+        label_visibility="collapsed",
+    )
+    st.session_state["selected_module_idx"] = all_module_keys.index(active_module) if active_module in all_module_keys else 0
+
+    st.markdown("---")
+
+    # Fallback для старых версий Streamlit без st.dialog
+    if not hasattr(st, "dialog") and PROJECT_IO_AVAILABLE and project_io is not None:
+        with st.expander(T[lang]["proj_expander_title"], expanded=False):
+            st.markdown(f"**{T[lang]['proj_save_header']}**")
+            chemo_proj_bytes = project_io.save_chemo_project(
+                dict(st.session_state),
+                project_name=st.session_state.get("fused_source", "ChemoSuite_Project"),
+            )
+            from datetime import datetime
+            time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                label=T[lang]["proj_save_btn"],
+                data=chemo_proj_bytes,
+                file_name=f"ChemoSuite_Session_{time_str}.chemo",
+                mime="application/octet-stream",
+                use_container_width=True,
+                key="dl_chemo_project_btn_fallback",
+            )
+            st.markdown("---")
+            proj_file = st.file_uploader(
+                T[lang]["proj_load_label"],
+                type=["chemo", "zip"],
+                key="chemo_uploader_input_fallback",
+            )
+            if proj_file is not None:
+                p_bytes = proj_file.getvalue()
+                if st.button(T[lang]["proj_restore_btn"], type="primary", use_container_width=True, key="btn_restore_chemo_fb"):
+                    restored = project_io.load_chemo_project(p_bytes)
+                    for k, v in restored.items():
+                        if k != "project_metadata":
+                            st.session_state[k] = v
+                    st.rerun()
+
+# Подсчет сводки данных для умных бейджей компактного хедера
+_n_ms = len(st.session_state.get("spectra_db", {}))
+_has_eem = "EEM" if st.session_state.get("eem_ml_descriptors") is not None else None
+_has_uv = "UV-Vis" if st.session_state.get("uv_ml_descriptors") is not None else None
+_has_ftir = "FTIR" if st.session_state.get("ftir_ml_descriptors") is not None else None
+_has_nmr = "NMR" if st.session_state.get("nmr_ml_descriptors") is not None else None
+_has_therm = "Thermal" if st.session_state.get("thermal_ml_descriptors") is not None else None
+_has_sec = "SEC" if st.session_state.get("sec_ml_descriptors") is not None else None
+_has_elem = "CHNS-O" if st.session_state.get("elemental_ml_descriptors") is not None else None
+_active_modalities = [m for m in [_has_eem, _has_uv, _has_ftir, _has_nmr, _has_therm, _has_sec, _has_elem] if m]
+if _n_ms > 0:
+    _active_modalities.insert(0, f"MS ({_n_ms})")
+
+_badges_html = "".join([f'<span class="header-badge">✓ {bm}</span>' for bm in _active_modalities])
+if not _badges_html:
+    _badges_html = f'<span class="header-badge" style="opacity: 0.7;">{"Сессия пуста" if lang == "ru" else "No Data Loaded"}</span>'
+
+# Компактный современный Header платформы
+platform_hdr_html = (
+    f'<div class="platform-header-compact">'
+    f'<div><h2>{T[lang]["header_title"]}</h2><p>{T[lang]["header_subtitle"]}</p></div>'
+    f'<div class="header-badge-container">{_badges_html}</div>'
+    f'</div>'
 )
+st.markdown(platform_hdr_html, unsafe_allow_html=True)
 
 # ==============================================================================
 # МОДУЛЬ 1: NOM-SPECTRA FT-ICR MS STUDIO
@@ -1974,14 +2310,43 @@ if active_module == T[lang]["mod1_name"]:
             st.info(T[lang]["no_spectra_info"])
 
     st.title(T[lang]["title"])
-    tabs = st.tabs([
-        T[lang]["tab_stick"], T[lang]["tab_recal"], T[lang]["tab_assign"],
-        T[lang]["tab_vk"], T[lang]["tab_kmd"], T[lang]["tab_vk20"],
-        T[lang]["tab_cmp"], T[lang]["tab_tmds"], T[lang]["tab_desc"],
+
+    # Единая панель состояния активного образца (Sample Toolbar)
+    if active_spectrum_name and current_sample:
+        p_count = len(current_sample["parsed_peaks"]) if (current_sample.get("parsed_peaks") is not None and not current_sample["parsed_peaks"].empty) else 0
+        as_df = current_sample.get("assigned_df")
+        as_count = len(as_df) if (as_df is not None and not as_df.empty) else 0
+        is_recal = current_sample.get("is_recalibrated", False)
+
+        recal_chip = f'<span class="sample-chip green">✓ {"Рекалиброван" if lang == "ru" else "Recalibrated"}</span>' if is_recal else ""
+        assign_chip = f'<span class="sample-chip green">🧬 {as_count:,} {"формул" if lang == "ru" else "formulas"} ({(as_count/p_count*100):.1f}%)</span>' if (as_count > 0 and p_count > 0) else f'<span class="sample-chip orange">⚠️ {"Формулы не приписаны" if lang == "ru" else "Formulas not assigned"}</span>'
+
+        sample_tb_html = (
+            f'<div class="sample-toolbar">'
+            f'<div><span style="font-size: 13.5px; font-weight: 600; color: #1c2833;">📁 {active_spectrum_name}</span></div>'
+            f'<div style="display: flex; gap: 6px; flex-wrap: wrap;">'
+            f'<span class="sample-chip">📊 {p_count:,} {"пиков" if lang == "ru" else "peaks"}</span>'
+            f'{recal_chip}'
+            f'{assign_chip}'
+            f'</div>'
+            f'</div>'
+        )
+        st.markdown(sample_tb_html, unsafe_allow_html=True)
+
+    stage1, stage2, stage3 = st.tabs([
+        T[lang]["tab_stage1"],
+        T[lang]["tab_stage2"],
+        T[lang]["tab_stage3"],
     ])
 
+    # =========================================================================
+    # ЭТАП 1: ПЕРВИЧНЫЙ СПЕКТР И ОБРАБОТКА
+    # =========================================================================
+    with stage1:
+        st_sub1, st_sub2 = st.tabs([T[lang]["tab_stick"], T[lang]["tab_recal"]])
+
     # 1. Stick Plot
-    with tabs[0]:
+    with st_sub1:
         if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
             st.info(T[lang]["no_spectra_info"])
         else:
@@ -2012,7 +2377,7 @@ if active_module == T[lang]["mod1_name"]:
             st_plotly(fig_stick)
 
     # 2. Рекалибровка
-    with tabs[1]:
+    with st_sub2:
         if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
             st.info(T[lang]["no_spectra_info"])
         else:
@@ -2078,14 +2443,26 @@ if active_module == T[lang]["mod1_name"]:
                 if current_sample.get("is_recalibrated"):
                     st.info("ℹ️ Для данного спектра активна полиномиальная рекалибровка (сохраняется при смене любых вкладок)." if lang == "ru" else "ℹ️ Polynomial recalibration is active for this spectrum (preserved across all tabs).")
 
+    # =========================================================================
+    # ЭТАП 2: ИДЕНТИФИКАЦИЯ И ХЕМОТИПИРОВАНИЕ
+    # =========================================================================
+    with stage2:
+        st_sub_assign, st_sub_vk, st_sub_kmd, st_sub_vk20 = st.tabs([
+            T[lang]["tab_assign"],
+            T[lang]["tab_vk"],
+            T[lang]["tab_kmd"],
+            T[lang]["tab_vk20"],
+        ])
+
     # 3. Приписывание формул
-    with tabs[2]:
+    with st_sub_assign:
         if current_sample is None or current_sample["parsed_peaks"] is None or current_sample["parsed_peaks"].empty:
             st.info(T[lang]["no_spectra_info"])
         else:
             peaks_df = current_sample["parsed_peaks"]
             st.subheader(f"{T[lang]['tab_assign']}: {active_spectrum_name}")
-            with st.expander(T[lang]["assign_expander"], expanded=True):
+            has_assigned_already = current_sample.get("assigned_df") is not None and not current_sample["assigned_df"].empty
+            with st.expander(T[lang]["assign_expander"], expanded=not has_assigned_already):
                 col_m1, col_m2, col_m3 = st.columns([2, 1, 1])
                 with col_m1: ion_mode = st.selectbox(T[lang]["ion_mode"], ["ESI(-) [M - H]⁻", "ESI(+) [M + H]⁺", "Neutral masses [M]" if lang == "en" else "Нейтральные массы [M]"], index=0, key=f"ionmode_{active_spectrum_name}")
                 with col_m2: max_charge_val = st.selectbox(T[lang]["max_charge"], [1, 2], index=0, key=f"zmax_{active_spectrum_name}")
@@ -2191,8 +2568,8 @@ if active_module == T[lang]["mod1_name"]:
             elif assigned_data is not None:
                 st.warning(T[lang]["no_formulas_warn"])
 
-    # 4. Проекции
-    with tabs[3]:
+    # 4. Проекции (Ван Кревелен)
+    with st_sub_vk:
         assigned_data = current_sample.get("assigned_df") if current_sample else None
         if assigned_data is None or assigned_data.empty:
             st.warning(T[lang]["need_assign_first"])
@@ -2381,7 +2758,7 @@ if active_module == T[lang]["mod1_name"]:
                 st_plotly(fig_cust)
 
     # 5. KMD
-    with tabs[4]:
+    with st_sub_kmd:
         st.subheader(f"{T[lang]['tab_kmd']}: {active_spectrum_name if active_spectrum_name else ''}")
         assigned_df = current_sample.get("assigned_df") if current_sample else None
         peaks_df = current_sample.get("parsed_peaks") if current_sample else None
@@ -2580,7 +2957,7 @@ if active_module == T[lang]["mod1_name"]:
                         )
 
     # 6. Хемотипирование 20 ячеек
-    with tabs[5]:
+    with st_sub_vk20:
         st.subheader(f"{T[lang]['tab_vk20']}: {active_spectrum_name if active_spectrum_name else ''}")
         assigned_df = current_sample.get("assigned_df") if current_sample else None
         if assigned_df is None or assigned_df.empty:
@@ -2606,8 +2983,18 @@ if active_module == T[lang]["mod1_name"]:
             st_df(feat_df)
             st.download_button(label=T[lang]["vk20_dl_csv"], data=feat_df.to_csv(index=False).encode("utf-8"), file_name=f"{active_spectrum_name}_vk20.csv", mime="text/csv", key=f"dl_vk20_{active_spectrum_name}")
 
+    # =========================================================================
+    # ЭТАП 3: СРАВНИТЕЛЬНЫЙ АНАЛИЗ И СЕТИ
+    # =========================================================================
+    with stage3:
+        st_sub_cmp, st_sub_tmds, st_sub_desc = st.tabs([
+            T[lang]["tab_cmp"],
+            T[lang]["tab_tmds"],
+            T[lang]["tab_desc"],
+        ])
+
     # 7. Сравнение и алгебра спектров
-    with tabs[6]:
+    with st_sub_cmp:
         st.subheader(T[lang]["tab_cmp"])
 
         with st.popover("ℹ️ " + ("Руководство: Зачем нужна Алгебра спектров и как её применять" if lang == "ru" else "Guide: Spectrum Algebra & Comparative Analysis"), width="stretch"):
@@ -2944,7 +3331,7 @@ In high-resolution mass spectrometry of natural waters (Lake Baikal) and industr
                             st.rerun()
 
     # 8. TMDS
-    with tabs[7]:
+    with st_sub_tmds:
         st.subheader(f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}")
         work_peaks = current_sample.get("assigned_df") if (current_sample and current_sample.get("assigned_df") is not None and not current_sample["assigned_df"].empty) else (current_sample.get("parsed_peaks") if current_sample else None)
         if work_peaks is not None and not work_peaks.empty:
@@ -3111,7 +3498,7 @@ In high-resolution mass spectrometry of natural waters (Lake Baikal) and industr
                     )
 
     # 9. Сводные характеристики
-    with tabs[8]:
+    with st_sub_desc:
         assigned_data = current_sample.get("assigned_df") if current_sample else None
         if assigned_data is not None and not assigned_data.empty:
             st.subheader(f"{T[lang]['tab_desc']}: {active_spectrum_name}")
@@ -3695,7 +4082,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
     # Выбор источника данных
     data_source_mode = st.radio(
         "Источник мультимодальных данных:" if lang == "ru" else "Multimodal Data Source:",
-        [T[lang]["ml_src_session"], T[lang]["ml_src_files"], T[lang]["ml_src_benchmark"]],
+        [T[lang]["ml_src_session"], T[lang]["ml_src_files"], T[lang]["ml_src_batch"], T[lang]["ml_src_benchmark"]],
         horizontal=True,
         key="ml_data_source_mode_radio",
     )
@@ -3712,6 +4099,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
         nmr_df = st.session_state.get("nmr_ml_descriptors", None)
         thermal_df = st.session_state.get("thermal_ml_descriptors", None)
         sec_df = st.session_state.get("sec_ml_descriptors", None)
+        elem_df = st.session_state.get("elemental_ml_descriptors", None)
 
         n_fticr_samples = len(st.session_state["fticr_batch_summary"]) if ("fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty) else len(assigned_spectra)
         st.info(
@@ -3721,11 +4109,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             f"FTIR: **{len(ftir_df) if ftir_df is not None else 0}** | "
             f"NMR: **{len(nmr_df) if nmr_df is not None else 0}** | "
             f"Thermal: **{len(thermal_df) if thermal_df is not None else 0}** | "
-            f"SEC: **{len(sec_df) if sec_df is not None else 0}**"
+            f"SEC: **{len(sec_df) if sec_df is not None else 0}** | "
+            f"CHNS-O: **{len(elem_df) if elem_df is not None else 0}**"
         )
 
         if st.button(T[lang]["ml_btn_assemble_session"], type="primary", key="btn_assemble_session"):
-            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty) and (ftir_df is None or ftir_df.empty) and (nmr_df is None or nmr_df.empty) and (thermal_df is None or thermal_df.empty) and (sec_df is None or sec_df.empty):
+            if not assigned_spectra and ("fticr_batch_summary" not in st.session_state or st.session_state["fticr_batch_summary"].empty) and (eem_df is None or eem_df.empty) and (uv_df is None or uv_df.empty) and (ftir_df is None or ftir_df.empty) and (nmr_df is None or nmr_df.empty) and (thermal_df is None or thermal_df.empty) and (sec_df is None or sec_df.empty) and (elem_df is None or elem_df.empty):
                 st.warning(T[lang]["ml_session_need_more"])
             else:
                 if "fticr_batch_summary" in st.session_state and not st.session_state["fticr_batch_summary"].empty:
@@ -3738,7 +4127,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             fticr_rows.append(desc)
                     df_ms_assembled = pd.DataFrame(fticr_rows) if fticr_rows else pd.DataFrame()
 
-                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df, df_ftir=ftir_df, df_nmr=nmr_df, df_thermal=thermal_df, df_sec=sec_df)
+                merged_df = chemo_ml.merge_feature_blocks(df_ms_assembled, eem_df, df_uv=uv_df, df_ftir=ftir_df, df_nmr=nmr_df, df_thermal=thermal_df, df_sec=sec_df, df_elem=elem_df)
                 if not merged_df.empty:
                     if "Class_Target" not in merged_df.columns:
                         # Разметка по умолчанию: 1 для образцов со словом lignin / impact
@@ -3746,7 +4135,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             lambda s: 1 if any(k in str(s).lower() for k in ["lignin", "impact", "шлам"]) else 0
                         )
                     st.session_state["fused_data"] = merged_df
-                    st.session_state["fused_source"] = "Сессионные спектры (7 модальностей)" if lang == "ru" else "Session Spectra (7 Modalities)"
+                    st.session_state["fused_source"] = "Сессионные спектры (8 модальностей)" if lang == "ru" else "Session Spectra (8 Modalities)"
                     st.success(f"Успешно объединено образцов: {len(merged_df)}" if lang == "ru" else f"Successfully assembled samples: {len(merged_df)}")
                     st.rerun()
                 else:
@@ -3761,7 +4150,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             key="ml_upload_type_radio"
         )
         if upload_type == T[lang]["ml_upload_two"]:
-            col_u1, col_u2, col_u3, col_u4, col_u5, col_u6, col_u7 = st.columns(7)
+            col_u1, col_u2, col_u3, col_u4, col_u5, col_u6, col_u7, col_u8 = st.columns(8)
             with col_u1:
                 f_ms = st.file_uploader(
                     T[lang]["ml_up_ms"],
@@ -3811,8 +4200,15 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     key="up_sec_features",
                     help="Таблица дескрипторов SEC/GPC (Sample_ID, Mn, Mw, Đ, Frac). Демо: demo_data/sec/sec_descriptors_matrix.csv" if lang == "ru" else "SEC/GPC descriptor table. Demo: demo_data/sec/sec_descriptors_matrix.csv",
                 )
+            with col_u8:
+                f_elem = st.file_uploader(
+                    T[lang]["ml_up_elemental"],
+                    type=["csv", "tsv", "txt"],
+                    key="up_elem_features",
+                    help="Таблица дескрипторов Elemental CHNS-O (Sample_ID, C, H, N, S, O, H/C). Демо: demo_data/elemental/elemental_benchmark_12samples.csv" if lang == "ru" else "Elemental descriptor table. Demo: demo_data/elemental/elemental_benchmark_12samples.csv",
+                )
 
-            if f_ms or f_eem or f_uv or f_ftir or f_nmr or f_thermal or f_sec:
+            if f_ms or f_eem or f_uv or f_ftir or f_nmr or f_thermal or f_sec or f_elem:
                 try:
                     df_up_ms = pd.read_csv(f_ms) if f_ms else None
                     df_up_eem = pd.read_csv(f_eem) if f_eem else None
@@ -3821,12 +4217,18 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     df_up_nmr = pd.read_csv(f_nmr) if f_nmr else None
                     df_up_thermal = pd.read_csv(f_thermal) if f_thermal else None
                     df_up_sec = pd.read_csv(f_sec) if f_sec else None
-                    merged = chemo_ml.merge_feature_blocks(df_up_ms, df_up_eem, df_up_uv, df_ftir=df_up_ftir, df_nmr=df_up_nmr, df_thermal=df_up_thermal, df_sec=df_up_sec)
+                    df_up_elem = pd.read_csv(f_elem) if f_elem else None
+                    merged = chemo_ml.merge_feature_blocks(
+                        df_up_ms, df_up_eem, df_up_uv,
+                        df_ftir=df_up_ftir, df_nmr=df_up_nmr,
+                        df_thermal=df_up_thermal, df_sec=df_up_sec,
+                        df_elem=df_up_elem
+                    )
                     if not merged.empty:
                         if "Class_Target" not in merged.columns:
                             merged["Class_Target"] = 0
                         st.session_state["fused_data"] = merged
-                        src_names = [f.name for f in [f_ms, f_eem, f_uv, f_ftir, f_nmr, f_thermal, f_sec] if f is not None]
+                        src_names = [f.name for f in [f_ms, f_eem, f_uv, f_ftir, f_nmr, f_thermal, f_sec, f_elem] if f is not None]
                         st.session_state["fused_source"] = " + ".join(src_names)
                 except Exception as e:
                     st.error(f"⚠️ Ошибка загрузки файлов: {e}")
@@ -3859,7 +4261,139 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                         "💡 **Tip:** For a single file, use `demo_data/multimodal_ml/chemo_unified_multimodal.csv`."
                     )
 
-    # 3. Синтетический бенчмарк
+    # 3. Автономный пакетный скрининг директорий
+    elif data_source_mode == T[lang]["ml_src_batch"]:
+        if not BATCH_SCREENER_AVAILABLE or batch_screener is None:
+            st.error(
+                "⚠️ Модуль `batch_screener.py` не доступен. Убедитесь, что файл находится в папке `modules/`."
+                if lang == "ru" else
+                "⚠️ `batch_screener.py` module is not available. Ensure it is located in the `modules/` folder."
+            )
+        else:
+            st.caption(T[lang]["batch_screener_desc"])
+            batch_input_mode = st.radio(
+                T[lang]["batch_source_type_label"],
+                [T[lang]["batch_src_folder"], T[lang]["batch_src_upload"]],
+                horizontal=True,
+                key="batch_input_mode_radio"
+            )
+
+            if batch_input_mode == T[lang]["batch_src_folder"]:
+                col_b1, col_b2 = st.columns([3, 1])
+                with col_b1:
+                    batch_dir_path = st.text_input(
+                        T[lang]["batch_dir_label"],
+                        value="demo_data",
+                        help="Относительный или абсолютный путь к каталогу со спектрами." if lang == "ru" else "Relative or absolute path to spectra folder.",
+                        key="batch_dir_path_input"
+                    )
+                with col_b2:
+                    st.write("")
+                    st.write("")
+                    batch_recursive = st.checkbox(
+                        T[lang]["batch_recursive_label"],
+                        value=True,
+                        key="batch_recursive_chk"
+                    )
+
+                if st.button(T[lang]["batch_run_btn"], type="primary", key="btn_run_batch_screening"):
+                    progress_bar = st.progress(0.0)
+                    status_text = st.empty()
+                    def _prog_cb(frac: float, msg: str):
+                        progress_bar.progress(min(max(frac, 0.0), 1.0))
+                        status_text.text(msg)
+
+                    try:
+                        res = batch_screener.batch_screen_directory(
+                            batch_dir_path,
+                            recursive=batch_recursive,
+                            progress_callback=_prog_cb,
+                        )
+                        progress_bar.progress(1.0)
+                        status_text.text("Готово!" if lang == "ru" else "Done!")
+                        st.session_state["batch_screening_results"] = res
+                        st.success(
+                            T[lang]["batch_success_msg"].format(
+                                n_files=res["statistics"]["total_files"],
+                                n_samples=res["statistics"]["unique_samples"]
+                            )
+                        )
+                    except Exception as exc:
+                        st.error(f"Ошибка при скрининге: {exc}" if lang == "ru" else f"Screening error: {exc}")
+
+            else:
+                uploaded_batch_files = st.file_uploader(
+                    T[lang]["batch_upload_label"],
+                    type=["csv", "tsv", "txt", "xy", "jdx", "dx"],
+                    accept_multiple_files=True,
+                    key="batch_uploaded_files_widget"
+                )
+                if uploaded_batch_files and st.button(T[lang]["batch_run_btn"], type="primary", key="btn_run_batch_screening_upload"):
+                    files_tuples = [(f.name, f.getvalue()) for f in uploaded_batch_files]
+                    progress_bar = st.progress(0.0)
+                    status_text = st.empty()
+                    def _prog_cb(frac: float, msg: str):
+                        progress_bar.progress(min(max(frac, 0.0), 1.0))
+                        status_text.text(msg)
+
+                    try:
+                        res = batch_screener.batch_screen_files(files_tuples, progress_callback=_prog_cb)
+                        progress_bar.progress(1.0)
+                        status_text.text("Готово!" if lang == "ru" else "Done!")
+                        st.session_state["batch_screening_results"] = res
+                        st.success(
+                            T[lang]["batch_success_msg"].format(
+                                n_files=res["statistics"]["total_files"],
+                                n_samples=res["statistics"]["unique_samples"]
+                            )
+                        )
+                    except Exception as exc:
+                        st.error(f"Ошибка при обработке файлов: {exc}" if lang == "ru" else f"File processing error: {exc}")
+
+            # Отображение сводных результатов скрининга, если они есть в session_state
+            batch_res = st.session_state.get("batch_screening_results", None)
+            if batch_res is not None:
+                stats = batch_res.get("statistics", {})
+                st.markdown("---")
+                c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+                c_m1.metric(T[lang]["batch_files_count"], stats.get("total_files", 0))
+                c_m2.metric(T[lang]["batch_success_count"], stats.get("successful", 0))
+                c_m3.metric(T[lang]["batch_samples_count"], stats.get("unique_samples", 0))
+                c_m4.metric(T[lang]["batch_modalities_count"], len(stats.get("modalities_found", [])))
+
+                if stats.get("modalities_found"):
+                    mods_str = " • ".join([f"`{m}`" for m in stats["modalities_found"]])
+                    st.markdown(f"**{'Распознанные методы:' if lang == 'ru' else 'Detected Modalities:'}** {mods_str}")
+
+                st.markdown(f"**{T[lang]['batch_manifest_title']}**")
+                st.dataframe(batch_res["summary_df"], use_container_width=True, height=220)
+
+                col_act1, col_act2 = st.columns([1, 1])
+                with col_act1:
+                    if st.button(T[lang]["batch_use_ml_btn"], type="primary", key="btn_apply_batch_to_ml"):
+                        st.session_state["fused_data"] = batch_res["fused_df"]
+                        st.session_state["fused_source"] = (
+                            f"Batch Screening ({stats.get('unique_samples', 0)} проб, {len(stats.get('modalities_found', []))} методов)"
+                            if lang == "ru" else
+                            f"Batch Screening ({stats.get('unique_samples', 0)} samples, {len(stats.get('modalities_found', []))} modalities)"
+                        )
+                        st.success("Матрица признаков успешно передана в классификатор ML!" if lang == "ru" else "Feature matrix successfully dispatched to ML Classifier!")
+                        st.rerun()
+
+                with col_act2:
+                    try:
+                        zip_data = batch_screener.export_batch_results_zip(batch_res)
+                        st.download_button(
+                            label=T[lang]["batch_dl_zip_btn"],
+                            data=zip_data,
+                            file_name="ChemoSuite_Batch_Screening_Archive.zip",
+                            mime="application/zip",
+                            key="btn_download_batch_zip"
+                        )
+                    except Exception as exc:
+                        st.error(f"Ошибка подготовки архива: {exc}" if lang == "ru" else f"Archive packaging error: {exc}")
+
+    # 4. Синтетический бенчмарк
     else:
         if st.button(T[lang]["ml_load_demo_btn"], type="primary", key="btn_ml_load_demo_main"):
             demo_df, demo_y = chemo_ml.generate_multimodal_benchmark()
@@ -4064,6 +4598,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             tab_names.extend([
                 T[lang]["ml_tab_val"],
                 T[lang]["ml_tab_blocks"],
+                T[lang]["ml_tab_crosscorr"],
                 "💾 Экспорт отчетов" if lang == "ru" else "💾 Export Reports",
             ])
 
@@ -4075,6 +4610,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             if is_model_opls: tab_idx += 1
             tab_ml3 = tabs[tab_idx]; tab_idx += 1
             tab_ml4 = tabs[tab_idx]; tab_idx += 1
+            tab_crosscorr = tabs[tab_idx]; tab_idx += 1
             tab_ml5 = tabs[tab_idx]
 
             # Таб 1: Scores Plot (2D и 3D для PLS-DA; tp vs to для OPLS-DA)
@@ -4352,18 +4888,161 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_donut.update_layout(height=420)
                     st_plotly(fig_donut)
 
-            # Таб 5: Экспорт
+            # Таб 5: Кросс-модальный атлас (Cross-Omics / 2D Heterospectral Correlation)
+            with tab_crosscorr:
+                st.write(f"### {T[lang]['ml_crosscorr_title']}")
+                st.caption(T[lang]['ml_crosscorr_subtitle'])
+
+                if not CROSS_CORR_AVAILABLE or cross_correlation is None:
+                    st.error("⚠️ Модуль `cross_correlation.py` не доступен." if lang == "ru" else "⚠️ `cross_correlation.py` is not available.")
+                else:
+                    corr_mode = st.radio(
+                        T[lang]["ml_crosscorr_mode_select"],
+                        [T[lang]["ml_crosscorr_mode_pairs"], T[lang]["ml_crosscorr_mode_global"]],
+                        horizontal=True,
+                        key="radio_crosscorr_mode",
+                    )
+
+                    col_cm1, col_cm2 = st.columns([2, 2])
+                    with col_cm1:
+                        corr_method = st.selectbox(
+                            T[lang]["ml_crosscorr_method"],
+                            ["pearson", "spearman"],
+                            index=0,
+                            key="select_crosscorr_method",
+                        )
+                    with col_cm2:
+                        min_r_thresh = st.slider(
+                            T[lang]["ml_crosscorr_threshold"],
+                            min_value=0.3,
+                            max_value=0.95,
+                            value=0.6,
+                            step=0.05,
+                            key="slider_crosscorr_thresh",
+                        )
+
+                    # Расчет межблочных корреляций
+                    with st.spinner("Расчет кросс-модальных корреляций..." if lang == "ru" else "Computing cross-omics correlations..."):
+                        cc_results = cross_correlation.compute_multiblock_cross_correlation(
+                            edited_df,
+                            sample_id_col="Sample_ID",
+                            target_col="Class_Target",
+                            method=corr_method,
+                        )
+
+                    full_corr_df = cc_results["correlation_matrix"]
+                    block_mapping = cc_results["block_mapping"]
+                    top_cross_df = cc_results["top_cross_correlations"]
+
+                    # Список доступных блоков
+                    avail_blocks = sorted(list(set(b for b in block_mapping.values() if b != "Other")))
+                    if len(avail_blocks) < 2:
+                        avail_blocks = sorted(list(set(block_mapping.values())))
+
+                    if corr_mode == T[lang]["ml_crosscorr_mode_pairs"]:
+                        if len(avail_blocks) < 2:
+                            st.warning(T[lang]["ml_crosscorr_no_data"])
+                        else:
+                            col_b1, col_b2 = st.columns(2)
+                            with col_b1:
+                                block_a_sel = st.selectbox(
+                                    T[lang]["ml_crosscorr_block_a"],
+                                    avail_blocks,
+                                    index=0,
+                                    key="sel_block_a",
+                                )
+                            with col_b2:
+                                default_b_idx = 1 if len(avail_blocks) > 1 else 0
+                                block_b_sel = st.selectbox(
+                                    T[lang]["ml_crosscorr_block_b"],
+                                    avail_blocks,
+                                    index=default_b_idx,
+                                    key="sel_block_b",
+                                )
+
+                            feats_a = [f for f, b in block_mapping.items() if b == block_a_sel and f in edited_df.columns]
+                            feats_b = [f for f, b in block_mapping.items() if b == block_b_sel and f in edited_df.columns]
+
+                            if not feats_a or not feats_b:
+                                st.warning(T[lang]["ml_crosscorr_no_data"])
+                            else:
+                                mat_a = edited_df[feats_a].values
+                                mat_b = edited_df[feats_b].values
+                                phi_2d = cross_correlation.compute_heterospectral_2d_correlation(mat_a, mat_b, scale=True)
+
+                                fig_2d = px.imshow(
+                                    phi_2d,
+                                    x=feats_b,
+                                    y=feats_a,
+                                    color_continuous_scale="RdBu_r",
+                                    zmin=-1.0,
+                                    zmax=1.0,
+                                    labels=dict(x=f"{block_b_sel} Features", y=f"{block_a_sel} Features", color="r"),
+                                    title=f"2D Heterospectral Matrix: {block_a_sel} (Y) ⨂ {block_b_sel} (X)",
+                                )
+                                fig_2d.update_layout(
+                                    height=540,
+                                    margin=dict(l=60, r=40, t=50, b=60),
+                                    xaxis=dict(tickangle=-45),
+                                )
+                                st_plotly(fig_2d)
+
+                    else:
+                        # Глобальная мультиблочная матрица
+                        fig_global = px.imshow(
+                            full_corr_df,
+                            color_continuous_scale="RdBu_r",
+                            zmin=-1.0,
+                            zmax=1.0,
+                            title="Global Multimodal Cross-Correlation Matrix",
+                        )
+                        fig_global.update_layout(height=650, margin=dict(l=60, r=40, t=50, b=60))
+                        st_plotly(fig_global)
+
+                    # Таблица топ межблочных корреляций
+                    st.write(f"#### {T[lang]['ml_crosscorr_top_pairs_title']}")
+                    if not top_cross_df.empty:
+                        filtered_top = top_cross_df[top_cross_df["Abs_Correlation"] >= min_r_thresh].copy()
+                        if filtered_top.empty:
+                            st.info(f"Нет межблочных пар с |r| >= {min_r_thresh}. Попробуйте снизить порог." if lang == "ru" else f"No inter-block pairs with |r| >= {min_r_thresh}. Try lowering the threshold.")
+                        else:
+                            st.dataframe(filtered_top, use_container_width=True, height=260)
+
+                            col_dl1, col_dl2 = st.columns(2)
+                            with col_dl1:
+                                csv_top = filtered_top.to_csv(index=False).encode("utf-8-sig")
+                                st.download_button(
+                                    label=T[lang]["ml_crosscorr_dl_top"],
+                                    data=csv_top,
+                                    file_name=f"ChemoSuite_Top_Cross_Correlations_{corr_method}.csv",
+                                    mime="text/csv",
+                                    key="btn_dl_top_cross",
+                                )
+                            with col_dl2:
+                                nodes_df, edges_df = cross_correlation.build_correlation_network_edges(
+                                    full_corr_df, block_mapping, threshold=min_r_thresh, cross_block_only=True
+                                )
+                                csv_edges = edges_df.to_csv(index=False).encode("utf-8-sig")
+                                st.download_button(
+                                    label=T[lang]["ml_crosscorr_dl_edges"],
+                                    data=csv_edges,
+                                    file_name=f"ChemoSuite_Network_Edges_{corr_method}_thresh{min_r_thresh}.csv",
+                                    mime="text/csv",
+                                    key="btn_dl_edges_cross",
+                                )
+                    else:
+                        st.info("Межблочных взаимосвязей с |r| >= 0.5 не обнаружено." if lang == "ru" else "No inter-block correlations with |r| >= 0.5 found.")
+
+            # Таб 6: Экспорт
             with tab_ml5:
                 st.write("### 📥 Выгрузка аналитических отчетов" if lang == "ru" else "### 📥 Download Analytical Reports")
 
-                # Главный комплексный аналитический паспорт (.xlsx)
+                # Комплексные аналитические паспорта
                 st.markdown(
-                    f"""
-                    <div style="background-color: #f0f4f8; padding: 14px 18px; border-radius: 8px; border-left: 5px solid #0b2545; margin-bottom: 16px;">
-                        <h4 style="margin: 0 0 6px 0; color: #0b2545;">{T[lang]["ml_dl_passport_btn"]}</h4>
-                        <p style="margin: 0; color: #495057; font-size: 13px;">{T[lang]["ml_passport_desc"]}</p>
-                    </div>
-                    """,
+                    f'<div style="background-color: #f0f4f8; padding: 14px 18px; border-radius: 8px; border-left: 5px solid #0b2545; margin-bottom: 16px;">'
+                    f'<h4 style="margin: 0 0 6px 0; color: #0b2545;">{T[lang]["ml_dl_html_passport_btn"]} & {T[lang]["ml_dl_passport_btn"]}</h4>'
+                    f'<p style="margin: 0; color: #495057; font-size: 13px;">{T[lang]["ml_html_passport_desc"]}</p>'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
 
@@ -4380,6 +5059,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
 
                 if REPORT_GEN_AVAILABLE and report_generator is not None:
                     try:
+                        # 1. Генерация Excel паспорта
                         passport_bytes = report_generator.generate_excel_passport(
                             edited_df,
                             model_results=res,
@@ -4390,16 +5070,44 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             lang=rep_lang,
                         )
                         rep_suffix = "EN" if rep_lang == "en" else "RU"
-                        st.download_button(
-                            label=T[lang]["ml_dl_passport_btn"],
-                            data=passport_bytes,
-                            file_name=f"ChemoSuite_Analytical_Passport_{curr_model_type}_{rep_suffix}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            type="primary",
-                            key="dl_passport_xlsx_btn",
+
+                        # 2. Генерация интерактивного HTML экологического паспорта
+                        passport_html = report_generator.generate_ecological_passport_html(
+                            edited_df,
+                            model_results=res,
+                            metadata={
+                                "project_name": st.session_state.get("fused_source", "ChemoSuite Session"),
+                                "operator": "ChemoSuite Unified Analytical Engine",
+                            },
+                            lang=rep_lang,
                         )
+
+                        col_btn_html, col_btn_xlsx = st.columns(2)
+                        with col_btn_html:
+                            st.download_button(
+                                label=T[lang]["ml_dl_html_passport_btn"],
+                                data=passport_html.encode("utf-8"),
+                                file_name=f"ChemoSuite_Ecological_Passport_{curr_model_type}_{rep_suffix}.html",
+                                mime="text/html",
+                                type="primary",
+                                key="dl_passport_html_btn",
+                            )
+                        with col_btn_xlsx:
+                            st.download_button(
+                                label=T[lang]["ml_dl_passport_btn"],
+                                data=passport_bytes,
+                                file_name=f"ChemoSuite_Analytical_Passport_{curr_model_type}_{rep_suffix}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_passport_xlsx_btn",
+                            )
+
+                        # Интерактивный предпросмотр в Streamlit
+                        with st.expander(T[lang]["ml_preview_passport_expander"], expanded=False):
+                            import streamlit.components.v1 as components
+                            components.html(passport_html, height=750, scrolling=True)
+
                     except Exception as err:
-                        st.error(f"Ошибка формирования Excel-паспорта: {err}" if lang == "ru" else f"Excel passport generation error: {err}")
+                        st.error(f"Ошибка формирования паспорта: {err}" if lang == "ru" else f"Passport generation error: {err}")
                 else:
                     st.warning("Модуль `report_generator.py` или библиотека `openpyxl` недоступны." if lang == "ru" else "`report_generator.py` or `openpyxl` library is unavailable.")
 
@@ -4958,12 +5666,10 @@ elif active_module == T[lang]["mod5_name"]:
         st.stop()
 
     st.markdown(
-        f"""
-        <div style="background: linear-gradient(90deg, #1A365D 0%, #2B6CB0 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">
-            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["nmr_title"]}</h3>
-            <p style="margin: 4px 0 0 0; color: #E2E8F0; font-size: 13px;">{T[lang]["nmr_subtitle"]}</p>
-        </div>
-        """,
+        f'<div style="background: linear-gradient(90deg, #1A365D 0%, #2B6CB0 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">'
+        f'<h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["nmr_title"]}</h3>'
+        f'<p style="margin: 4px 0 0 0; color: #E2E8F0; font-size: 13px;">{T[lang]["nmr_subtitle"]}</p>'
+        f'</div>',
         unsafe_allow_html=True
     )
 
@@ -5579,12 +6285,10 @@ elif active_module == T[lang]["mod6_name"]:
         st.stop()
 
     st.markdown(
-        f"""
-        <div style="background: linear-gradient(90deg, #5c0617 0%, #870000 50%, #190a2c 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">
-            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["thermal_title"]}</h3>
-            <p style="margin: 4px 0 0 0; color: #F5D0D0; font-size: 13px;">{T[lang]["thermal_subtitle"]}</p>
-        </div>
-        """,
+        f'<div style="background: linear-gradient(90deg, #5c0617 0%, #870000 50%, #190a2c 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">'
+        f'<h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["thermal_title"]}</h3>'
+        f'<p style="margin: 4px 0 0 0; color: #F5D0D0; font-size: 13px;">{T[lang]["thermal_subtitle"]}</p>'
+        f'</div>',
         unsafe_allow_html=True
     )
 
@@ -6162,12 +6866,10 @@ elif active_module == T[lang]["mod7_name"]:
         st.stop()
 
     st.markdown(
-        f"""
-        <div style="background: linear-gradient(90deg, #063e36 0%, #0d5c4d 50%, #04241d 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">
-            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["sec_title"]}</h3>
-            <p style="margin: 4px 0 0 0; color: #BEE3DB; font-size: 13px;">{T[lang]["sec_subtitle"]}</p>
-        </div>
-        """,
+        f'<div style="background: linear-gradient(90deg, #063e36 0%, #0d5c4d 50%, #04241d 100%); padding: 16px 20px; border-radius: 8px; color: white; margin-bottom: 20px;">'
+        f'<h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">{T[lang]["sec_title"]}</h3>'
+        f'<p style="margin: 4px 0 0 0; color: #BEE3DB; font-size: 13px;">{T[lang]["sec_subtitle"]}</p>'
+        f'</div>',
         unsafe_allow_html=True
     )
 
@@ -6632,6 +7334,225 @@ elif active_module == T[lang]["mod7_name"]:
                     st.session_state["sec_ml_descriptors"] = df_sec_desc
                     st.toast(T[lang]["sec_sync_success"].format(n=len(df_sec_desc)), icon="✅")
                     st.rerun()
+
+# ==============================================================================
+# МОДУЛЬ 8: ЭЛЕМЕНТНЫЙ АНАЛИЗ И ВАЛОВАЯ СТЕХИОМЕТРИЯ (CHNS-O)
+# ==============================================================================
+elif active_module == T[lang]["mod8_name"]:
+    if not ELEMENTAL_CORE_AVAILABLE or elemental_core is None:
+        st.error(T[lang]["elem_err_missing"])
+        st.stop()
+
+    st.title(T[lang]["elem_title"])
+    st.caption(T[lang]["elem_subtitle"])
+
+    with st.sidebar:
+        st.header(T[lang]["elem_sidebar_hdr"])
+        elem_data_src = st.radio(
+            T[lang]["elem_src_label"],
+            [T[lang]["elem_src_synth"], T[lang]["elem_src_upload"]],
+            index=0,
+            key="elem_data_source_radio",
+        )
+
+        if elem_data_src == T[lang]["elem_src_synth"]:
+            bench_df = elemental_core.generate_synthetic_elemental_dataset()
+            samples_list = elemental_core.parse_elemental_table(bench_df)
+            st.session_state["elemental_samples"] = {s.sample_id: s for s in samples_list}
+        else:
+            up_elem_file = st.file_uploader(
+                T[lang]["elem_up_label"],
+                type=["csv", "tsv", "txt"],
+                key="elem_uploader_file",
+            )
+            if up_elem_file is not None:
+                samples_list = elemental_core.parse_elemental_table(up_elem_file.getvalue())
+                st.session_state["elemental_samples"] = {s.sample_id: s for s in samples_list}
+
+    curr_elem_samples = st.session_state.get("elemental_samples", {})
+    if not curr_elem_samples:
+        st.info(T[lang]["elem_no_samples"])
+        st.stop()
+
+    sample_ids = list(curr_elem_samples.keys())
+    col_sel1, col_sel2 = st.columns([2.5, 3.5])
+    with col_sel1:
+        active_s_id = st.selectbox(
+            T[lang]["elem_active_sample"],
+            sample_ids,
+            index=0,
+            key="elem_active_sample_select",
+        )
+    active_elem_sample = curr_elem_samples[active_s_id]
+
+    with col_sel2:
+        elem_tb_html = (
+            f'<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 26px;">'
+            f'<span class="sample-chip"><b>H/C</b>: {active_elem_sample.h_c:.3f}</span>'
+            f'<span class="sample-chip"><b>O/C</b>: {active_elem_sample.o_c:.3f}</span>'
+            f'<span class="sample-chip green"><b>NOSC</b>: {active_elem_sample.nosc:+.2f}</span>'
+            f'<span class="sample-chip orange"><b>AI_bulk</b>: {active_elem_sample.aromaticity_index:.3f}</span>'
+            f'</div>'
+        )
+        st.markdown(elem_tb_html, unsafe_allow_html=True)
+
+    tab_el1, tab_el2, tab_el3, tab_el4 = st.tabs([
+        T[lang]["elem_tab1_title"],
+        T[lang]["elem_tab2_title"],
+        T[lang]["elem_tab3_title"],
+        T[lang]["elem_tab4_title"],
+    ])
+
+    # ----------------------------------------------------------------------
+    # ТАБ 1: Валовая стехиометрия и индексы
+    # ----------------------------------------------------------------------
+    with tab_el1:
+        st.subheader(f"{T[lang]['elem_tab1_title']} — {active_s_id}")
+        c_kpi1, c_kpi2, c_kpi3, c_kpi4, c_kpi5 = st.columns(5)
+        c_kpi1.metric(T[lang]["elem_kpi_hc"], f"{active_elem_sample.h_c:.3f}")
+        c_kpi2.metric(T[lang]["elem_kpi_oc"], f"{active_elem_sample.o_c:.3f}")
+        c_kpi3.metric(T[lang]["elem_kpi_nc"], f"{active_elem_sample.n_c:.4f}")
+        c_kpi4.metric(T[lang]["elem_kpi_sc"], f"{active_elem_sample.s_c:.4f}")
+        c_kpi5.metric(T[lang]["elem_kpi_nosc"], f"{active_elem_sample.nosc:+.3f}")
+
+        st.markdown("---")
+        st.write("#### " + ("Весовой элементный состав образца (% масс.):" if lang == "ru" else "Mass Elemental Composition (% wt):"))
+        elem_weights_df = pd.DataFrame([{
+            "Element / Component": "Углерод (C)" if lang == "ru" else "Carbon (C)", "Mass %": active_elem_sample.c_pct,
+        }, {
+            "Element / Component": "Водород (H)" if lang == "ru" else "Hydrogen (H)", "Mass %": active_elem_sample.h_pct,
+        }, {
+            "Element / Component": "Азот (N)" if lang == "ru" else "Nitrogen (N)", "Mass %": active_elem_sample.n_pct,
+        }, {
+            "Element / Component": "Сера (S)" if lang == "ru" else "Sulfur (S)", "Mass %": active_elem_sample.s_pct,
+        }, {
+            "Element / Component": "Кислород (O, расчет)" if lang == "ru" else "Oxygen (O, by diff)", "Mass %": active_elem_sample.o_pct,
+        }, {
+            "Element / Component": "Зольность (Ash)" if lang == "ru" else "Ash Content", "Mass %": active_elem_sample.ash_pct,
+        }, {
+            "Element / Component": "Влажность (Moisture)" if lang == "ru" else "Moisture", "Mass %": active_elem_sample.moisture_pct,
+        }])
+        st_df(elem_weights_df)
+
+        fig_bar = px.bar(
+            elem_weights_df.head(5),
+            x="Element / Component",
+            y="Mass %",
+            color="Element / Component",
+            color_discrete_sequence=["#1b4965", "#62b6cb", "#bee9e8", "#ffb703", "#e63946"],
+            title=("Баланс элементов CHNS-O" if lang == "ru" else "CHNS-O Elemental Mass Balance"),
+        )
+        fig_bar.update_layout(height=380, plot_bgcolor="white", showlegend=False)
+        st_plotly(fig_bar)
+
+    # ----------------------------------------------------------------------
+    # ТАБ 2: Валовая диаграмма Ван Кревелена (Bulk Van Krevelen)
+    # ----------------------------------------------------------------------
+    with tab_el2:
+        st.subheader(T[lang]["elem_tab2_title"])
+        all_elem_records = [s.to_dict() for s in curr_elem_samples.values()]
+        df_all_elem = pd.DataFrame(all_elem_records)
+
+        fig_vk_bulk = px.scatter(
+            df_all_elem,
+            x="O_C",
+            y="H_C",
+            color="Sample_Type",
+            size="C_pct",
+            hover_name="Sample_ID",
+            hover_data=["NOSC", "AI_bulk", "S_C"],
+            text="Sample_ID",
+            title=("Валовая диаграмма Ван Кревелена образцов (H/C vs O/C)" if lang == "ru" else "Bulk Van Krevelen Diagram (H/C vs O/C)"),
+            labels={"O_C": "O/C (Атомное отношение)", "H_C": "H/C (Атомное отношение)"},
+        )
+        fig_vk_bulk.add_shape(type="rect", x0=0.0, y0=1.5, x1=0.3, y1=2.2, fillcolor="#a8dadc", opacity=0.15, layer="below", line_width=1)
+        fig_vk_bulk.add_shape(type="rect", x0=0.2, y0=0.7, x1=0.6, y1=1.5, fillcolor="#e9c46a", opacity=0.15, layer="below", line_width=1)
+        fig_vk_bulk.add_shape(type="rect", x0=0.6, y0=0.8, x1=1.0, y1=1.8, fillcolor="#f4a261", opacity=0.15, layer="below", line_width=1)
+        fig_vk_bulk.update_traces(textposition="top center")
+        fig_vk_bulk.update_layout(height=560, plot_bgcolor="white")
+        st_plotly(fig_vk_bulk)
+
+    # ----------------------------------------------------------------------
+    # ТАБ 3: Кросс-валидация с FT-ICR MS
+    # ----------------------------------------------------------------------
+    with tab_el3:
+        st.subheader(f"{T[lang]['elem_tab3_title']} — {active_s_id}")
+        spectra_db = st.session_state.get("spectra_db", {})
+
+        matched_spec_name = None
+        for s_name in spectra_db:
+            if active_s_id.lower() in s_name.lower() or s_name.lower() in active_s_id.lower():
+                matched_spec_name = s_name
+                break
+        if matched_spec_name is None and spectra_db:
+            matched_spec_name = list(spectra_db.keys())[0]
+
+        spec_options = list(spectra_db.keys()) if spectra_db else []
+        if not spec_options:
+            st.info("В памяти сессии нет спектров FT-ICR MS с приписанными формулами. Загрузите спектр в Модуле 1 для кросс-валидации." if lang == "ru" else "No FT-ICR MS spectra available in session. Upload a spectrum in Module 1 to perform cross-validation.")
+        else:
+            def_idx = spec_options.index(matched_spec_name) if matched_spec_name in spec_options else 0
+            sel_spec = st.selectbox(
+                "Сопоставляемый спектр FT-ICR MS:" if lang == "ru" else "Matching FT-ICR MS Spectrum:",
+                spec_options,
+                index=def_idx,
+                key="elem_crossval_spec_select",
+            )
+            spec_obj = spectra_db[sel_spec]
+            as_df = spec_obj.get("assigned_df")
+
+            if as_df is None or as_df.empty:
+                st.warning("Для выбранного спектра еще не выполнено приписывание брутто-формул. Перейдите в Модуль 1 (Этап 2) и нажмите 'Приписать формулы'." if lang == "ru" else "No formulas assigned for selected spectrum. Please run formula assignment in Module 1 first.")
+            else:
+                cval_res = elemental_core.cross_validate_fticr_elemental(as_df, active_elem_sample)
+                st.success(f"✓ **Concordance Score (Сходимость методов): {cval_res['concordance_score']}%** — {cval_res['interpretation']}")
+
+                c_cv1, c_cv2 = st.columns(2)
+                with c_cv1:
+                    st.write("##### " + ("Элементный микроанализ (CHNS-O bulk):" if lang == "ru" else "Elemental Microanalysis (CHNS-O bulk):"))
+                    st_df(pd.DataFrame([cval_res["elemental_bulk"]]))
+                with c_cv2:
+                    st.write("##### " + ("Средневзвешенное по FT-ICR MS (ESI-):" if lang == "ru" else "Weighted FT-ICR MS Average (ESI-):"))
+                    st_df(pd.DataFrame([cval_res["ms_weighted"]]))
+
+                st.write("##### " + ("Невязки и расхождения (MS - CHNS):" if lang == "ru" else "Residuals (MS - CHNS):"))
+                st_df(pd.DataFrame([cval_res["differences"]]))
+
+    # ----------------------------------------------------------------------
+    # ТАБ 4: Экспорт дескрипторов и синхронизация ML
+    # ----------------------------------------------------------------------
+    with tab_el4:
+        st.subheader(T[lang]["elem_tab4_title"])
+        all_elem_records = [s.to_dict() for s in curr_elem_samples.values()]
+        df_elem_desc = pd.DataFrame(all_elem_records)
+        st_df(df_elem_desc)
+
+        c_ed1, c_ed2, c_ed3 = st.columns([1.5, 1.5, 2.5])
+        with c_ed1:
+            st.download_button(
+                label=T[lang]["elem_dl_csv"],
+                data=df_elem_desc.to_csv(index=False).encode("utf-8"),
+                file_name="ChemoSuite_Elemental_CHNS_Descriptors.csv",
+                mime="text/csv",
+                key="dl_elem_desc_csv",
+            )
+        with c_ed2:
+            excel_elem_buf = io.BytesIO()
+            with pd.ExcelWriter(excel_elem_buf, engine="openpyxl") as writer:
+                df_elem_desc.to_excel(writer, index=False, sheet_name="Elemental_CHNS")
+            st.download_button(
+                label=T[lang]["elem_dl_excel"],
+                data=excel_elem_buf.getvalue(),
+                file_name="ChemoSuite_Elemental_Descriptors.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_elem_desc_excel",
+            )
+        with c_ed3:
+            if st.button(T[lang]["elem_sync_ml_btn"], type="primary", key="btn_sync_elem_ml_descriptors"):
+                st.session_state["elemental_ml_descriptors"] = df_elem_desc
+                st.toast(T[lang]["elem_sync_success"].format(n=len(df_elem_desc)), icon="✅")
+                st.rerun()
+
 
 
 

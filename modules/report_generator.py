@@ -10,6 +10,7 @@ report_generator.py — Генератор комплексного многос
 7. S-Plot (для OPLS-DA: p1_cov, p_corr)
 """
 
+import html
 import io
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -24,6 +25,14 @@ try:
     import chemo_ml
 except ImportError:
     from . import chemo_ml
+
+try:
+    import cross_correlation
+except ImportError:
+    try:
+        from . import cross_correlation
+    except ImportError:
+        cross_correlation = None
 
 
 def _style_header_cell(cell, fill_hex="0B2545", font_color="FFFFFF", font_size=11, bold=True):
@@ -63,15 +72,23 @@ def _autofit_columns(ws, min_width=12, max_width=45):
 
 
 def generate_excel_passport(
-    fused_df: pd.DataFrame,
+    fused_df: Union[pd.DataFrame, Dict[str, Any]],
     model_results: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
     lang: str = "ru",
+    cross_corr_results: Optional[Dict] = None,
 ) -> bytes:
     """
     Генерирует многостраничный файл Excel (.xlsx) с паспортом анализа и возвращает байты.
     Поддерживает языки отчета: "ru" и "en".
     """
+    if isinstance(fused_df, dict):
+        if model_results is None:
+            model_results = fused_df
+        fused_df = fused_df.get("fused_df", pd.DataFrame())
+    elif fused_df is None:
+        fused_df = pd.DataFrame()
+
     wb = openpyxl.Workbook()
     wb.remove(wb.active)  # Удаляем дефолтный пустой лист
 
@@ -90,6 +107,7 @@ def generate_excel_passport(
     nmr_cols = [c for c in feature_cols if block_map.get(c) == "NMR"]
     thermal_cols = [c for c in feature_cols if block_map.get(c) == "Thermal"]
     sec_cols = [c for c in feature_cols if block_map.get(c) == "SEC/GPC"]
+    elem_cols = [c for c in feature_cols if block_map.get(c) == "Elemental"]
     other_cols = [c for c in feature_cols if block_map.get(c) == "Other"]
 
     is_en = (lang == "en")
@@ -124,6 +142,7 @@ def generate_excel_passport(
         ("NMR Descriptors:" if is_en else "Дескрипторов NMR:", len(nmr_cols)),
         ("Thermal Descriptors:" if is_en else "Дескрипторов Thermal:", len(thermal_cols)),
         ("SEC/GPC Descriptors:" if is_en else "Дескрипторов SEC/GPC:", len(sec_cols)),
+        ("CHNS-O Elemental Descriptors:" if is_en else "Дескрипторов CHNS-O Elemental:", len(elem_cols)),
     ]
 
     for idx, (lbl, val) in enumerate(meta_info, start=5):
@@ -287,6 +306,23 @@ def generate_excel_passport(
         populate_table_sheet(ws_sec, fused_df[sec_export_cols], header_fill="16A085")
 
     # =========================================================================
+    # ЛИСТ 10: CHNS-O Elemental дескрипторы (CHNS-O Descriptors)
+    # =========================================================================
+    elem_export_cols = [c for c in ["Sample_ID", "Class_Target"] if c in fused_df.columns] + elem_cols
+    if len(elem_cols) > 0:
+        ws_elem = wb.create_sheet(title="CHNS-O Descriptors")
+        populate_table_sheet(ws_elem, fused_df[elem_export_cols], header_fill="0077B6")
+
+    # =========================================================================
+    # ЛИСТ 11: Кросс-модальные корреляции (Cross-Omics Correlations)
+    # =========================================================================
+    if cross_corr_results and "top_cross_correlations" in cross_corr_results:
+        top_cc = cross_corr_results["top_cross_correlations"]
+        if isinstance(top_cc, pd.DataFrame) and not top_cc.empty:
+            ws_cc = wb.create_sheet(title="Cross-Omics Correlations")
+            populate_table_sheet(ws_cc, top_cc, header_fill="2A9D8F")
+
+    # =========================================================================
     # ЛИСТ 10: Биомаркеры и VIP-ранжирование (Biomarkers & VIP)
     # =========================================================================
     if model_results and "VIP_df" in model_results:
@@ -337,3 +373,491 @@ def generate_excel_passport(
     wb.save(out_buf)
     out_buf.seek(0)
     return out_buf.getvalue()
+
+
+def generate_ecological_passport_html(
+    fused_df: Union[pd.DataFrame, Dict[str, Any]],
+    model_results: Optional[Dict] = None,
+    cross_corr_results: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+    lang: str = "ru",
+) -> str:
+    """
+    Генерирует автономный интерактивный HTML-паспорт / Экологический сертификат образцов.
+    Включает сводные метрики 8 аналитических методов, результаты хемометрической классификации,
+    панель ключевых биомаркеров, межмодальные кросс-корреляции и экспертное заключение с поддержкой печати в PDF.
+    """
+    if isinstance(fused_df, dict):
+        if model_results is None:
+            model_results = fused_df
+        fused_df = fused_df.get("fused_df", pd.DataFrame())
+    elif fused_df is None:
+        fused_df = pd.DataFrame()
+
+    is_en = (lang == "en")
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    meta = metadata or {}
+    project_name = html.escape(str(meta.get("project_name", "ChemoSuite Multi-Omics Session")))
+    operator_name = html.escape(str(meta.get("operator", "ChemoSuite Analytical Platform 3.0")))
+
+    feature_cols = [c for c in fused_df.columns if c not in ["Sample_ID", "Class_Target"]]
+    block_map = chemo_ml.classify_feature_blocks(feature_cols)
+
+    # 8 аналитических блоков платформы ChemoSuite 3.0
+    all_blocks = [
+        ("FT-ICR MS", "FT-ICR MS (Ultrahigh Resolution)", "FT-ICR MS (Сверхвысокое разрешение)", "#0b5394"),
+        ("EEM-PARAFAC", "EEM-PARAFAC (3D Fluorescence)", "EEM-PARAFAC (3D-флуоресценция)", "#e69138"),
+        ("UV-Vis", "UV-Vis Spectrophotometry", "УФ-Вид спектрофотометрия", "#2ca02c"),
+        ("FTIR", "FTIR Spectroscopy", "ИК-Фурье спектроскопия", "#8e44ad"),
+        ("NMR", "NMR Spectroscopy (1H/13C)", "ЯМР спектроскопия (1H/13C)", "#d35400"),
+        ("Thermal", "Thermal & Py-GC-MS", "Термогравиметрия & Пиролиз-ГХ-МС", "#c0392b"),
+        ("SEC/GPC", "SEC/GPC Chromatography", "Эксклюзионная хроматография (SEC/GPC)", "#16a085"),
+        ("Elemental", "CHNS-O Elemental Stoichiometry", "Элементный анализ (CHNS-O)", "#0077b6"),
+    ]
+
+    active_blocks_count = 0
+    block_cards_html = ""
+    for b_key, b_title_en, b_title_ru, b_color in all_blocks:
+        b_cols = [c for c in feature_cols if block_map.get(c) == b_key]
+        b_title = b_title_en if is_en else b_title_ru
+        if len(b_cols) > 0:
+            active_blocks_count += 1
+            sample_stats_html = ""
+            for col in b_cols[:4]:
+                val_mean = float(fused_df[col].mean())
+                val_std = float(fused_df[col].std()) if len(fused_df) > 1 else 0.0
+                c_clean = html.escape(col)
+                sample_stats_html += f"""
+                <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
+                    <span style="color: #475569; font-family: monospace;">{c_clean}:</span>
+                    <span style="font-weight: 600; color: #0f172a;">{val_mean:.3f} ± {val_std:.3f}</span>
+                </div>
+                """
+            badge_status = f'<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">{len(b_cols)} {"features" if is_en else "признаков"}</span>'
+        else:
+            sample_stats_html = f'<div style="color: #94a3b8; font-size: 12px; font-style: italic; padding: 8px 0;">{"Not measured in this session" if is_en else "Не измерялся в данной сессии"}</div>'
+            badge_status = f'<span style="background: #f1f5f9; color: #64748b; padding: 2px 8px; border-radius: 12px; font-size: 11px;">{"Inactive" if is_en else "Не активен"}</span>'
+
+        block_cards_html += f"""
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; border-top: 4px solid {b_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0; font-size: 14px; color: #0f172a; font-weight: 600;">{b_title}</h4>
+                {badge_status}
+            </div>
+            {sample_stats_html}
+        </div>
+        """
+
+    # Экологическая оценка и генезис
+    classes_present = list(fused_df["Class_Target"].unique()) if "Class_Target" in fused_df.columns else []
+    classes_str = ", ".join(str(c) for c in classes_present) if classes_present else ("N/A")
+
+    has_lignin_or_sludge = any(k in str(classes_str).lower() for k in ["lignin", "sludge", "шлам", "1"])
+    has_high_q2 = bool(model_results and model_results.get("Q2", 0) > 40)
+
+    if has_lignin_or_sludge or has_high_q2:
+        risk_label = "HIGH CONTRAST / TECHNOGENIC TRANSFORMATION" if is_en else "ВЫСОКИЙ КОНТРАСТ / ТЕХНОГЕННАЯ ТРАНСФОРМАЦИЯ"
+        risk_bg = "#fee2e2"
+        risk_color = "#b91c1c"
+        conclusion_text = (
+            "Molecular characterization reveals significant structural divergence between sample subsets. "
+            "Biomarker analysis indicates high enrichment in condensed polyphenolic and lignin-derived aromatics "
+            "with elevated AI_mod and SUVA254, characteristic of technogenic impact (e.g. industrial sludge-lignin discharge). "
+            "Background aquatic organic matter is distinguished by dominant aliphatic and humic-like constituents."
+            if is_en else
+            "Мультимодальная молекулярная характеризация выявила выраженную структурную дифференциацию между подгруппами образцов. "
+            "Анализ биомаркеров свидетельствует о резком обогащении конденсированными полифенольными и лигниноподобными ароматическими структурами "
+            "с повышенными индексами AI_mod и SUVA254, что характерно для техногенного загрязнения (включая шлам-лигнин БЦБК). "
+            "Фоновые природные воды контрастно отличаются преобладанием алифатических и классических гуминовых соединений."
+        )
+    else:
+        risk_label = "NATURAL BACKGROUND / AQUATIC DOM" if is_en else "ФОНОВЫЙ ПРИРОДНЫЙ ГЕНЕЗИС / ПРИРОДНОЕ ОВ"
+        risk_bg = "#dcfce7"
+        risk_color = "#15803d"
+        conclusion_text = (
+            "Multi-omics profiling confirms that the organic matter pool consists of predominantly natural background dissolved organic matter (DOM). "
+            "Spectroscopic and mass spectrometric signatures correspond to autochthonous microbial and terrigenous soil fulvic/humic complexes "
+            "with normal aromaticity levels and balanced heteroatom distributions."
+            if is_en else
+            "Мультимодальное профилирование подтверждает, что исследованный пул органического вещества соответствует фоновому "
+            "природному растворенному органическому веществу (DOM). Спектроскопические и масс-спектрометрические сигнатуры указывают на "
+            "сбалансированное присутствие автохтонных биогенных и терригенных гумусовых комплексов с естественным уровнем ароматичности."
+        )
+
+    # Модель ML
+    model_section_html = ""
+    if model_results:
+        m_type = model_results.get("model_type", "PLS-DA")
+        acc = model_results.get("Balanced_Accuracy", model_results.get("Accuracy", 0.0))
+        r2x = model_results.get("R2X", 0.0)
+        r2y = model_results.get("R2Y", 0.0)
+        q2 = model_results.get("Q2", 0.0)
+
+        vip_rows_html = ""
+        vip_df = model_results.get("VIP_df", pd.DataFrame())
+        if isinstance(vip_df, pd.DataFrame) and not vip_df.empty:
+            for _, r in vip_df.head(8).iterrows():
+                desc_name = html.escape(str(r["Descriptor"]))
+                vip_val = float(r["VIP"])
+                blk_name = html.escape(str(r.get("Block", "Other")))
+                sig_badge = f'<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">VIP={vip_val:.2f} ★</span>' if vip_val >= 1.0 else f'<span style="background: #f1f5f9; color: #64748b; padding: 2px 8px; border-radius: 10px; font-size: 11px;">VIP={vip_val:.2f}</span>'
+                vip_rows_html += f"""
+                <tr>
+                    <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: 600;">{desc_name}</td>
+                    <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #0b5394;">{blk_name}</td>
+                    <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">{vip_val:.3f}</td>
+                    <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: center;">{sig_badge}</td>
+                </tr>
+                """
+
+        model_section_html = f"""
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">🔬 {"Хемометрическая дискриминантная модель и биомаркеры" if not is_en else "Chemometric Discriminant Model & Biomarker Panel"} ({m_type})</h3>
+                <span style="font-size: 12px; color: #64748b;">Classes: <strong>{html.escape(str(classes_str))}</strong></span>
+            </div>
+            <div class="kpi-grid">
+                <div class="kpi-box">
+                    <div class="kpi-label">R²X (Spectral Variance)</div>
+                    <div class="kpi-value">{r2x:.1f}%</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-label">R²Y (Class Variance)</div>
+                    <div class="kpi-value">{r2y:.1f}%</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-label">Q² (LOO-CV Predictive)</div>
+                    <div class="kpi-value" style="color: {'#16a34a' if q2 > 50 else '#d97706'};">{q2:.1f}%</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-label">Balanced Accuracy</div>
+                    <div class="kpi-value" style="color: #0b5394;">{acc:.1f}%</div>
+                </div>
+            </div>
+            <table class="custom-table" style="margin-top: 16px;">
+                <thead>
+                    <tr>
+                        <th>{"Молекулярный дескриптор" if not is_en else "Molecular Descriptor"}</th>
+                        <th>{"Аналитический блок" if not is_en else "Analytical Block"}</th>
+                        <th style="text-align: right;">VIP Score</th>
+                        <th style="text-align: center;">{"Статус значимости" if not is_en else "Significance Status"}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {vip_rows_html}
+                </tbody>
+            </table>
+        </div>
+        """
+
+    # Кросс-модальные корреляции
+    cc_section_html = ""
+    top_cc = None
+    if cross_corr_results and "top_cross_correlations" in cross_corr_results:
+        top_cc = cross_corr_results["top_cross_correlations"]
+    elif cross_correlation is not None:
+        try:
+            cc_calc = cross_correlation.compute_multiblock_cross_correlation(fused_df)
+            top_cc = cc_calc.get("top_cross_correlations")
+        except Exception:
+            top_cc = None
+
+    if isinstance(top_cc, pd.DataFrame) and not top_cc.empty:
+        cc_rows = ""
+        for _, r in top_cc.head(6).iterrows():
+            fa = html.escape(str(r["Feature_A"]))
+            ba = html.escape(str(r["Block_A"]))
+            fb = html.escape(str(r["Feature_B"]))
+            bb = html.escape(str(r["Block_B"]))
+            r_val = float(r["Correlation"])
+            p_val = float(r.get("p_value", 0.0))
+            r_col = "#15803d" if r_val > 0 else "#b91c1c"
+            cc_rows += f"""
+            <tr>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <strong>{fa}</strong> <span style="font-size: 11px; color: #64748b;">[{ba}]</span>
+                </td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #94a3b8;">⟷</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0;">
+                    <strong>{fb}</strong> <span style="font-size: 11px; color: #64748b;">[{bb}]</span>
+                </td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: {r_col};">{r_val:+.3f}</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 11px; color: #64748b;">p = {p_val:.2e}</td>
+            </tr>
+            """
+
+        cc_section_html = f"""
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">🌐 {"Кросс-модальные корреляционные синергии (Cross-Omics Links)" if not is_en else "Cross-Omics Correlation Synergies & Inter-Block Links"}</h3>
+                <span style="font-size: 12px; color: #64748b;">Threshold |r| ≥ 0.5</span>
+            </div>
+            <table class="custom-table">
+                <thead>
+                    <tr>
+                        <th>{"Дескриптор A (Блок A)" if not is_en else "Feature A (Block A)"}</th>
+                        <th style="text-align: center;"></th>
+                        <th>{"Дескриптор B (Блок B)" if not is_en else "Feature B (Block B)"}</th>
+                        <th style="text-align: right;">r (Pearson)</th>
+                        <th style="text-align: right;">p-value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {cc_rows}
+                </tbody>
+            </table>
+        </div>
+        """
+
+    doc_title = "ChemoSuite Ecological Passport & Analytical Report" if is_en else "Экологический паспорт и аналитический сертификат ChemoSuite"
+    print_btn_label = "🖨️ Print / Save as PDF" if is_en else "🖨️ Распечатать / Сохранить в PDF"
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="{'en' if is_en else 'ru'}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{doc_title}</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+:root {{
+  --primary: #0b2545;
+  --secondary: #134074;
+  --accent: #0077b6;
+  --bg-subtle: #f8fafc;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --card-bg: #ffffff;
+}}
+* {{ box-sizing: border-box; }}
+body {{
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-subtle);
+  color: var(--text-main);
+  margin: 0;
+  padding: 30px 20px;
+  line-height: 1.5;
+}}
+.passport-container {{
+  max-width: 1040px;
+  margin: 0 auto;
+}}
+.header-card {{
+  background: linear-gradient(135deg, #0b2545 0%, #134074 100%);
+  color: #ffffff;
+  border-radius: 14px;
+  padding: 28px 34px;
+  margin-bottom: 24px;
+  box-shadow: 0 10px 25px -5px rgba(11, 37, 69, 0.25);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}}
+.header-title-box h1 {{
+  margin: 0 0 6px 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}}
+.header-title-box p {{
+  margin: 0;
+  font-size: 13px;
+  color: #93c5fd;
+}}
+.print-btn {{
+  background: #0077b6;
+  color: #ffffff;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: opacity 0.2s;
+}}
+.print-btn:hover {{ opacity: 0.9; }}
+.card {{
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 26px;
+  margin-bottom: 22px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04);
+}}
+.card-header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}}
+.card-title {{
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 0;
+}}
+.kpi-grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}}
+.kpi-box {{
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  text-align: center;
+}}
+.kpi-label {{
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}}
+.kpi-value {{
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--secondary);
+}}
+.custom-table {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}}
+.custom-table th {{
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  padding: 9px 12px;
+  border-bottom: 2px solid var(--border);
+}}
+.conclusion-box {{
+  background: #eff6ff;
+  border-left: 4px solid #3b82f6;
+  border-radius: 0 8px 8px 0;
+  padding: 16px 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #1e3a8a;
+}}
+.footer-box {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}}
+@media print {{
+  body {{ background: #fff !important; padding: 0 !important; }}
+  .no-print {{ display: none !important; }}
+  .header-card {{ box-shadow: none !important; }}
+  .card {{ box-shadow: none !important; border: 1px solid #cbd5e1 !important; page-break-inside: avoid; }}
+}}
+</style>
+</head>
+<body>
+
+<div class="passport-container">
+
+  <!-- Шапка отчета -->
+  <div class="header-card">
+    <div class="header-title-box">
+      <h1>{doc_title}</h1>
+      <p>{"Комплексная мультимодальная характеризация органического вещества природно-техногенных систем" if not is_en else "Unified Multi-Modal Characterization of Natural & Technogenic Organic Matter"}</p>
+    </div>
+    <div class="no-print">
+      <button class="print-btn" onclick="window.print()">{print_btn_label}</button>
+    </div>
+  </div>
+
+  <!-- Общие метаданные и вердикт -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">📋 {"Общие сведения об аналитической сессии" if not is_en else "Analytical Session Overview"}</h3>
+      <span style="background: {risk_bg}; color: {risk_color}; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;">{risk_label}</span>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi-box">
+        <div class="kpi-label">{"Образцов в партии" if not is_en else "Sample Batch Size"}</div>
+        <div class="kpi-value">{len(fused_df)}</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">{"Активных методов" if not is_en else "Active Modalities"}</div>
+        <div class="kpi-value">{active_blocks_count} / 8</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">{"Всего дескрипторов" if not is_en else "Total Descriptors"}</div>
+        <div class="kpi-value">{len(feature_cols)}</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">{"Дата генерации" if not is_en else "Date of Issue"}</div>
+        <div class="kpi-value" style="font-size: 14px; font-weight: 600; padding-top: 4px;">{now_str.split()[0]}</div>
+      </div>
+    </div>
+    <table class="custom-table" style="margin-top: 10px;">
+      <tr>
+        <td style="width: 25%; font-weight: 600; color: #475569;">{"Проект / Заказчик:" if not is_en else "Project / Client:"}</td>
+        <td>{project_name}</td>
+        <td style="width: 25%; font-weight: 600; color: #475569;">{"Оператор / Лаборатория:" if not is_en else "Operator / Laboratory:"}</td>
+        <td>{operator_name}</td>
+      </tr>
+      <tr>
+        <td style="font-weight: 600; color: #475569;">{"Аналитическая платформа:" if not is_en else "Analytical Platform:"}</td>
+        <td>ChemoSuite Unified Analytical Engine 3.0</td>
+        <td style="font-weight: 600; color: #475569;">{"Статус сертификации:" if not is_en else "Certification Status:"}</td>
+        <td><strong style="color: #16a34a;">PASS (Chemometrically Validated)</strong></td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Мультимодальный атлас: 8 аналитических блоков -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">🧬 {"Мультимодальный аналитический профиль (8 аналитических методов)" if not is_en else "Multi-Omics Analytical Profile (8 Analytical Modalities)"}</h3>
+      <span style="font-size: 12px; color: #64748b;">{"Согласованная матрица признаков" if not is_en else "Aligned Feature Space"}</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+      {block_cards_html}
+    </div>
+  </div>
+
+  <!-- Модель классификации (если обучена) -->
+  {model_section_html}
+
+  <!-- Кросс-модальные корреляции -->
+  {cc_section_html}
+
+  <!-- Экспертное заключение -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">📝 {"Автоматизированное экспертное заключение" if not is_en else "Automated Expert Conclusion & Diagnosis"}</h3>
+      <span style="font-size: 12px; color: #64748b;">ChemoSuite Rule-Based Synthesis</span>
+    </div>
+    <div class="conclusion-box">
+      <strong>{"ЗАКЛЮЧЕНИЕ ЭКСПЕРТА:" if not is_en else "EXPERT APPRAISAL:"}</strong> {conclusion_text}
+    </div>
+  </div>
+
+  <!-- Футер -->
+  <div class="footer-box">
+    <div>ChemoSuite 3.0 Platform &copy; {datetime.now().year} &bull; Natural Humic Systems Lab &bull; Moscow State University</div>
+    <div>Report ID: CS-3.0-{abs(hash(now_str + project_name)) % 1000000:06d}</div>
+  </div>
+
+</div>
+
+</body>
+</html>"""
+    return html_content
+

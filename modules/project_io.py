@@ -190,6 +190,10 @@ def save_chemo_project(
         if isinstance(sec_df, pd.DataFrame) and not sec_df.empty:
             zf.writestr("descriptors/sec_ml_descriptors.csv", sec_df.to_csv(index=False))
 
+        elem_df = session_data.get("elemental_ml_descriptors", None)
+        if isinstance(elem_df, pd.DataFrame) and not elem_df.empty:
+            zf.writestr("descriptors/elemental_ml_descriptors.csv", elem_df.to_csv(index=False))
+
         # 4. Мультимодальная матрица слияния данных (Data Fusion)
         if isinstance(fused_df, pd.DataFrame) and not fused_df.empty:
             zf.writestr("fusion/fused_data.csv", fused_df.to_csv(index=False))
@@ -318,6 +322,8 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
                 "nmr_ml_descriptors": None,
                 "thermal_ml_descriptors": None,
                 "thermal_samples": {},
+                "sec_ml_descriptors": None,
+                "elemental_ml_descriptors": None,
                 "fused_data": None,
                 "fused_source": meta.get("summary", {}).get("fused_source", "Restored Session"),
                 "pls_results": None,
@@ -377,6 +383,9 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
             if "descriptors/sec_ml_descriptors.csv" in names:
                 restored["sec_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/sec_ml_descriptors.csv")))
+
+            if "descriptors/elemental_ml_descriptors.csv" in names:
+                restored["elemental_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/elemental_ml_descriptors.csv")))
 
             # 3. Fused Data
             if "fusion/fused_data.csv" in names:

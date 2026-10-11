@@ -185,3 +185,36 @@ def test_invalid_project_handling():
 
     with pytest.raises(ValueError):
         load_chemo_project(empty_zip.getvalue())
+
+
+def test_save_and_load_octamodal_project():
+    """Проверка сохранения и восстановления проекта со всеми 8 модальностями (ChemoSuite 3.0)."""
+    fused_df, y_labels = generate_multimodal_benchmark()
+    session_data = {
+        "spectra_db": {},
+        "eem_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "FI": [1.4]}),
+        "uv_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "A254": [0.4]}),
+        "ftir_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "AI": [0.5]}),
+        "nmr_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "fa": [0.35]}),
+        "thermal_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "T50": [380.0]}),
+        "sec_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "SEC_Mw": [4500.0]}),
+        "elemental_ml_descriptors": pd.DataFrame({"Sample_ID": ["S1"], "Elem_H_C": [1.15]}),
+        "fused_data": fused_df,
+        "fused_source": "Octamodal Session 3.0",
+        "pls_results": None,
+        "pls_sample_ids": None,
+        "pls_y_input": None,
+        "perm_results": None,
+        "lang": "ru",
+    }
+
+    chemo_bytes = save_chemo_project(session_data, project_name="Octamodal_v3")
+    assert isinstance(chemo_bytes, bytes)
+
+    restored = load_chemo_project(chemo_bytes)
+    assert restored["sec_ml_descriptors"] is not None
+    assert restored["sec_ml_descriptors"].iloc[0]["SEC_Mw"] == 4500.0
+    assert restored["elemental_ml_descriptors"] is not None
+    assert restored["elemental_ml_descriptors"].iloc[0]["Elem_H_C"] == 1.15
+    assert restored["fused_source"] == "Octamodal Session 3.0"
+

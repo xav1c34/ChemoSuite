@@ -30,6 +30,8 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
             mapping[c] = "NMR"
         elif c.startswith("Py_") or c.startswith("TGA_") or c.startswith("DTG_") or any(k in c_low for k in ["py_", "tga", "dtg", "thermostability", "char_yield", "moisture_loss", "aliphatic_loss", "aromatic_loss"]):
             mapping[c] = "Thermal"
+        elif c.startswith("Elem_") or c.startswith("CHNS_") or any(k in c_low for k in ["c_pct", "h_pct", "n_pct", "s_pct", "o_pct", "ash_pct", "h_c", "o_c", "n_c", "s_c", "ai_bulk", "q_combustion"]):
+            mapping[c] = "Elemental"
         elif any(k in c_low for k in ["fi", "hix", "suva", "c1", "c2", "c3", "c4", "fulvic", "lignin", "protein", "humic"]):
             mapping[c] = "EEM-PARAFAC"
         else:
@@ -131,10 +133,11 @@ def merge_feature_blocks(
     df_nmr: Optional[pd.DataFrame] = None,
     df_thermal: Optional[pd.DataFrame] = None,
     df_sec: Optional[pd.DataFrame] = None,
+    df_elem: Optional[pd.DataFrame] = None,
     on_col: str = "Sample_ID",
 ) -> pd.DataFrame:
-    """Универсальное соединение матриц FT-ICR, EEM, UV-Vis, FTIR, NMR, Thermal и SEC/GPC по идентификаторам образцов."""
-    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr, df_thermal, df_sec] if df is not None and not df.empty]
+    """Универсальное соединение матриц всех 8 аналитических блоков (FT-ICR, EEM, UV-Vis, FTIR, NMR, Thermal, SEC/GPC, CHNS-O) по идентификаторам образцов."""
+    dfs = [df for df in [df_fticr, df_eem, df_uv, df_ftir, df_nmr, df_thermal, df_sec, df_elem] if df is not None and not df.empty]
     if not dfs:
         return pd.DataFrame()
     for d in dfs:
