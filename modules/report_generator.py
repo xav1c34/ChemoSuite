@@ -10,10 +10,12 @@ report_generator.py — Генератор комплексного многос
 7. S-Plot (для OPLS-DA: p1_cov, p_corr)
 """
 
+from __future__ import annotations
+
 import html
 import io
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import openpyxl
