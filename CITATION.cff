@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use ChemoSuite in your research, please cite it as below."
+authors:
+  - family-names: "Bay"
+    given-names: "T. O."
+title: "ChemoSuite: Multimodal Chemometrics Platform for Natural Organic Matter and Lignin Analysis"
+version: 3.0.0
+date-released: 2026-10-11
+url: "https://nom-spectra.streamlit.app/"
+repository-code: "https://github.com/xav1c34/ChemoSuite"
+license: "MIT"
+keywords:
+  - "chemometrics"
+  - "mass spectrometry"
+  - "FT-ICR MS"
+  - "EEM-PARAFAC"
+  - "UV-Vis"
+  - "FTIR"
+  - "NMR"
+  - "thermal analysis"
+  - "size-exclusion chromatography"
+  - "elemental analysis"
+  - "multiblock data fusion"
+  - "OPLS-DA"
+  - "natural organic matter"
+  - "lignin"

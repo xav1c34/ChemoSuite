@@ -474,10 +474,19 @@ def batch_screen_directory(
     for item in p.glob(pattern):
         if item.is_file() and item.suffix.lower() in extensions:
             matched_files.append(item)
+            if len(matched_files) >= 500:
+                break
 
     files_data = []
+    tot_bytes = 0
     for f in matched_files:
         try:
+            sz = f.stat().st_size
+            if sz > 50_000_000:  # пропуск одиночных файлов > 50 МБ
+                continue
+            tot_bytes += sz
+            if tot_bytes > 200_000_000:  # лимит 200 МБ для безопасности памяти
+                break
             with open(f, "rb") as fh:
                 b = fh.read()
             files_data.append((f.name, b))

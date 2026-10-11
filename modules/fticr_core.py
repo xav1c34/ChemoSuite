@@ -1024,6 +1024,14 @@ def batch_process_fticr_spectra(
     elif isinstance(files_input, (bytes, io.BytesIO)) or (isinstance(files_input, str) and files_input.lower().endswith(".zip")):
         bio = io.BytesIO(files_input) if isinstance(files_input, bytes) else (files_input if isinstance(files_input, io.BytesIO) else open(files_input, "rb"))
         with zipfile.ZipFile(bio, "r") as zf:
+            if len(zf.infolist()) > 500:
+                raise ValueError("Превышен лимит количества файлов в архиве спектров (макс. 500).")
+            tot_size = sum(z.file_size for z in zf.infolist())
+            if tot_size > 200_000_000:
+                raise ValueError(f"Превышен лимит распакованного размера архива ({tot_size / 1e6:.1f} МБ > 200 МБ).")
+            for z in zf.infolist():
+                if ".." in z.filename or z.filename.startswith("/") or z.filename.startswith("\\"):
+                    raise ValueError(f"Обнаружен опасный путь файла (Zip-Slip): {z.filename}")
             for fname in zf.namelist():
                 if fname.lower().endswith((".csv", ".tsv", ".txt", ".xy")) and not fname.startswith("__MACOSX"):
                     files_dict[os.path.basename(fname)] = zf.read(fname)

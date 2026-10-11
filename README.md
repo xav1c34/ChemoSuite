@@ -8,7 +8,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](https://img.shields.io/badge/Tests-121%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-122%20passed-brightgreen)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -185,13 +185,13 @@ ChemoSuite/
 │
 ├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.14)
 ├── pytest.ini                        # Pytest configuration file
+├── CITATION.cff                      # Machine-readable citation metadata (GitHub native citation)
 ├── assets/                           # Screenshots and graphics for the README
 ├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
 ├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, openpyxl, pytest)
 ├── .gitignore                        # System and temporary file exclusions
 ├── README.md                         # Main repository documentation on GitHub (English default)
-├── README_RU.md                      # Platform documentation (Russian)
-└── README_EN.md                      # Platform documentation (English)
+└── README_RU.md                      # Platform documentation (Russian)
 ```
 
 ---
@@ -204,7 +204,7 @@ git clone https://github.com/xav1c34/ChemoSuite.git
 cd ChemoSuite
 ```
 
-### 2. Configure Virtual Environment
+### 2. Настройка виртуального окружения
 **Windows (PowerShell):**
 ```powershell
 python -m venv .venv
@@ -247,6 +247,43 @@ Once launched, the interface will open automatically in your browser at `http://
 * **Thermal analysis (Py-GC-MS & TGA):** Py-GC-MS chromatograms / peak lists and TGA/DTG mass loss thermal curves (`.csv`, `.txt`).
 * **Chromatography (SEC / GPC):** Size-exclusion chromatograms (`.csv`, `.txt`, `.tsv`) with retention time / volume and detector signals.
 * **Elemental microanalysis (CHNS-O):** Tabular elemental composition files (`.csv`, `.tsv`, `.txt`) with columns for C, H, N, S, O, Ash, and Moisture percentages.
+
+---
+
+## ⚖️ Scientific Assumptions, Calibration & Methodological Limitations
+
+To ensure reproducible analytical practice and transparency for peer review, the computational assumptions, parameter tolerances, and operational boundaries of the ChemoSuite platform are specified below:
+
+### 1. Molecular Formula Assignment (FT-ICR MS)
+* **Mass Accuracy & Tolerance:** Default tolerance is $\pm 2.0$ ppm ($\pm 1.5$ ppm recommended for ultra-high magnetic field systems $\ge 12\,\text{T}$).
+* **Chemical Space Search Limits:** Formulas are assigned within $C_{1\dots100}$, $H_{1\dots200}$, $O_{0\dots50}$, $N_{0\dots5}$, $S_{0\dots3}$. Senior and Nitrogen rules are strictly enforced ($DBE \ge 0$, integer $DBE$).
+* **Formula Ambiguity & Validation:** For masses $m/z > 500\,\text{Da}$, several candidate stoichiometries may fall within the 2.0 ppm window. ChemoSuite resolves ambiguous assignments via $^{13}\text{C}$ isotopic peak verification ($I_{^{13}\text{C}} / I_{^{12}\text{C}} \approx 1.08\% \times N_C$) and homologous Kendrick series continuity ($CH_2, COO$).
+* **Signal-to-Noise Threshold:** Users should filter peak lists at $S/N \ge 3.0$ (or relative intensity $\ge 0.1\%$) prior to batch assignment to prevent assignment of spectral noise.
+
+### 2. Optical Spectroscopy & Inner Filter Effect (EEM & UV-Vis)
+* **Scattering Masking:** 1st- and 2nd-order Rayleigh and Raman scattering bands are masked and interpolated using Delaunay triangulation.
+* **Inner Filter Effect (IFE) Correction:** IFE correction ($F_{\text{corr}} = F_{\text{obs}} \cdot 10^{0.5(A_{\text{ex}} + A_{\text{em}})d}$) assumes homogeneous cuvette geometry ($d = 1.0\,\text{cm}$) and matched absorption spectra recorded under identical sample dilution. IFE correction is valid for total absorbance $A \le 1.5$; beyond this threshold, sample dilution is mandatory to prevent detector saturation.
+* **PARAFAC Model Adequacy:** Components must satisfy Core Consistency Diagnostic ($\text{CORCONDIA} > 70\%$) and Split-Half validation stability ($TCC \ge 0.85$) against the OpenFluor reference spectral library.
+
+### 3. Multiblock Chemometrics & Sample Size ($p \gg n$)
+* **Sample Size & Overfitting Caution:** In multiblock chemometrics with 8 analytical blocks ($P > 50$ descriptors), small sample sizes ($N < 20$) are inherently prone to optimistic classification separation. The included demo dataset ($N=12$) serves exclusively as an educational proof-of-concept demonstrating data staging and algorithm execution. For robust environmental discrimination and peer-reviewed publication claims, a minimum of $N \ge 30\dots50$ independent field samples is strongly recommended.
+* **Validation Rigor:** Standard validation employs Leave-One-Out ($N \le 30$) or 5-Fold Cross-Validation. Permutation testing ($H_0$) is selectable between 50 and 1,000 iterations; for publication-grade validation ($p < 0.002$), $\ge 500$ iterations should be computed.
+
+### 4. Analytical Module Maturity Levels
+| Modality / Module | Maturity Level | Primary Validation Basis |
+| :--- | :---: | :--- |
+| **🧪 1. FT-ICR MS Studio** | **Core / Mature** | Validated against IHSS Suwannee River standard peak lists; isotopic filter & TMDS network verified |
+| **💡 2. EEM & UV-Vis Studio** | **Core / Mature** | Validated against OpenFluor database; CORCONDIA and Split-Half validated |
+| **🧬 3. ChemoSuite ML & 2D-COS** | **Core / Mature** | Scikit-learn baseline; LOO/CV, permutation testing ($H_0$), and Hotelling's $T^2$ diagnostics |
+| **🔬 4. FTIR Spectroscopy** | **Integrated / Standardized** | AsLS baseline, Levenberg-Marquardt C=O Gaussian deconvolution; Kraft/Organosolv library matching |
+| **🧲 5. NMR Spectroscopy** | **Integrated / Standardized** | Standardized 6-bin IHSS integration ($0\dots220$ ppm); S/G/H aromatic deconvolution ($108\dots162$ ppm) |
+| **🌡️ 6. Thermal Analysis (Py/TGA)** | **Integrated / Standardized** | Py-GC-MS lignin biomarker library matching; DTG smoothed numerical derivation |
+| **📏 7. SEC / GPC Chromatography** | **Integrated / Standardized** | Multi-standard polynomial calibration (PSS, Pullulan); numerical differential & cumulative MWD |
+| **⚗️ 8. Elemental (CHNS-O)** | **Integrated / Standardized** | Standard Dulong & Mott higher heating value equations; moisture/ash correction; bulk NOSC |
+
+### 5. Data Security & Archival Integrity
+* All project session files (`.chemo`) are serialized strictly as structured JSON and tabular CSV within ZIP archives—no unauthenticated executable pickle streams are loaded.
+* Input ZIP archives and project bundles are automatically validated against Zip-Slip path traversal vulnerabilities and decompression bombs (enforced bounds: max 500 files, max 250 MB uncompressed payload).
 
 ---
 

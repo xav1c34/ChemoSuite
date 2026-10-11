@@ -836,7 +836,7 @@ T = {
         "ml_strategy_label": "Стратегия слияния блоков (Data Fusion):",
         "ml_strat_low": "Low-Level Fusion (Масштабирование 1/√P)",
         "ml_strat_mid": "Mid-Level Fusion (PCA сжатие FT-ICR + EEM)",
-        "ml_perm_chk": "Запустить пермутационный тест валидации (50 итераций)",
+        "ml_perm_chk": "Запустить пермутационный тест валидации (H₀)",
         "ml_tab_scores": "🎯 Проекция Scores (t₁ vs t₂)",
         "ml_tab_vips": "📊 Маркеры (VIP Scores)",
         "ml_tab_val": "📈 Валидация и диагностика",
@@ -1520,7 +1520,7 @@ T = {
         "ml_strategy_label": "Data Fusion Strategy:",
         "ml_strat_low": "Low-Level Fusion (Block Scaling 1/√P)",
         "ml_strat_mid": "Mid-Level Fusion (PCA compression FT-ICR + Optics)",
-        "ml_perm_chk": "Run permutation validation test (50 iterations)",
+        "ml_perm_chk": "Run permutation validation test (H₀)",
         "ml_tab_scores": "🎯 Scores Plot (t₁ vs t₂)",
         "ml_tab_vips": "📊 Biomarkers (VIP Scores)",
         "ml_tab_val": "📈 Validation & Diagnostics",
@@ -4483,6 +4483,16 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     n_lvs = 2
                     st.caption(f"{T[lang]['ml_lvs_slider']} **2**")
                 use_perm = st.checkbox(T[lang]["ml_perm_chk"], value=True, key="pls_perm_chk")
+                if use_perm:
+                    n_perm_iter = st.select_slider(
+                        "Число пермутаций / Permutations" if lang == "ru" else "Permutation Iterations",
+                        options=[50, 100, 200, 500, 1000],
+                        value=100,
+                        help="50–100: экспресс-скрининг; 500–1000: публикационный стандарт (min p-value <= 0.001)" if lang == "ru" else "50–100: screening; 500–1000: publication standard (min p-value <= 0.001)",
+                        key="pls_perm_iter_slider",
+                    )
+                else:
+                    n_perm_iter = 50
         with col_p3:
             use_block_scale = st.checkbox(T[lang]["ml_block_scale"], value=True, key="pls_block_scale_chk")
             st.write("")
@@ -4493,6 +4503,18 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             feat_cols = [c for c in edited_df.columns if c not in ["Sample_ID", "Class_Target"]]
             X_input = edited_df[feat_cols]
             y_input = edited_df["Class_Target"].values
+
+            # Методологическое предупреждение при малом N (p >> n)
+            if len(edited_df) < 20 and len(feat_cols) > len(edited_df):
+                st.info(
+                    f"ℹ️ **Методологическое замечание ($p \gg n$):** Выборка содержит {len(edited_df)} образцов при {len(feat_cols)} признаках. "
+                    f"В многомерных моделях (PLS-DA / OPLS-DA) при малом $N$ возможно переобучение и завышенное разделение классов. "
+                    f"Для надежных геохимических выводов в публикациях рекомендуется использовать выборку $N \ge 30$."
+                    if lang == "ru"
+                    else f"ℹ️ **Methodological Note ($p \gg n$):** Dataset contains {len(edited_df)} samples across {len(feat_cols)} descriptors. "
+                    f"High-dimensional models (PLS-DA / OPLS-DA) risk over-optimistic class separation at small $N$. "
+                    f"For publication-grade geochemical conclusions, a sample size of $N \ge 30$ is recommended."
+                )
 
             unique_classes = np.unique(y_input)
             if len(unique_classes) < 2:
@@ -4540,7 +4562,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 perm_res = chemo_ml.run_permutation_test(
                                     X_input, y_input,
                                     n_components=n_lvs,
-                                    n_permutations=50,
+                                    n_permutations=n_perm_iter,
                                     fusion_strategy=strat_code,
                                     block_scaling=use_block_scale,
                                 )

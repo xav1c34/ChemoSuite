@@ -218,3 +218,25 @@ def test_save_and_load_octamodal_project():
     assert restored["elemental_ml_descriptors"].iloc[0]["Elem_H_C"] == 1.15
     assert restored["fused_source"] == "Octamodal Session 3.0"
 
+
+def test_zip_security_guards():
+    """Тестирование защиты от Zip-Slip и опасных архивов."""
+    # 1. Попытка Path Traversal (Zip-Slip)
+    malicious_zip = io.BytesIO()
+    with zipfile.ZipFile(malicious_zip, mode="w") as zf:
+        zf.writestr("../evil.txt", "attack")
+        zf.writestr("chemo_metadata.json", "{}")
+
+    with pytest.raises(ValueError, match="Zip-Slip"):
+        load_chemo_project(malicious_zip.getvalue())
+
+    # 2. Абсолютный путь в архиве
+    abs_path_zip = io.BytesIO()
+    with zipfile.ZipFile(abs_path_zip, mode="w") as zf:
+        zf.writestr("/root/pwn.txt", "attack")
+        zf.writestr("chemo_metadata.json", "{}")
+
+    with pytest.raises(ValueError, match="Zip-Slip"):
+        load_chemo_project(abs_path_zip.getvalue())
+
+

@@ -27,6 +27,47 @@ import pandas as pd
 PROJECT_FORMAT_VERSION = "1.0.0"
 PLATFORM_SIGNATURE = "ChemoSuite Unified Analytical Engine"
 
+MAX_ZIP_FILES = 1000
+MAX_UNCOMPRESSED_BYTES = 250_000_000  # 250 MB
+MAX_COMPRESSION_RATIO = 100.0
+
+
+def validate_safe_zip(
+    zf: zipfile.ZipFile,
+    max_files: int = MAX_ZIP_FILES,
+    max_uncompressed_bytes: int = MAX_UNCOMPRESSED_BYTES,
+    max_ratio: float = MAX_COMPRESSION_RATIO,
+) -> None:
+    """
+    Проверяет ZIP-архив на безопасность перед десериализацией:
+    - Защита от Zip-Slip (выход за пределы каталога: '..', абсолютные пути).
+    - Защита от Zip-бомб (превышение лимита файлов, размера или аномального сжатия).
+    """
+    infolist = zf.infolist()
+    if len(infolist) > max_files:
+        raise ValueError(f"Превышен лимит количества файлов в архиве ({len(infolist)} > {max_files}).")
+
+    total_uncompressed = 0
+    for info in infolist:
+        name = info.filename
+        # Защита от Path Traversal (Zip-Slip)
+        if ".." in name or name.startswith("/") or name.startswith("\\"):
+            raise ValueError(f"Обнаружен потенциально опасный путь (Zip-Slip): '{name}'")
+
+        total_uncompressed += info.file_size
+        if total_uncompressed > max_uncompressed_bytes:
+            raise ValueError(
+                f"Превышен безопасный лимит распакованного размера ({total_uncompressed / 1e6:.1f} МБ > {max_uncompressed_bytes / 1e6:.0f} МБ)."
+            )
+
+        # Защита от zip-бомб при аномальном коэффициенте сжатия для файлов > 1 МБ
+        if info.compress_size > 0 and info.file_size > 1_000_000:
+            ratio = info.file_size / info.compress_size
+            if ratio > max_ratio:
+                raise ValueError(
+                    f"Подозрительно высокий коэффициент сжатия ({ratio:.1f}x) в файле '{name}' (возможная zip-бомба)."
+                )
+
 
 def _to_json_serializable(val: Any) -> Any:
     """Рекурсивная конвертация numpy массивов, скаляров и вложенных структур в JSON-совместимые типы."""
@@ -264,6 +305,7 @@ def get_chemo_project_summary(source: Union[bytes, io.BytesIO, str]) -> Dict[str
 
     try:
         with zipfile.ZipFile(fp, mode="r") as zf:
+            validate_safe_zip(zf)
             if "chemo_metadata.json" not in zf.namelist():
                 raise ValueError("Некорректный файл .chemo: отсутствует chemo_metadata.json")
             meta_raw = zf.read("chemo_metadata.json").decode("utf-8")
@@ -306,6 +348,7 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
     try:
         with zipfile.ZipFile(fp, mode="r") as zf:
+            validate_safe_zip(zf)
             names = set(zf.namelist())
 
             if "chemo_metadata.json" not in names:
