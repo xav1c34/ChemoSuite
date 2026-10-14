@@ -215,6 +215,19 @@ def test_normalize_latex():
     assert chemo_agent.normalize_latex("Shows $AI_{mod}$ index") == r"Shows $AI_{\text{mod}}$ index"
 
 
+def test_repair_mojibake():
+    """Verifies that mojibake from improper decoding is restored to proper unicode symbols."""
+    # Em-dash mojibake
+    assert "—" in chemo_agent.repair_mojibake("FT-ICR MS â€” Baikal")
+    assert "—" in chemo_agent.repair_mojibake("FT-ICR MS â≡≡ Baikal")
+    # En-dash mojibake
+    assert "200–500" in chemo_agent.repair_mojibake("range 200â€“500 Da")
+    # Math symbols
+    assert "≈" in chemo_agent.repair_mojibake("AI â‰ˆ 0.45")
+    # Clean text unchanged
+    assert chemo_agent.repair_mojibake("Чистый текст — тире") == "Чистый текст — тире"
+
+
 def test_format_groq_error_429_otpm():
     """Verifies that 429 rate limit errors (OTPM) produce helpful messages with collapsible details."""
     raw_error = json.dumps({

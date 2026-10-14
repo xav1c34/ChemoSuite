@@ -132,16 +132,47 @@ CHEMO_SYSTEM_PROMPT = r"""Ты — ChemoAgent, ведущий мировой э�
    - Не ставь пробелы сразу после открывающего $ и перед закрывающим $."""
 
 
+def repair_mojibake(text: str) -> str:
+    """
+    Repairs unintended Latin-1 / CP1252 misinterpretations of UTF-8 multi-byte characters:
+    - 'â\x80\x94' / 'â\u2261\u2261' / 'â€”' -> '—' (em-dash)
+    - 'â\x80\x93' / 'â€“' -> '–' (en-dash)
+    - 'â‰ˆ' -> '≈' (almost equal)
+    - 'â‰¤' -> '≤', 'â‰¥' -> '≥'
+    - 'Â°' -> '°'
+    """
+    if not text or ("â" not in text and "Â" not in text and "\xe2" not in text):
+        return text
+
+    # 1. Try standard CP1252 / Latin-1 round-trip decode
+    for enc in ("cp1252", "latin-1"):
+        try:
+            fixed = text.encode(enc).decode("utf-8")
+            if fixed and len(fixed) >= len(text) * 0.7:
+                return fixed
+        except Exception:
+            pass
+
+    # 2. Targeted fallback replacements for glyph-corrupted font outputs (like â≡≡)
+    text = re.sub(r'â[\u2261\u2262\u2260\x80-\x9f]{2}', '—', text)
+    text = re.sub(r'\xe2[\u20ac\x80-\x9f][\u2014\u2013\u201d\u201c\x80-\x9f]', '—', text)
+    text = text.replace("â€”", "—").replace("â€“", "–").replace("â‰ˆ", "≈")
+    text = text.replace("â‰¤", "≤").replace("â‰¥", "≥").replace("Â°", "°")
+    return text
+
+
 def normalize_latex(text: str) -> str:
     """
     Normalizes LaTeX syntax so Streamlit KaTeX renders it cleanly:
-    1. Converts block math \\[ ... \\] to \\n\\n$$\\n...\\n$$\\n\\n
-    2. Converts inline math \\( ... \\) to $...$
-    3. Normalizes single dollar math with inner whitespace: '$ H/C $' -> '$H/C$'
-    4. Normalizes subscript in AI_mod: '$AI_{mod}$' -> '$AI_{\\text{mod}}$'
+    1. Repairs accidental mojibake (e.g. â€” -> —)
+    2. Converts block math \\[ ... \\] to \\n\\n$$\\n...\\n$$\\n\\n
+    3. Converts inline math \\( ... \\) to $...$
+    4. Normalizes single dollar math with inner whitespace: '$ H/C $' -> '$H/C$'
+    5. Normalizes subscript in AI_mod: '$AI_{mod}$' -> '$AI_{\\text{mod}}$'
     """
     if not text:
         return ""
+    text = repair_mojibake(text)
     # 1. Block math: \[ ... \] -> $$ ... $$
     text = re.sub(r'\\\[\s*(.*?)\s*\\\]', r'\n\n$$\n\1\n$$\n\n', text, flags=re.DOTALL)
     # 2. Inline math: \( ... \) -> $...$
@@ -370,10 +401,15 @@ def stream_groq_chat(
             yield format_groq_error(response.status_code, response.text)
             return
 
-        for line in response.iter_lines(decode_unicode=True):
+        try:
+            response.encoding = "utf-8"
+        except Exception:
+            pass
+
+        for line in response.iter_lines():
             if not line:
                 continue
-            line_str = line if isinstance(line, str) else line.decode("utf-8", errors="replace")
+            line_str = line.decode("utf-8", errors="replace") if isinstance(line, (bytes, bytearray)) else str(line)
             if line_str.startswith("data: "):
                 data_part = line_str[6:].strip()
                 if data_part == "[DONE]":
@@ -394,7 +430,7 @@ def stream_groq_chat(
                 delta = c0.get("delta", {})
                 token = delta.get("content", "")
                 if token:
-                    yield token
+                    yield repair_mojibake(token)
                     yielded_any = True
 
         if finish_reason == "length":
