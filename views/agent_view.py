@@ -63,22 +63,34 @@ def _stream_with_loader(stream_gen, loader_placeholder):
         loader_placeholder.empty()
 
 
-def _get_active_fticr_data() -> Optional[Dict[str, Any]]:
-    """Extracts currently active FT-ICR MS sample from session state."""
+def _get_active_fticr_data(selected_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Extracts FT-ICR MS sample from session state by selected_name, active_spectrum_name, or first available."""
     db = st.session_state.get("spectra_db", {})
-    active_name = st.session_state.get("active_spectrum_name")
-    if not active_name and db:
-        active_name = list(db.keys())[0]
+    if not db:
+        return None
 
-    if active_name and active_name in db:
-        spec = db[active_name]
+    name = selected_name
+    if not name or name not in db:
+        name = st.session_state.get("active_spectrum_name")
+        if not name or name not in db:
+            name = list(db.keys())[0]
+
+    if name and name in db:
+        spec = db[name]
         assigned_df = spec.get("assigned_df")
         if assigned_df is None and "raw_df" in spec:
             assigned_df = spec.get("raw_df")
+        if assigned_df is None and "parsed_peaks" in spec:
+            assigned_df = spec.get("parsed_peaks")
+
         return {
-            "name": active_name,
+            "name": name,
             "assigned_df": assigned_df,
             "spec": spec,
+            "eem": spec.get("eem") or st.session_state.get("eem_db", {}).get(name),
+            "nmr": spec.get("nmr") or st.session_state.get("nmr_db", {}).get(name),
+            "ftir": spec.get("ftir") or st.session_state.get("ftir_db", {}).get(name),
+            "elemental": spec.get("elemental") or st.session_state.get("elemental_db", {}).get(name),
         }
     return None
 
@@ -192,28 +204,64 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         with col_m2:
             temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
 
-    # 3. Quick Action: Load Active Sample into Agent Context
-    active_data = _get_active_fticr_data()
-    col_act1, col_act2, col_act3 = st.columns([2.0, 1.5, 1.0])
-    with col_act1:
+    # 3. Spectrum Selection & Quick Action: Load Selected Sample into Agent Context
+    spectra_db = st.session_state.get("spectra_db", {})
+    available_samples = list(spectra_db.keys())
+
+    if available_samples:
+        current_active = st.session_state.get("active_spectrum_name")
+        default_idx = available_samples.index(current_active) if current_active in available_samples else 0
+
+        col_act1, col_act2, col_act3 = st.columns([2.2, 1.4, 0.9])
+        with col_act1:
+            selected_sample_name = st.selectbox(
+                "Спектр для анализа:" if lang == "ru" else "Spectrum to analyze:",
+                options=available_samples,
+                index=default_idx,
+                key="agent_spectrum_selector",
+                label_visibility="collapsed",
+                help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
+            )
+        active_data = _get_active_fticr_data(selected_sample_name)
+
+        with col_act2:
+            btn_analyze_sample = st.button(
+                "🔬 Отправить в ИИ" if lang == "ru" else "🔬 Send to AI",
+                key="btn_agent_analyze_sample",
+                disabled=(active_data is None or not bool(current_key)),
+                use_container_width=True,
+                type="primary",
+                help="Сформировать экспертное биогеохимическое заключение для выбранного спектра" if lang == "ru" else "Generate biogeochemical expert interpretation for selected spectrum",
+            )
+        with col_act3:
+            if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True, help="Очистить историю сообщений"):
+                st.session_state["chemo_agent_messages"] = [
+                    {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
+                ]
+                st.rerun()
+
+        # Brief descriptor chip
         if active_data:
-            st.caption(f"📍 **Активный образец:** `{active_data['name']}`" if lang == "ru" else f"📍 **Active sample:** `{active_data['name']}`")
-        else:
-            st.caption("ℹ️ Спектры FT-ICR еще не загружены" if lang == "ru" else "ℹ️ No FT-ICR spectra loaded yet")
-    with col_act2:
-        btn_analyze_sample = st.button(
-            "🔬 Экспертный анализ пробы" if lang == "ru" else "🔬 Analyze Sample",
-            key="btn_agent_analyze_sample",
-            disabled=(active_data is None or not bool(current_key)),
-            use_container_width=True,
-            type="primary",
-        )
-    with col_act3:
-        if st.button("🧹 Очистить чат" if lang == "ru" else "🧹 Clear Chat", key="btn_agent_clear_chat", use_container_width=True):
-            st.session_state["chemo_agent_messages"] = [
-                {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
-            ]
-            st.rerun()
+            df_assigned = active_data.get("assigned_df")
+            n_rows = len(df_assigned) if df_assigned is not None and not df_assigned.empty else 0
+            has_formulas = n_rows > 0 and any(str(c).lower().strip() in ["formula", "formula_str", "h/c"] for c in df_assigned.columns)
+            st.caption(
+                f"📊 Выбран: `{active_data['name']}` ({n_rows:,} {'формул' if has_formulas else 'пиков'})"
+                if lang == "ru"
+                else f"📊 Selected: `{active_data['name']}` ({n_rows:,} {'formulas' if has_formulas else 'peaks'})"
+            )
+    else:
+        active_data = None
+        btn_analyze_sample = False
+        col_act1, col_act3 = st.columns([3.5, 1.0])
+        with col_act1:
+            st.caption("ℹ️ Спектры FT-ICR еще не загружены. Загрузите файлы в студии FT-ICR MS." if lang == "ru" else "ℹ️ No FT-ICR spectra loaded yet. Upload data in FT-ICR MS Studio.")
+        with col_act3:
+            if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True):
+                st.session_state["chemo_agent_messages"] = [
+                    {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
+                ]
+                st.rerun()
 
     # 4. Display Chat Messages
     chat_box = st.container()
@@ -226,6 +274,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
     # 5. Handle Sample Analysis Button Trigger
     if btn_analyze_sample and active_data:
+        st.session_state["active_spectrum_name"] = active_data["name"]
         prompt_text = chemo_agent.build_sample_analysis_prompt(
             sample_name=active_data["name"],
             sample_data=active_data,
@@ -278,7 +327,15 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         if not current_key:
             st.error("Пожалуйста, укажите GROQ_API_KEY в настройках выше!" if lang == "ru" else "Please specify GROQ_API_KEY in the settings above!")
         else:
-            st.session_state["chemo_agent_messages"].append({"role": "user", "content": user_prompt})
+            context_hint = ""
+            if active_data and not any(active_data["name"] in m.get("content", "") for m in st.session_state["chemo_agent_messages"][-3:]):
+                context_hint = f"[Контекст: выбран образец {active_data['name']}]\n"
+
+            st.session_state["chemo_agent_messages"].append({
+                "role": "user",
+                "content": f"{context_hint}{user_prompt}" if context_hint else user_prompt,
+                "display_content": user_prompt,
+            })
             with chat_box:
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(user_prompt)

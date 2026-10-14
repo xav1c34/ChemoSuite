@@ -279,3 +279,41 @@ def test_max_tokens_clamping(mock_post):
     assert sent_payload["max_tokens"] <= 1200
 
 
+def test_get_active_fticr_data_selection():
+    """Verifies that _get_active_fticr_data supports explicit selection and fallback resolution."""
+    import streamlit as st
+    from views.agent_view import _get_active_fticr_data
+
+    sample1_df = pd.DataFrame({"m/z": [200.1], "intensity": [100.0]})
+    sample2_df = pd.DataFrame({"m/z": [300.2], "intensity": [200.0]})
+
+    st.session_state["spectra_db"] = {
+        "Sample_A.csv": {"assigned_df": sample1_df},
+        "Sample_B.csv": {"assigned_df": sample2_df},
+    }
+    st.session_state["active_spectrum_name"] = "Sample_A.csv"
+
+    # 1. Explicit selection of Sample_B
+    res_b = _get_active_fticr_data("Sample_B.csv")
+    assert res_b is not None
+    assert res_b["name"] == "Sample_B.csv"
+    assert len(res_b["assigned_df"]) == 1
+    assert res_b["assigned_df"]["m/z"].iloc[0] == 300.2
+
+    # 2. Default fallback to active_spectrum_name
+    res_a = _get_active_fticr_data(None)
+    assert res_a is not None
+    assert res_a["name"] == "Sample_A.csv"
+
+    # 3. Fallback to first available if active_spectrum_name not in db
+    st.session_state["active_spectrum_name"] = "Non_Existent.csv"
+    res_first = _get_active_fticr_data(None)
+    assert res_first is not None
+    assert res_first["name"] == "Sample_A.csv"
+
+    # 4. Empty db
+    st.session_state["spectra_db"] = {}
+    assert _get_active_fticr_data("Sample_A.csv") is None
+
+
+
