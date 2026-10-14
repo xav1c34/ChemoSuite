@@ -567,13 +567,90 @@ div[data-baseweb="select"] > div, .stTextInput > div > div > input {
 }
 
 /* ==============================================================================
-   SIDEBAR STUDIO NAVIGATION (ZERO-CLICK-LAG, NATIVE EVENT PASSTHROUGH)
+   WIDGET TITLE LABELS: PURE STATIC TEXT (ZERO BORDERS, ZERO HOVER EFFECTS)
    ============================================================================== */
-[data-testid="stSidebar"] [data-testid="stRadio"] > div {
-  gap: 6px !important;
+[data-testid="stWidgetLabel"],
+[data-testid="stWidgetLabel"] *,
+label[data-testid="stWidgetLabel"],
+label[data-testid="stWidgetLabel"] *,
+.stWidgetLabel,
+.stWidgetLabel *,
+label[data-baseweb="label"],
+label[data-baseweb="label"] *,
+[data-testid="stRadio"] > label,
+[data-testid="stRadio"] > label *,
+[data-testid="stRadio"] > div:first-child:not([data-testid="stRadioGroup"]):not([role="radiogroup"]),
+[data-testid="stRadio"] > div:first-child:not([data-testid="stRadioGroup"]):not([role="radiogroup"]) *,
+[data-testid="stRadio"] [data-testid="stWidgetLabel"],
+[data-testid="stRadio"] [data-testid="stWidgetLabel"] *,
+[data-testid="stSidebar"] [data-testid="stRadio"] > label,
+[data-testid="stSidebar"] [data-testid="stRadio"] > label *,
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"],
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] *,
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"],
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"] * {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  cursor: default !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transform: none !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label {
+[data-testid="stWidgetLabel"]:hover,
+[data-testid="stWidgetLabel"] *:hover,
+label[data-testid="stWidgetLabel"]:hover,
+label[data-testid="stWidgetLabel"] *:hover,
+.stWidgetLabel:hover,
+.stWidgetLabel *:hover,
+label[data-baseweb="label"]:hover,
+label[data-baseweb="label"] *:hover,
+[data-testid="stRadio"] > label:hover,
+[data-testid="stRadio"] > label *:hover,
+[data-testid="stRadio"] > div:first-child:not([data-testid="stRadioGroup"]):not([role="radiogroup"]):hover,
+[data-testid="stRadio"] > div:first-child:not([data-testid="stRadioGroup"]):not([role="radiogroup"]) *:hover,
+[data-testid="stRadio"] [data-testid="stWidgetLabel"]:hover,
+[data-testid="stRadio"] [data-testid="stWidgetLabel"] *:hover,
+[data-testid="stSidebar"] [data-testid="stRadio"] > label:hover,
+[data-testid="stSidebar"] [data-testid="stRadio"] > label *:hover,
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"]:hover,
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] *:hover,
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"]:hover,
+[data-testid="stSelectbox"] [data-testid="stWidgetLabel"] *:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] span,
+.stWidgetLabel p,
+.stWidgetLabel span {
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.6px !important;
+  color: var(--nl-text-muted) !important;
+  margin: 0 0 6px 0 !important;
+  padding: 0 !important;
+}
+
+/* ==============================================================================
+   SIDEBAR & RADIO STUDIO NAVIGATION (ONLY OPTION CARDS ARE INTERACTIVE)
+   ============================================================================== */
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stRadioGroup"] label,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label,
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"],
+[data-testid="stRadio"] div[data-testid="stRadioGroup"] label,
+[data-testid="stRadio"] div[role="radiogroup"] label,
+[data-testid="stRadio"] label[data-baseweb="radio"] {
   background: var(--nl-bg-surface);
   border: 1px solid var(--nl-border-subtle);
   border-radius: var(--nl-radius-md);
@@ -587,29 +664,57 @@ div[data-baseweb="select"] > div, .stTextInput > div > div > input {
   transform: none !important;
   user-select: none !important;
   pointer-events: auto !important;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label * {
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stRadioGroup"] label *,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label *,
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] *,
+[data-testid="stRadio"] div[data-testid="stRadioGroup"] label *,
+[data-testid="stRadio"] div[role="radiogroup"] label *,
+[data-testid="stRadio"] label[data-baseweb="radio"] * {
   cursor: pointer !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stRadioGroup"] label:hover,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:hover,
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:hover,
+[data-testid="stRadio"] div[data-testid="stRadioGroup"] label:hover,
+[data-testid="stRadio"] div[role="radiogroup"] label:hover,
+[data-testid="stRadio"] label[data-baseweb="radio"]:hover {
   border-color: var(--nl-brand-blue-border);
   background: var(--nl-bg-muted);
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked),
-[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] {
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stRadioGroup"] label:has(input:checked),
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked),
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked),
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"][data-checked="true"],
+[data-testid="stRadio"] div[data-testid="stRadioGroup"] label:has(input:checked),
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked),
+[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked),
+[data-testid="stRadio"] label[data-baseweb="radio"][data-checked="true"] {
   background: var(--nl-brand-blue-subtle) !important;
   border-color: var(--nl-brand-blue) !important;
   box-shadow: 0 0 0 1px var(--nl-brand-blue), 0 0 12px rgba(59, 130, 246, 0.25) !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p,
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span {
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stRadioGroup"] label:has(input:checked) p,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stRadioGroup"] label:has(input:checked) span,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span,
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) p,
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) span,
+[data-testid="stRadio"] div[data-testid="stRadioGroup"] label:has(input:checked) p,
+[data-testid="stRadio"] div[data-testid="stRadioGroup"] label:has(input:checked) span,
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
+[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span,
+[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) p,
+[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) span {
   font-weight: 700 !important;
   color: var(--nl-brand-blue) !important;
 }
+
 
 
 /* Legacy selectors compatibility */

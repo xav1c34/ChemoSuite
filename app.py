@@ -7363,16 +7363,16 @@ elif active_module == T[lang]["mod8_name"]:
         st.header(T[lang]["elem_sidebar_hdr"])
         elem_data_src = st.radio(
             T[lang]["elem_src_label"],
-            [T[lang]["elem_src_synth"], T[lang]["elem_src_upload"]],
+            [T[lang]["elem_src_upload"], T[lang]["elem_src_synth"]],
             index=0,
             key="elem_data_source_radio",
         )
 
-        if elem_data_src == T[lang]["elem_src_synth"]:
-            bench_df = elemental_core.generate_synthetic_elemental_dataset()
-            samples_list = elemental_core.parse_elemental_table(bench_df)
-            st.session_state["elemental_samples"] = {s.sample_id: s for s in samples_list}
-        else:
+        if st.session_state.get("_prev_elem_data_src") != elem_data_src:
+            st.session_state["_prev_elem_data_src"] = elem_data_src
+            st.session_state["elemental_samples"] = {}
+
+        if elem_data_src == T[lang]["elem_src_upload"]:
             up_elem_file = st.file_uploader(
                 T[lang]["elem_up_label"],
                 type=["csv", "tsv", "txt"],
@@ -7380,6 +7380,11 @@ elif active_module == T[lang]["mod8_name"]:
             )
             if up_elem_file is not None:
                 samples_list = elemental_core.parse_elemental_table(up_elem_file.getvalue())
+                st.session_state["elemental_samples"] = {s.sample_id: s for s in samples_list}
+        else:
+            if not st.session_state.get("elemental_samples"):
+                bench_df = elemental_core.generate_synthetic_elemental_dataset()
+                samples_list = elemental_core.parse_elemental_table(bench_df)
                 st.session_state["elemental_samples"] = {s.sample_id: s for s in samples_list}
 
     curr_elem_samples = st.session_state.get("elemental_samples", {})
