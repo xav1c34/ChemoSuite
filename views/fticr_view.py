@@ -788,16 +788,170 @@ def render_fticr_studio(T: dict, lang: str):
                         st.rerun()
 
     with st_sub_tmds:
+        st.subheader(f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}")
         work_peaks = current_sample.get("assigned_df") if (current_sample and current_sample.get("assigned_df") is not None and not current_sample["assigned_df"].empty) else (current_sample.get("parsed_peaks") if current_sample else None)
         if work_peaks is not None and not work_peaks.empty:
-            flux_res = compute_geochemical_vector_fluxes(work_peaks, tol_mda=2.0, top_n=1000)
-            tmds_sum = flux_res.get("summary_df", pd.DataFrame())
-            if not tmds_sum.empty:
-                st.markdown(f"#### {T[lang]['tmds_flux_header']}")
-                fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Flux_Type", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
-                fig_tmds.update_layout(showlegend=True, xaxis_tickangle=-25, height=420)
-                st_plotly(fig_tmds)
-                st_df(tmds_sum)
+            tmds_view_mode = st.radio(
+                "Режим отображения TMDS:" if lang == "ru" else "TMDS Display Mode:",
+                [T[lang]["tmds_mode_freq"], T[lang]["tmds_mode_network"], T[lang]["tmds_mode_pathways"]],
+                horizontal=True,
+                key=f"tmds_view_{active_spectrum_name}"
+            )
+            if tmds_view_mode == T[lang]["tmds_mode_freq"]:
+                flux_res = compute_geochemical_vector_fluxes(work_peaks, tol_mda=2.0, top_n=1000)
+                tmds_sum = flux_res.get("summary_df", pd.DataFrame())
+                indices = flux_res.get("indices", {})
+                if not tmds_sum.empty:
+                    st.markdown(f"#### {T[lang]['tmds_flux_header']}")
+                    fx1, fx2, fx3, fx4 = st.columns(4)
+                    fx1.metric(T[lang]["tmds_flux_ox_decarb"], f"{indices.get('ox_decarb_ratio', 0.0):.2f}")
+                    fx2.metric(T[lang]["tmds_flux_alkyl"], f"{indices.get('alkylation_share_pct', 0.0):.1f}%")
+                    fx3.metric(T[lang]["tmds_flux_sulf"], f"{indices.get('sulfonation_index_pct', 0.0):.2f}%")
+                    fx4.metric(T[lang]["tmds_flux_hydr"], f"{indices.get('hydration_ox_ratio', 0.0):.2f}")
+
+                    fig_tmds = px.bar(tmds_sum, x="Transformation", y="Count", color="Flux_Type", text=tmds_sum["Share_pct"].apply(lambda v: f"{v:.1f}%"))
+                    fig_tmds.update_layout(showlegend=True, xaxis_tickangle=-25, height=420)
+                    st_plotly(fig_tmds)
+                    st_df(tmds_sum)
+            elif tmds_view_mode == T[lang]["tmds_mode_pathways"]:
+                top_pks = work_peaks.sort_values("intensity", ascending=False).head(40).sort_values("mass")
+                cand_options = [
+                    (float(r["mass"]), f"m/z {r['mass']:.4f}" + (f" ({r['Formula']})" if 'Formula' in r and pd.notna(r['Formula']) else ""))
+                    for _, r in top_pks.iterrows()
+                ]
+                col_pw1, col_pw2 = st.columns(2)
+                with col_pw1:
+                    src_sel = st.selectbox(
+                        T[lang]["tmds_path_source"],
+                        options=cand_options,
+                        format_func=lambda x: x[1],
+                        index=0,
+                        key=f"pw_src_{active_spectrum_name}"
+                    )
+                    src_m_custom = st.number_input("Или точная m/z:" if lang == "ru" else "Or exact m/z:", value=0.0, step=0.0001, format="%.4f", key=f"cust_src_{active_spectrum_name}")
+                    src_m = src_m_custom if src_m_custom > 10.0 else src_sel[0]
+                with col_pw2:
+                    dst_default_idx = min(len(cand_options)-1, 5)
+                    dst_sel = st.selectbox(
+                        T[lang]["tmds_path_target"],
+                        options=cand_options,
+                        format_func=lambda x: x[1],
+                        index=dst_default_idx,
+                        key=f"pw_dst_{active_spectrum_name}"
+                    )
+                    dst_m_custom = st.number_input("Или точная m/z продукта:" if lang == "ru" else "Or exact target m/z:", value=0.0, step=0.0001, format="%.4f", key=f"cust_dst_{active_spectrum_name}")
+                    dst_m = dst_m_custom if dst_m_custom > 10.0 else dst_sel[0]
+
+                col_cfg1, col_cfg2, col_cfg3 = st.columns([1, 1, 1])
+                with col_cfg1:
+                    depth_val = st.slider(T[lang]["tmds_path_depth"], min_value=1, max_value=5, value=3, key=f"pw_depth_{active_spectrum_name}")
+                with col_cfg2:
+                    tol_pw_val = st.number_input(T[lang]["tmds_path_tol"], min_value=0.5, max_value=5.0, value=2.0, step=0.5, key=f"pw_tol_{active_spectrum_name}")
+                with col_cfg3:
+                    st.write("")
+                    find_pw_btn = st.button(T[lang]["tmds_path_find_btn"], type="primary", key=f"btn_find_pw_{active_spectrum_name}")
+
+                if find_pw_btn or f"pw_res_{active_spectrum_name}" in st.session_state:
+                    if find_pw_btn:
+                        with st.spinner("Поиск цепочек реакций..." if lang == "ru" else "Traversing reaction pathways..."):
+                            pw_list = find_transformation_pathways(
+                                work_peaks, source_mass=src_m, target_mass=dst_m,
+                                max_depth=depth_val, tol_mda=tol_pw_val, max_paths=10
+                            )
+                            st.session_state[f"pw_res_{active_spectrum_name}"] = pw_list
+
+                    pw_results = st.session_state.get(f"pw_res_{active_spectrum_name}", [])
+                    if pw_results:
+                        st.success(T[lang]["tmds_path_found"].format(n=len(pw_results)))
+                        pw_summary_rows = []
+                        for p_idx, p_item in enumerate(pw_results, 1):
+                            pw_summary_rows.append({
+                                "Path_ID": f"Path #{p_idx}",
+                                "Stages": p_item["depth"],
+                                "Cumulative_Error_mDa": p_item["cumulative_error_mda"],
+                                "Pathway": p_item["path_str"],
+                            })
+                        st_df(pd.DataFrame(pw_summary_rows))
+
+                        for p_idx, p_item in enumerate(pw_results, 1):
+                            with st.expander(f"📍 {p_item['path_str']} (Total err: {p_item['cumulative_error_mda']:.2f} mDa)", expanded=(p_idx == 1)):
+                                steps_df = pd.DataFrame(p_item["steps"])
+                                st_df(steps_df)
+                    else:
+                        st.info(T[lang]["tmds_path_not_found"])
+            else:
+                c_n1, c_n2 = st.columns([1, 1])
+                with c_n1:
+                    n_top_net = st.slider(T[lang]["tmds_net_peaks"], min_value=30, max_value=300, value=120, step=10, key=f"tmds_top_{active_spectrum_name}")
+                with c_n2:
+                    layout_choice = st.selectbox(
+                        T[lang]["tmds_net_layout"],
+                        [T[lang]["tmds_layout_spring"], T[lang]["tmds_layout_chem"]],
+                        index=0,
+                        key=f"tmds_lay_{active_spectrum_name}"
+                    )
+                l_type = "chemical" if layout_choice == T[lang]["tmds_layout_chem"] else "spring"
+                with st.spinner("Построение сетевого графа реакций..." if lang == "ru" else "Constructing reaction network..."):
+                    net_dict = build_tmds_network_graph(work_peaks, top_n=n_top_net, tol_mda=2.0, max_edges=250, layout=l_type)
+
+                nodes_df = net_dict["nodes_df"]
+                edges_df = net_dict["edges_df"]
+                hubs_df = net_dict["hubs_df"]
+
+                if nodes_df.empty or edges_df.empty:
+                    st.warning("В заданных границах связей между пиками не обнаружено." if lang == "ru" else "No connected reactions found in the current selection.")
+                else:
+                    fig_net = go.Figure()
+                    trans_colors = {
+                        "CH2": "#0020C2", "O": "#D62728", "H2O": "#2CA02C",
+                        "CO2": "#FF7F0E", "CO": "#9467BD", "H2": "#8C564B",
+                        "NH3": "#E377C2", "SO3": "#17BECF"
+                    }
+                    for trans_type, g_edges in edges_df.groupby("Transformation"):
+                        edge_x, edge_y = [], []
+                        for _, e_row in g_edges.iterrows():
+                            edge_x.extend([e_row["x0"], e_row["x1"], None])
+                            edge_y.extend([e_row["y0"], e_row["y1"], None])
+                        t_key = trans_type.split()[0]
+                        e_color = trans_colors.get(t_key, "#7F7F7F")
+                        fig_net.add_trace(go.Scatter(
+                            x=edge_x, y=edge_y, mode="lines",
+                            line=dict(width=1.2, color=e_color),
+                            name=trans_type,
+                            hoverinfo="none",
+                            opacity=0.6,
+                        ))
+
+                    node_sizes = 5.0 + 3.0 * np.log1p(nodes_df["Degree"].values)
+                    hover_texts = [
+                        f"<b>{r['Node_ID']}</b><br>Formula: {r.get('Formula', 'N/A')}<br>Degree: {r['Degree']}<br>Class: {r.get('Hetero_Class', 'N/A')} / {r.get('Bio_Class', 'N/A')}"
+                        for _, r in nodes_df.iterrows()
+                    ]
+                    fig_net.add_trace(go.Scatter(
+                        x=nodes_df["x"], y=nodes_df["y"], mode="markers",
+                        marker=dict(size=node_sizes, color=nodes_df["mass"], colorscale="Viridis", showscale=True, colorbar=dict(title="m/z", len=0.7), line=dict(width=1, color="black")),
+                        text=hover_texts, hoverinfo="text", name="Peaks"
+                    ))
+
+                    fig_net.update_layout(
+                        title=T[lang]["tmds_net_title"],
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        height=560, plot_bgcolor="white"
+                    )
+                    st_plotly(fig_net)
+
+                    if not hubs_df.empty:
+                        st.markdown(f"##### {T[lang]['tmds_hubs_title']}")
+                        st_df(hubs_df)
+
+                    st.download_button(
+                        label=T[lang]["tmds_dl_edges"],
+                        data=edges_df.to_csv(index=False).encode("utf-8"),
+                        file_name=f"ChemoSuite_TMDS_Network_Edges_{active_spectrum_name}.csv",
+                        mime="text/csv",
+                        key=f"dl_tmds_edges_{active_spectrum_name}"
+                    )
 
     with st_sub_desc:
         assigned_data = current_sample.get("assigned_df") if current_sample else None
