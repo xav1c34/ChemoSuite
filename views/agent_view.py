@@ -242,6 +242,10 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
                     unsafe_allow_html=True,
                 )
+                req_messages = [{"role": "system", "content": chemo_agent.CHEMO_SYSTEM_PROMPT}] + [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state["chemo_agent_messages"][-6:]
+                ]
                 stream_gen = chemo_agent.stream_groq_chat(
                     messages=req_messages,
                     api_key=current_key,
