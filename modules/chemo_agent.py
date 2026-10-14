@@ -21,8 +21,6 @@ FALLBACK_MODELS = [
     "openai/gpt-oss-120b",
     "qwen/qwen3.8-27b",
     "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
 ]
 
 
@@ -127,19 +125,12 @@ CHEMO_SYSTEM_PROMPT = r"""Ты — ChemoAgent, ведущий мировой э�
 
 def _sanitize_model(model: Optional[str]) -> str:
     """Ensures model is valid, remapping deprecated or unpermitted models to DEFAULT_MODEL."""
-    deprecated = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-70b-versatile",
-        "llama-3.1-8b-instant",
-        "llama3-70b-8192",
-        "llama3-8b-8192",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it",
-        "gemma-7b-it",
-    ]
-    if not model or str(model).strip() in deprecated:
+    if not model:
         return DEFAULT_MODEL
-    return str(model).strip()
+    s = str(model).strip()
+    if any(bad in s.lower() for bad in ["llama", "mixtral", "gemma", "versatile", "instant"]):
+        return DEFAULT_MODEL
+    return s
 
 
 def call_groq_chat(

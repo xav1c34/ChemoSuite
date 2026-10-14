@@ -286,9 +286,9 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
     col_info, col_btn = st.columns([3.0, 1.2])
     with col_info:
         st.caption(
-            "Глубокая биогеохимическая интерпретация на базе LLaMA-3.3-70B: генезис пробы, степень ароматической конденсации, техногенные маркеры."
+            "Глубокая биогеохимическая интерпретация на базе нейросети Groq LPU (GPT-OSS 120B / Qwen 27B): генезис пробы, степень ароматической конденсации, техногенные маркеры."
             if lang == "ru"
-            else "In-depth biogeochemical reasoning powered by LLaMA-3.3-70B: origin, aromatic condensation, contamination markers."
+            else "In-depth biogeochemical reasoning powered by Groq LPU (GPT-OSS 120B / Qwen 27B): origin, aromatic condensation, contamination markers."
         )
     with col_btn:
         run_btn = st.button(

@@ -1934,8 +1934,18 @@ with st.sidebar:
                     st.rerun()
 
     try:
-        from views.agent_view import render_chemo_agent_sidebar
-        render_chemo_agent_sidebar(T, lang)
+        import importlib
+        import modules.chemo_agent
+        importlib.reload(modules.chemo_agent)
+        import views.agent_view
+        importlib.reload(views.agent_view)
+
+        # Sanitize any stale deprecated model in active browser session
+        _stale_m = st.session_state.get("agent_model_select")
+        if _stale_m and any(bad in str(_stale_m).lower() for bad in ["llama", "mixtral", "gemma", "versatile", "instant"]):
+            st.session_state["agent_model_select"] = "openai/gpt-oss-120b"
+
+        views.agent_view.render_chemo_agent_sidebar(T, lang)
     except Exception as _e_agent:
         st.caption(f"🤖 ChemoAgent: {_e_agent}")
 
