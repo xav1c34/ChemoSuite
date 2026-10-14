@@ -154,12 +154,19 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
         col_m1, col_m2 = st.columns([1.5, 1.0])
         with col_m1:
-            model_options = chemo_agent.get_available_groq_models(current_key)
-            def_idx = 0
-            if "agent_model_select" in st.session_state and st.session_state["agent_model_select"] in model_options:
-                def_idx = model_options.index(st.session_state["agent_model_select"])
-            elif chemo_agent.DEFAULT_MODEL in model_options:
-                def_idx = model_options.index(chemo_agent.DEFAULT_MODEL)
+            raw_options = chemo_agent.get_available_groq_models(current_key)
+            model_options = [
+                m for m in raw_options
+                if not any(d in m.lower() for d in ["llama-3.3", "llama-3.1", "mixtral", "gemma"])
+            ]
+            if not model_options:
+                model_options = chemo_agent.FALLBACK_MODELS
+
+            # Force purge stale deprecated selections from session_state
+            if st.session_state.get("agent_model_select") not in model_options:
+                st.session_state["agent_model_select"] = model_options[0]
+
+            def_idx = model_options.index(st.session_state["agent_model_select"])
 
             selected_model = st.selectbox(
                 "Модель нейросети:" if lang == "ru" else "AI Model:",

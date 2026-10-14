@@ -125,6 +125,23 @@ CHEMO_SYSTEM_PROMPT = r"""Ты — ChemoAgent, ведущий мировой э�
    - Используй Markdown, списки, жирный шрифт и формулы в LaTeX ($H/C$, $AI$, $\Delta m$)."""
 
 
+def _sanitize_model(model: Optional[str]) -> str:
+    """Ensures model is valid, remapping deprecated or unpermitted models to DEFAULT_MODEL."""
+    deprecated = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "gemma-7b-it",
+    ]
+    if not model or str(model).strip() in deprecated:
+        return DEFAULT_MODEL
+    return str(model).strip()
+
+
 def call_groq_chat(
     messages: List[Dict[str, str]],
     api_key: Optional[str] = None,
@@ -135,15 +152,7 @@ def call_groq_chat(
 ) -> Dict[str, Any]:
     """
     Sends chat completion request to Groq API via standard HTTP POST.
-
-    Returns:
-    --------
-    dict with:
-    - 'success': bool
-    - 'content': str (assistant reply)
-    - 'model': str
-    - 'usage': dict (tokens)
-    - 'error': str (if failed)
+    Automatically falls back to DEFAULT_MODEL if model returns 404.
     """
     resolved_key = get_groq_api_key(api_key)
     if not resolved_key:
@@ -153,13 +162,14 @@ def call_groq_chat(
             "error": "GROQ_API_KEY не найден. Добавьте его в файл .env (GROQ_API_KEY=gsk_...) или укажите в поле ввода в сайдбаре.",
         }
 
+    target_model = _sanitize_model(model)
     headers = {
         "Authorization": f"Bearer {resolved_key}",
         "Content-Type": "application/json",
     }
 
     payload = {
-        "model": model,
+        "model": target_model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -167,6 +177,11 @@ def call_groq_chat(
 
     try:
         response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
+        if response.status_code == 404 and target_model != DEFAULT_MODEL:
+            logger.warning("Groq model %s returned 404, falling back to %s", target_model, DEFAULT_MODEL)
+            payload["model"] = DEFAULT_MODEL
+            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
+
         if response.status_code == 200:
             data = response.json()
             choice = data.get("choices", [{}])[0]
@@ -174,7 +189,7 @@ def call_groq_chat(
             return {
                 "success": True,
                 "content": reply_text,
-                "model": data.get("model", model),
+                "model": data.get("model", payload["model"]),
                 "usage": data.get("usage", {}),
                 "error": None,
             }
@@ -205,19 +220,21 @@ def stream_groq_chat(
 ) -> Generator[str, None, None]:
     """
     Streams response tokens from Groq API in real-time.
+    Automatically falls back to DEFAULT_MODEL if model returns 404.
     """
     resolved_key = get_groq_api_key(api_key)
     if not resolved_key:
         yield "❌ **Ошибка:** GROQ_API_KEY не найден. Добавьте его в файл `.env` (`GROQ_API_KEY=gsk_...`) или введите в сайдбаре."
         return
 
+    target_model = _sanitize_model(model)
     headers = {
         "Authorization": f"Bearer {resolved_key}",
         "Content-Type": "application/json",
     }
 
     payload = {
-        "model": model,
+        "model": target_model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -226,6 +243,11 @@ def stream_groq_chat(
 
     try:
         response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout, stream=True)
+        if response.status_code == 404 and target_model != DEFAULT_MODEL:
+            logger.warning("Groq stream model %s returned 404, falling back to %s", target_model, DEFAULT_MODEL)
+            payload["model"] = DEFAULT_MODEL
+            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout, stream=True)
+
         if response.status_code != 200:
             yield f"❌ **Groq API Error (HTTP {response.status_code}):** {response.text}"
             return
