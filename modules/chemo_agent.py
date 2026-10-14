@@ -192,13 +192,16 @@ def _get_model_max_tokens(model: str, requested: Optional[int] = None) -> int:
     Returns optimal token budget:
     - Reasoning models (e.g. gpt-oss-120b, gpt-oss-20b) generate hidden/chain-of-thought
       reasoning tokens that consume the output budget. They need 1500-2048 tokens.
-    - Direct generation models (e.g. qwen3.8-27b) output 100% visible tokens and thrive on 1000-1200 tokens,
-      comfortably avoiding token starvation and rate limits.
+    - Direct generation models (e.g. qwen3.8-27b) on Groq free tier enforce a strict 1000 OTPM
+      (Output Tokens Per Minute) bucket limit. We cap them to 700 tokens to ensure
+      smooth multi-turn conversations without hitting HTTP 429 rate limits.
     """
     m = model.lower() if model else ""
     if "gpt-oss" in m:
         return min(int(requested or 2048), 2048)
-    return min(int(requested or 1200), 1200)
+    if "qwen" in m:
+        return min(int(requested or 700), 750)
+    return min(int(requested or 1000), 1000)
 
 
 def format_groq_error(status_code: int, raw_text: str) -> str:
