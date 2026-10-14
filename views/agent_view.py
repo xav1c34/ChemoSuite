@@ -130,7 +130,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
             "ультравысокого разрешения (FT-ICR MS), флуоресценции (EEM-PARAFAC), ЯМР, ИК-спектроскопии и хемометрике.\n\n"
             "Я могу помочь:\n"
             "- Проанализировать активный образец и выявить маркеры шлам-лигнина или ненарушенного РОВ.\n"
-            "- Интерпретировать молекулярные индексы ($H/C$, $O/C$, $AI_{mod}$, $NOSC$, VK-20).\n"
+            "- Интерпретировать молекулярные индексы ($H/C$, $O/C$, $AI_{\text{mod}}$, $NOSC$, VK-20).\n"
             "- Оценить векторные потоки реакций TMDS (+CH2, +O, -CO2, +SO3).\n"
             "- Сформулировать выводы для научной публикации или паспорта образца."
             if lang == "ru"
@@ -221,7 +221,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         for msg in st.session_state["chemo_agent_messages"]:
             avatar = "🤖" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=avatar):
-                st.markdown(msg["content"])
+                st.markdown(chemo_agent.normalize_latex(msg["content"]))
 
     # 5. Handle Sample Analysis Button Trigger
     if btn_analyze_sample and active_data:
@@ -257,7 +257,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                         full_response += chunk
                         msg_ph.markdown(full_response + "▌")
                     msg_ph.markdown(full_response)
-        st.session_state["chemo_agent_messages"].append({"role": "assistant", "content": full_response})
+        st.session_state["chemo_agent_messages"].append({"role": "assistant", "content": chemo_agent.normalize_latex(full_response)})
 
     # 6. Interactive Chat Input
     user_prompt = st.chat_input(
@@ -299,7 +299,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                             full_response += chunk
                             msg_ph.markdown(full_response + "▌")
                         msg_ph.markdown(full_response)
-            st.session_state["chemo_agent_messages"].append({"role": "assistant", "content": full_response})
+            st.session_state["chemo_agent_messages"].append({"role": "assistant", "content": chemo_agent.normalize_latex(full_response)})
 
 
 def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: str = "ru"):
@@ -356,11 +356,5 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
 
     cached_content = st.session_state.get(cache_key)
     if cached_content:
-        st.markdown(
-            f"""
-<div style="background: rgba(37,99,235,0.04); border-left: 4px solid #2563eb; padding: 14px 18px; border-radius: 8px; margin-top: 10px;">
-{cached_content}
-</div>
-""",
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.markdown(chemo_agent.normalize_latex(cached_content))

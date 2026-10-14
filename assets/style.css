@@ -81,10 +81,34 @@
 .stApp textarea,
 div[data-testid="stMarkdownContainer"] p,
 div[data-testid="stMarkdownContainer"] li,
-div[data-testid="stMarkdownContainer"] span:not([class*="material-"]):not(.stIcon) {
+div[data-testid="stMarkdownContainer"] span:not([class*="material-"]):not(.stIcon):not([class*="katex"]):not([class*="katex"] *) {
   font-family: var(--nl-font-sans);
   color: var(--nl-text-primary);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Explicitly protect and restore KaTeX mathematical formulas */
+.katex,
+.katex *,
+.katex-display,
+.katex-display *,
+[class*="katex"] {
+  font-family: KaTeX_Main, KaTeX_Math, 'Times New Roman', serif !important;
+  font-style: normal;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+.katex-display {
+  margin: 0.8em 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding: 6px 0 !important;
+}
+
+.katex {
+  font-size: 1.06em !important;
+  text-rendering: auto !important;
 }
 
 /* Explicitly protect and restore Material Symbols & Icons */

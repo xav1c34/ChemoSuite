@@ -7,6 +7,7 @@ Loads API key securely from .env, st.secrets, or UI session state.
 """
 
 import os
+import re
 import json
 import logging
 from typing import Dict, Any, List, Optional, Generator
@@ -117,10 +118,38 @@ CHEMO_SYSTEM_PROMPT = r"""Ты — ChemoAgent, ведущий мировой э�
    - В TMDS (Targeted Mass Difference Screening) интерпретируй векторные биогеохимические потоки: реакции алкилирования (+CH2), окисления (+O), декарбоксилирования (-CO2), гидратации (+H2O), сульфирования (+SO3 как маркер техногенного сульфатного воздействия).
 2. **Экологическая направленность**:
    - Четко отделяй природный фон ненарушенных олиготрофных вод (высокая окисленность, гуминовые кислоты с умеренным AI) от техногенного следа шлам-лигнина (высокая конденсированность AI > 0.67, полициклические ароматические соединения, серосодержащие CHO+S формулы, сульфонаты, продукты деполимеризации лигноцеллюлозы).
-3. **Формат ответов**:
+3. **Формат ответов и математика (LaTeX / KaTeX)**:
    - Давай конкретные, научные, структурированные выводы с выделением ключевых маркеров, цифр и механизмов.
    - Пиши на языке пользователя (по умолчанию на русском, или на английском, если запрос на английском).
-   - Используй Markdown, списки, жирный шрифт и формулы в LaTeX ($H/C$, $AI$, $\Delta m$)."""
+   - Для строчных формул используй СТРОГО одиночные доллары БЕЗ пробелов внутри: `$H/C$`, `$O/C$`, `$AI_{\text{mod}}$`, `$NOSC$`, `$f_a$`, `$\Delta m$`, `$C_{10}H_{12}O_5$`. Никогда не используй скобки вида \(...\).
+   - Для блочных выключных формул используй СТРОГО двойные доллары:
+     $$
+     AI_{\text{mod}} = \frac{1 + C - 0.5O - S - 0.5H}{C - 0.5O - S - N}
+     $$
+     Никогда не используй скобки вида \[...\].
+   - Подстрочные текстовые индексы оформляй через \\text{}, например $AI_{\text{mod}}$, $f_{\text{a}}$.
+   - Не ставь пробелы сразу после открывающего $ и перед закрывающим $."""
+
+
+def normalize_latex(text: str) -> str:
+    """
+    Normalizes LaTeX syntax so Streamlit KaTeX renders it cleanly:
+    1. Converts block math \\[ ... \\] to \\n\\n$$\\n...\\n$$\\n\\n
+    2. Converts inline math \\( ... \\) to $...$
+    3. Normalizes single dollar math with inner whitespace: '$ H/C $' -> '$H/C$'
+    4. Normalizes subscript in AI_mod: '$AI_{mod}$' -> '$AI_{\\text{mod}}$'
+    """
+    if not text:
+        return ""
+    # 1. Block math: \[ ... \] -> $$ ... $$
+    text = re.sub(r'\\\[\s*(.*?)\s*\\\]', r'\n\n$$\n\1\n$$\n\n', text, flags=re.DOTALL)
+    # 2. Inline math: \( ... \) -> $...$
+    text = re.sub(r'\\\(\s*(.*?)\s*\\\)', lambda m: f"${m.group(1).strip()}$", text, flags=re.DOTALL)
+    # 3. Strip inner spaces inside $ ... $ (e.g. '$ H/C $' -> '$H/C$')
+    text = re.sub(r'(?<!\$)\$(?!\$)([^\$\n]+?)(?<!\$)\$(?!\$)', lambda m: f"${m.group(1).strip()}$", text)
+    # 4. Standardize AI_mod subscript to \text{mod} for proper text formatting in KaTeX
+    text = re.sub(r'\$AI_\{?mod\}?\$', r'$AI_{\\text{mod}}$', text)
+    return text
 
 
 def _sanitize_model(model: Optional[str]) -> str:

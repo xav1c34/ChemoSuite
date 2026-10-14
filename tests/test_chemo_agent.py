@@ -182,3 +182,20 @@ def test_get_available_groq_models(mock_get):
     assert "meta-llama/llama-prompt-guard-2-86m" not in models
     assert "openai/gpt-oss-120b" in models
     assert models[0] == "qwen/qwen3.8-27b"
+
+
+def test_normalize_latex():
+    """Verifies that various LLM LaTeX formats are standardized for KaTeX."""
+    # 1. Inline parenthesis conversion
+    assert chemo_agent.normalize_latex(r"Index \( H/C \)") == "Index $H/C$"
+    # 2. Block bracket conversion
+    raw_block = r"Formula: \[ x = \frac{1}{2} \]"
+    norm_block = chemo_agent.normalize_latex(raw_block)
+    assert "$$\n" in norm_block
+    assert r"x = \frac{1}{2}" in norm_block
+    # 3. Strip inner spaces
+    assert chemo_agent.normalize_latex("Sample $ H/C $ and $ O/C $") == "Sample $H/C$ and $O/C$"
+    # 4. AI_mod formatting
+    assert chemo_agent.normalize_latex("Shows $AI_mod$ index") == r"Shows $AI_{\text{mod}}$ index"
+    assert chemo_agent.normalize_latex("Shows $AI_{mod}$ index") == r"Shows $AI_{\text{mod}}$ index"
+
