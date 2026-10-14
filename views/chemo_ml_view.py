@@ -255,6 +255,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     help="Таблица дескрипторов Elemental CHNS-O (Sample_ID, C, H, N, S, O, H/C).",
                 )
 
+            st.info(
+                "💡 **Подсказка:** Для Модуля 3 требуются сводные таблицы дескрипторов по образцам из каталога `demo_data/`."
+                if lang == "ru" else
+                "💡 **Tip:** Module 3 requires summary descriptor tables across samples from `demo_data/`."
+            )
+
             if f_ms or f_eem or f_uv or f_ftir or f_nmr or f_thermal or f_sec or f_elem:
                 try:
                     df_up_ms = pd.read_csv(f_ms) if f_ms else None
@@ -285,6 +291,11 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 type=["csv", "tsv", "txt"],
                 key="up_single_features",
                 help="Единая мультимодальная матрица признаков.",
+            )
+            st.info(
+                "💡 **Подсказка:** Для единого файла используйте `demo_data/multimodal_ml/chemo_unified_multimodal.csv`."
+                if lang == "ru" else
+                "💡 **Tip:** For a single file, use `demo_data/multimodal_ml/chemo_unified_multimodal.csv`."
             )
             if f_single:
                 try:
@@ -462,6 +473,19 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             disabled=[c for c in fused_df_display.columns if c != "Class_Target"],
             key="ml_fused_editor",
         )
+
+        # Методологическое предупреждение при малом N (p >> n)
+        feat_cols_check = [c for c in edited_df.columns if c not in ["Sample_ID", "Class_Target"]]
+        if len(edited_df) < 20 and len(feat_cols_check) > len(edited_df):
+            st.info(
+                f"ℹ️ **Методологическое замечание ($p \\gg n$):** Выборка содержит {len(edited_df)} образцов при {len(feat_cols_check)} признаках. "
+                f"В многомерных моделях (PLS-DA / OPLS-DA) при малом $N$ возможно переобучение и завышенное разделение классов. "
+                f"Для надежных геохимических выводов в публикациях рекомендуется использовать выборку $N \\ge 30$."
+                if lang == "ru"
+                else f"ℹ️ **Methodological Note ($p \\gg n$):** Dataset contains {len(edited_df)} samples across {len(feat_cols_check)} descriptors. "
+                f"High-dimensional models (PLS-DA / OPLS-DA) risk over-optimistic class separation at small $N$. "
+                f"For publication-grade geochemical conclusions, a sample size of $N \\ge 30$ is recommended."
+            )
 
         st.markdown("---")
         st.subheader(T[lang]["ml_sec2_title"])
@@ -679,29 +703,83 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             tab_ml5 = tabs[tab_idx]
 
             with tab_ml1:
-                fig_sc = go.Figure()
-                if ell_x is not None and len(ell_x) > 0:
-                    fig_sc.add_trace(go.Scatter(
-                        x=ell_x, y=ell_y, mode="lines",
-                        line=dict(dash="dot", color="#7f7f7f", width=1.5),
-                        name=T[lang]["ml_hotelling_name"], hoverinfo="skip",
+                has_3d = (t3_vals is not None and not is_model_opls)
+                if has_3d:
+                    scores_mode = st.radio(
+                        T[lang]["ml_scores_mode_label"],
+                        [T[lang]["ml_scores_2d"], T[lang]["ml_scores_3d"]],
+                        horizontal=True,
+                        key="radio_scores_2d_3d",
+                    )
+                else:
+                    scores_mode = T[lang]["ml_scores_2d"]
+
+                if scores_mode == T[lang]["ml_scores_3d"] and has_3d:
+                    fig_3d = go.Figure()
+
+                    # 3D Эллипсоид Хотеллинга
+                    ell_3d_x = res.get("ell_3d_x", res.get("ell_x_3d"))
+                    ell_3d_y = res.get("ell_3d_y", res.get("ell_y_3d"))
+                    ell_3d_z = res.get("ell_3d_z", res.get("ell_z_3d"))
+                    if ell_3d_x is not None and len(ell_3d_x) > 0:
+                        fig_3d.add_trace(go.Surface(
+                            x=ell_3d_x, y=ell_3d_y, z=ell_3d_z,
+                            opacity=0.18,
+                            colorscale=[[0, "#8da9c4"], [1, "#8da9c4"]],
+                            showscale=False,
+                            name=f"{T[lang]['ml_hotelling_name']} (3D)",
+                            hoverinfo="skip",
+                        ))
+
+                    # 3D маркеры проб
+                    fig_3d.add_trace(go.Scatter3d(
+                        x=t1_vals, y=t2_vals, z=t3_vals,
+                        mode="markers+text",
+                        text=sample_ids_curr,
+                        textposition="top center",
+                        marker=dict(size=7, color=point_colors, line=dict(width=1, color="black"), opacity=0.9),
+                        hovertext=[
+                            f"<b>{s}</b><br>Class: {c}<br>LV1: {v1:.2f}, LV2: {v2:.2f}, LV3: {v3:.2f}"
+                            for s, c, v1, v2, v3 in zip(sample_ids_curr, y_curr, t1_vals, t2_vals, t3_vals)
+                        ],
+                        hoverinfo="text",
+                        name="Samples",
                     ))
-                axis_x_lbl = "t_pred (Predictive LV1)" if is_model_opls else "LV1"
-                axis_y_lbl = "t_ortho (Orthogonal LV1)" if is_model_opls else "LV2"
-                for c_name in unique_cls:
-                    mask = [str(y) == str(c_name) for y in y_curr]
-                    s_sub = [s for s, m in zip(sample_ids_curr, mask) if m]
-                    t1_sub = [t for t, m in zip(t1_vals, mask) if m]
-                    t2_sub = [t for t, m in zip(t2_vals, mask) if m]
-                    col = cls_color_map.get(str(c_name), "#7F7F7F")
-                    fig_sc.add_trace(go.Scatter(
-                        x=t1_sub, y=t2_sub, mode="markers+text",
-                        text=s_sub, textposition="top center",
-                        marker=dict(size=11, color=col, line=dict(width=1, color="black"), opacity=0.85),
-                        name=f"Class {c_name}",
-                    ))
-                fig_sc.update_layout(xaxis_title=axis_x_lbl, yaxis_title=axis_y_lbl, plot_bgcolor="white", height=520)
-                st_plotly(fig_sc)
+                    fig_3d.update_layout(
+                        scene=dict(
+                            xaxis_title="LV1 (Scores t1)",
+                            yaxis_title="LV2 (Scores t2)",
+                            zaxis_title="LV3 (Scores t3)",
+                        ),
+                        height=580,
+                        margin=dict(l=10, r=10, t=30, b=10),
+                    )
+                    st_plotly(fig_3d)
+
+                else:
+                    fig_sc = go.Figure()
+                    if ell_x is not None and len(ell_x) > 0:
+                        fig_sc.add_trace(go.Scatter(
+                            x=ell_x, y=ell_y, mode="lines",
+                            line=dict(dash="dot", color="#7f7f7f", width=1.5),
+                            name=T[lang]["ml_hotelling_name"], hoverinfo="skip",
+                        ))
+                    axis_x_lbl = "t_pred (Predictive LV1)" if is_model_opls else "LV1"
+                    axis_y_lbl = "t_ortho (Orthogonal LV1)" if is_model_opls else "LV2"
+                    for c_name in unique_cls:
+                        mask = [str(y) == str(c_name) for y in y_curr]
+                        s_sub = [s for s, m in zip(sample_ids_curr, mask) if m]
+                        t1_sub = [t for t, m in zip(t1_vals, mask) if m]
+                        t2_sub = [t for t, m in zip(t2_vals, mask) if m]
+                        col = cls_color_map.get(str(c_name), "#7F7F7F")
+                        fig_sc.add_trace(go.Scatter(
+                            x=t1_sub, y=t2_sub, mode="markers+text",
+                            text=s_sub, textposition="top center",
+                            marker=dict(size=11, color=col, line=dict(width=1, color="black"), opacity=0.85),
+                            name=f"Class {c_name}",
+                        ))
+                    fig_sc.update_layout(xaxis_title=axis_x_lbl, yaxis_title=axis_y_lbl, plot_bgcolor="white", height=520)
+                    st_plotly(fig_sc)
 
             with tab_ml2:
                 if not vip_df.empty:
@@ -715,6 +793,53 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_vip.update_layout(yaxis=dict(autorange="reversed"), xaxis=dict(title="VIP Score"), height=520)
                     st_plotly(fig_vip)
                     st_df(vip_df)
+
+                    if CHEMO_PUBCHEM_AVAILABLE and chemo_pubchem is not None:
+                        st.markdown("---")
+                        st.write(f"#### {T[lang]['ml_pubchem_title']}")
+                        st.caption(T[lang]["ml_pubchem_caption"])
+                        sparse_df = res.get("Biomarkers_df", pd.DataFrame())
+                        target_bm = sparse_df[sparse_df["Is_Selected"]].copy() if (curr_model_type == "Sparse PLS-DA (sPLS-DA)" and not sparse_df.empty and "Is_Selected" in sparse_df.columns) else (vip_df.head(20).copy() if not vip_df.empty else pd.DataFrame())
+                        if not target_bm.empty:
+                            if st.button(T[lang]["ml_pubchem_btn"], key="btn_annot_biomarkers_pubchem"):
+                                with st.spinner(T[lang]["ml_pubchem_spinner"]):
+                                    desc_col = "Descriptor" if "Descriptor" in target_bm.columns else target_bm.columns[0]
+                                    raw_formulas = target_bm[desc_col].dropna().astype(str).tolist()
+                                    annotated_bm = chemo_pubchem.annotate_formula_table(raw_formulas, max_top=15)
+                                    st.session_state["annotated_biomarkers"] = annotated_bm
+
+                            annot_saved = st.session_state.get("annotated_biomarkers")
+                            if annot_saved is not None and not annot_saved.empty:
+                                st_df(
+                                    annot_saved,
+                                    column_config={
+                                        "PubChem_URL": st.column_config.LinkColumn("PubChem", display_text="Open CID"),
+                                        "ChEMBL_URL": st.column_config.LinkColumn("ChEMBL", display_text="Search"),
+                                        "HMDB_URL": st.column_config.LinkColumn("HMDB", display_text="Metabolites"),
+                                    }
+                                )
+                                st.download_button(
+                                    label=T[lang]["ml_pubchem_dl_btn"],
+                                    data=annot_saved.to_csv(index=False).encode("utf-8"),
+                                    file_name="ChemoSuite_Biomarkers_PubChem.csv",
+                                    mime="text/csv",
+                                    key="dl_annot_biomarkers_csv",
+                                )
+
+                                with st.expander(T[lang]["pubchem_inspect_expander"], expanded=True):
+                                    bm_cols = st.columns(3)
+                                    for b_idx, (_, b_row) in enumerate(annot_saved.head(6).iterrows()):
+                                        with bm_cols[b_idx % 3]:
+                                            with st.container(border=True):
+                                                b_img = b_row.get("Image_URL")
+                                                if b_img:
+                                                    st.image(b_img, caption=f"2D: {b_row['Compound_Name']}", width="stretch")
+                                                else:
+                                                    st.info(f"Formula: {b_row['Formula']}")
+                                                st.markdown(f"**{b_row['Formula']}**")
+                                                st.caption(f"{b_row['Chemical_Class']}")
+                                                if pd.notna(b_row.get("CID")) and b_row.get("CID"):
+                                                    st.link_button(f"{T[lang]['pubchem_link_btn']} #{int(b_row['CID'])}", b_row["PubChem_URL"])
 
             if is_model_opls and tab_splot is not None:
                 with tab_splot:
@@ -736,6 +861,24 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     cls_labels = [str(c) for c in res.get("classes", unique_cls)]
                     fig_cm = px.imshow(cm_mat, text_auto=True, x=cls_labels, y=cls_labels, color_continuous_scale="Blues")
                     st_plotly(fig_cm)
+
+                    if not res.get("is_multiclass", False):
+                        st.markdown(
+                            f"""
+                            * **{T[lang]['ml_sens_label']}** `{res.get('Sensitivity', 0.0):.1f}%`
+                            * **{T[lang]['ml_spec_label']}** `{res.get('Specificity', 0.0):.1f}%`
+                            * **{T[lang]['ml_bal_acc_label']}** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            """
+                        )
+                    else:
+                        st.markdown(
+                            f"""
+                            * **{T[lang]['ml_mode_multiclass'].format(n=len(cls_labels))}**
+                            * **{T[lang]['ml_bal_acc_label']}** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            * **{T[lang]['ml_acc_label']}** `{res.get('Accuracy', 0.0):.1f}%`
+                            """
+                        )
+
                 with c_v2:
                     if perm_res is not None:
                         fig_perm = go.Figure(data=[go.Histogram(x=perm_res["perm_q2"], marker_color="#8da9c4")])
@@ -752,12 +895,151 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_donut.update_layout(height=420)
                     st_plotly(fig_donut)
 
-            with tab_crosscorr:
-                if CROSS_CORR_AVAILABLE and cross_correlation is not None:
-                    cc_res = cross_correlation.compute_multiblock_cross_correlation(edited_df)
-                    st_df(cc_res.get("top_cross_correlations", pd.DataFrame()).head(20))
+with tab_crosscorr:
+                st.write(f"### {T[lang]['ml_crosscorr_title']}")
+                st.caption(T[lang]['ml_crosscorr_subtitle'])
+
+                if not CROSS_CORR_AVAILABLE or cross_correlation is None:
+                    st.error("⚠️ Модуль `cross_correlation.py` не доступен." if lang == "ru" else "⚠️ `cross_correlation.py` is not available.")
                 else:
-                    st.info("Cross-correlation engine ready.")
+                    corr_mode = st.radio(
+                        T[lang]["ml_crosscorr_mode_select"],
+                        [T[lang]["ml_crosscorr_mode_pairs"], T[lang]["ml_crosscorr_mode_global"]],
+                        horizontal=True,
+                        key="radio_crosscorr_mode",
+                    )
+
+                    col_cm1, col_cm2 = st.columns([2, 2])
+                    with col_cm1:
+                        corr_method = st.selectbox(
+                            T[lang]["ml_crosscorr_method"],
+                            ["pearson", "spearman"],
+                            index=0,
+                            key="select_crosscorr_method",
+                        )
+                    with col_cm2:
+                        min_r_thresh = st.slider(
+                            T[lang]["ml_crosscorr_threshold"],
+                            min_value=0.3,
+                            max_value=0.95,
+                            value=0.6,
+                            step=0.05,
+                            key="slider_crosscorr_thresh",
+                        )
+
+                    # Расчет межблочных корреляций
+                    with st.spinner("Расчет кросс-модальных корреляций..." if lang == "ru" else "Computing cross-omics correlations..."):
+                        cc_results = cross_correlation.compute_multiblock_cross_correlation(
+                            edited_df,
+                            sample_id_col="Sample_ID",
+                            target_col="Class_Target",
+                            method=corr_method,
+                        )
+
+                    full_corr_df = cc_results["correlation_matrix"]
+                    block_mapping = cc_results["block_mapping"]
+                    top_cross_df = cc_results["top_cross_correlations"]
+
+                    # Список доступных блоков
+                    avail_blocks = sorted(list(set(b for b in block_mapping.values() if b != "Other")))
+                    if len(avail_blocks) < 2:
+                        avail_blocks = sorted(list(set(block_mapping.values())))
+
+                    if corr_mode == T[lang]["ml_crosscorr_mode_pairs"]:
+                        if len(avail_blocks) < 2:
+                            st.warning(T[lang]["ml_crosscorr_no_data"])
+                        else:
+                            col_b1, col_b2 = st.columns(2)
+                            with col_b1:
+                                block_a_sel = st.selectbox(
+                                    T[lang]["ml_crosscorr_block_a"],
+                                    avail_blocks,
+                                    index=0,
+                                    key="sel_block_a",
+                                )
+                            with col_b2:
+                                default_b_idx = 1 if len(avail_blocks) > 1 else 0
+                                block_b_sel = st.selectbox(
+                                    T[lang]["ml_crosscorr_block_b"],
+                                    avail_blocks,
+                                    index=default_b_idx,
+                                    key="sel_block_b",
+                                )
+
+                            feats_a = [f for f, b in block_mapping.items() if b == block_a_sel and f in edited_df.columns]
+                            feats_b = [f for f, b in block_mapping.items() if b == block_b_sel and f in edited_df.columns]
+
+                            if not feats_a or not feats_b:
+                                st.warning(T[lang]["ml_crosscorr_no_data"])
+                            else:
+                                mat_a = edited_df[feats_a].values
+                                mat_b = edited_df[feats_b].values
+                                phi_2d = cross_correlation.compute_heterospectral_2d_correlation(mat_a, mat_b, scale=True)
+
+                                fig_2d = px.imshow(
+                                    phi_2d,
+                                    x=feats_b,
+                                    y=feats_a,
+                                    color_continuous_scale="RdBu_r",
+                                    zmin=-1.0,
+                                    zmax=1.0,
+                                    labels=dict(x=f"{block_b_sel} Features", y=f"{block_a_sel} Features", color="r"),
+                                    title=f"2D Heterospectral Matrix: {block_a_sel} (Y) ⨂ {block_b_sel} (X)",
+                                )
+                                fig_2d.update_layout(
+                                    height=540,
+                                    margin=dict(l=60, r=40, t=50, b=60),
+                                    xaxis=dict(tickangle=-45),
+                                )
+                                st_plotly(fig_2d)
+
+                    else:
+                        # Глобальная мультиблочная матрица
+                        fig_global = px.imshow(
+                            full_corr_df,
+                            color_continuous_scale="RdBu_r",
+                            zmin=-1.0,
+                            zmax=1.0,
+                            title="Global Multimodal Cross-Correlation Matrix",
+                        )
+                        fig_global.update_layout(height=650, margin=dict(l=60, r=40, t=50, b=60))
+                        st_plotly(fig_global)
+
+                    # Таблица топ межблочных корреляций
+                    st.write(f"#### {T[lang]['ml_crosscorr_top_pairs_title']}")
+                    if not top_cross_df.empty:
+                        filtered_top = top_cross_df[top_cross_df["Abs_Correlation"] >= min_r_thresh].copy()
+                        if filtered_top.empty:
+                            st.info(f"Нет межблочных пар с |r| >= {min_r_thresh}. Попробуйте снизить порог." if lang == "ru" else f"No inter-block pairs with |r| >= {min_r_thresh}. Try lowering the threshold.")
+                        else:
+                            st.dataframe(filtered_top, use_container_width=True, height=260)
+
+                            col_dl1, col_dl2 = st.columns(2)
+                            with col_dl1:
+                                csv_top = filtered_top.to_csv(index=False).encode("utf-8-sig")
+                                st.download_button(
+                                    label=T[lang]["ml_crosscorr_dl_top"],
+                                    data=csv_top,
+                                    file_name=f"ChemoSuite_Top_Cross_Correlations_{corr_method}.csv",
+                                    mime="text/csv",
+                                    key="btn_dl_top_cross",
+                                )
+                            with col_dl2:
+                                nodes_df, edges_df = cross_correlation.build_correlation_network_edges(
+                                    full_corr_df, block_mapping, threshold=min_r_thresh, cross_block_only=True
+                                )
+                                csv_edges = edges_df.to_csv(index=False).encode("utf-8-sig")
+                                st.download_button(
+                                    label=T[lang]["ml_crosscorr_dl_edges"],
+                                    data=csv_edges,
+                                    file_name=f"ChemoSuite_Network_Edges_{corr_method}_thresh{min_r_thresh}.csv",
+                                    mime="text/csv",
+                                    key="btn_dl_edges_cross",
+                                )
+                    else:
+                        st.info("Межблочных взаимосвязей с |r| >= 0.5 не обнаружено." if lang == "ru" else "No inter-block correlations with |r| >= 0.5 found.")
+
+            # Таб 6: Экспорт
 
             with tab_elucid:
                 st.write("### 🧬 " + ("Кросс-модальная расшифровка химических структур (MMCS Engine)" if lang == "ru" else "Cross-Modal Chemical Structure Elucidation Engine"))
@@ -824,12 +1106,89 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 else:
                     st.info("Structure elucidation engine module available.")
 
-            with tab_ml5:
-                st.write("### 📥 " + ("Выгрузка отчетов" if lang == "ru" else "Report Export"))
+with tab_ml5:
+                st.write("### 📥 Выгрузка аналитических отчетов" if lang == "ru" else "### 📥 Download Analytical Reports")
+
+                # Комплексные аналитические паспорта
+                st.markdown(
+                    f'<div style="background-color: #f0f4f8; padding: 14px 18px; border-radius: 8px; border-left: 5px solid #0b2545; margin-bottom: 16px;">'
+                    f'<h4 style="margin: 0 0 6px 0; color: #0b2545;">{T[lang]["ml_dl_html_passport_btn"]} & {T[lang]["ml_dl_passport_btn"]}</h4>'
+                    f'<p style="margin: 0; color: #495057; font-size: 13px;">{T[lang]["ml_html_passport_desc"]}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                col_rep_lang, _ = st.columns([2, 2])
+                with col_rep_lang:
+                    report_lang_choice = st.radio(
+                        T[lang]["ml_report_lang_label"],
+                        ["English (EN)", "Русский (RU)"],
+                        index=0 if lang == "en" else 1,
+                        horizontal=True,
+                        key="report_lang_selector"
+                    )
+                    rep_lang = "en" if "EN" in report_lang_choice else "ru"
+
+                if REPORT_GEN_AVAILABLE and report_generator is not None:
+                    try:
+                        # 1. Генерация Excel паспорта
+                        passport_bytes = report_generator.generate_excel_passport(
+                            edited_df,
+                            model_results=res,
+                            metadata={
+                                "project_name": st.session_state.get("fused_source", "ChemoSuite Session"),
+                                "operator": "ChemoSuite Unified Analytical Engine",
+                            },
+                            lang=rep_lang,
+                        )
+                        rep_suffix = "EN" if rep_lang == "en" else "RU"
+
+                        # 2. Генерация интерактивного HTML экологического паспорта
+                        passport_html = report_generator.generate_ecological_passport_html(
+                            edited_df,
+                            model_results=res,
+                            metadata={
+                                "project_name": st.session_state.get("fused_source", "ChemoSuite Session"),
+                                "operator": "ChemoSuite Unified Analytical Engine",
+                            },
+                            lang=rep_lang,
+                        )
+
+                        col_btn_html, col_btn_xlsx = st.columns(2)
+                        with col_btn_html:
+                            st.download_button(
+                                label=T[lang]["ml_dl_html_passport_btn"],
+                                data=passport_html.encode("utf-8"),
+                                file_name=f"ChemoSuite_Ecological_Passport_{curr_model_type}_{rep_suffix}.html",
+                                mime="text/html",
+                                type="primary",
+                                key="dl_passport_html_btn",
+                            )
+                        with col_btn_xlsx:
+                            st.download_button(
+                                label=T[lang]["ml_dl_passport_btn"],
+                                data=passport_bytes,
+                                file_name=f"ChemoSuite_Analytical_Passport_{curr_model_type}_{rep_suffix}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_passport_xlsx_btn",
+                            )
+
+                        # Интерактивный предпросмотр в Streamlit
+                        with st.expander(T[lang]["ml_preview_passport_expander"], expanded=False):
+                            import streamlit.components.v1 as components
+                            components.html(passport_html, height=750, scrolling=True)
+
+                    except Exception as err:
+                        st.error(f"Ошибка формирования паспорта: {err}" if lang == "ru" else f"Passport generation error: {err}")
+                else:
+                    st.warning("Модуль `report_generator.py` или библиотека `openpyxl` недоступны." if lang == "ru" else "`report_generator.py` or `openpyxl` library is unavailable.")
+
+                st.markdown("---")
+                st.write("#### 📄 Табличные выгрузки отдельных компонентов" if lang == "ru" else "#### 📄 Individual Component Exports")
                 c_dl1, c_dl2 = st.columns(2)
                 with c_dl1:
                     st.download_button(
-                        label="📥 Скачать объединенную матрицу (CSV)" if lang == "ru" else "📥 Download Fused Matrix (CSV)",
+                        label="📥 Скачать объединенную матрицу признаков (CSV)" if lang == "ru" else "📥 Download Fused Feature Matrix (CSV)",
                         data=edited_df.to_csv(index=False).encode("utf-8"),
                         file_name="ChemoSuite_Fused_Matrix.csv",
                         mime="text/csv",
@@ -838,8 +1197,11 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 with c_dl2:
                     st.download_button(
                         label=T[lang]["ml_dl_vip_btn"],
-                        data=vip_df.to_csv(index=False).encode("utf-8") if not vip_df.empty else b"",
+                        data=vip_df.to_csv(index=False).encode("utf-8"),
                         file_name=f"ChemoSuite_{curr_model_type}_Biomarkers.csv",
                         mime="text/csv",
                         key="dl_pls_vip_csv_main_btn",
                     )
+# ==============================================================================
+# МОДУЛЬ 4: КОЛЕБАТЕЛЬНАЯ СПЕКТРОСКОПИЯ (ATR-FTIR & RAMAN)
+# ==============================================================================

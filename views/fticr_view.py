@@ -499,6 +499,9 @@ def render_fticr_studio(T: dict, lang: str):
                             current_sample["assigned_df"] = None
                             st.rerun()
 
+                if current_sample.get("is_recalibrated"):
+                    st.info("ℹ️ Для данного спектра активна полиномиальная рекалибровка (сохраняется при смене любых вкладок)." if lang == "ru" else "ℹ️ Polynomial recalibration is active for this spectrum (preserved across all tabs).")
+
     with stage2:
         st_sub_assign, st_sub_vk, st_sub_kmd, st_sub_vk20 = st.tabs([
             T[lang]["tab_assign"],
@@ -587,6 +590,17 @@ def render_fticr_studio(T: dict, lang: str):
 
                         pc_matches_list = st.session_state.get(f"pc_res_list_{active_spectrum_name}", [])
                         if pc_matches_list:
+                            st.caption(f"{T[lang]['pubchem_isomers_label']} **{len(pc_matches_list)}**")
+                            clean_t_f = chemo_pubchem.clean_formula(target_f) if hasattr(chemo_pubchem, "clean_formula") else target_f
+                            chembl_search_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(clean_t_f)}"
+                            hmdb_search_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(clean_t_f)}&searcher=metabolites"
+
+                            ext_c1, ext_c2, _ = st.columns([1.5, 1.5, 3])
+                            with ext_c1:
+                                st.link_button(T[lang]["pubchem_chembl_btn"], chembl_search_url)
+                            with ext_c2:
+                                st.link_button(T[lang]["pubchem_hmdb_btn"], hmdb_search_url)
+
                             for idx, pc_item in enumerate(pc_matches_list, 1):
                                 item_title = pc_item.get("Title") or pc_item.get("name", f"Isomer #{idx}")
                                 with st.container(border=True):
@@ -599,9 +613,14 @@ def render_fticr_studio(T: dict, lang: str):
                                             st.info("2D preview not available")
                                     with pc_col_meta:
                                         c_name = item_title
+                                        c_iupac = pc_item.get("IUPACName") or pc_item.get("iupac_name", "N/A")
+                                        c_class = pc_item.get("Class") or pc_item.get("class", "Unknown")
+                                        c_smiles = pc_item.get("SMILES") or pc_item.get("smiles", "N/A")
                                         c_cid = pc_item.get("CID") or pc_item.get("cid")
                                         st.markdown(f"**{T[lang]['pubchem_res_name']}** `{c_name}`")
-                                        st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{pc_item.get('SMILES', 'N/A')}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_iupac']}** `{c_iupac}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_class']}** `{c_class}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{c_smiles}`")
                                         if c_cid:
                                             st.link_button(f"{T[lang]['pubchem_link_btn']} #{c_cid}", f"https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid}")
 
@@ -669,6 +688,60 @@ def render_fticr_studio(T: dict, lang: str):
                         fig_bio.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
                         fig_bio.update_layout(showlegend=False, yaxis_title="%", xaxis_title="", margin=dict(l=10, r=10, t=10, b=10))
                         st_plotly(fig_bio)
+
+                if CHEMO_PUBCHEM_AVAILABLE and "Formula" in assigned_data.columns:
+                    st.markdown("---")
+                    with st.expander(T[lang]["vk_inspect_title"], expanded=False):
+                        st.caption(T[lang]["vk_inspect_caption"])
+                        vk_formulas = assigned_data.sort_values("intensity", ascending=False)["Formula"].head(80).tolist()
+                        v_col_sel, v_col_btn = st.columns([3, 1])
+                        with v_col_sel:
+                            sel_vk_f = st.selectbox(T[lang]["vk_inspect_select"], vk_formulas, key=f"vk_sel_f_{active_spectrum_name}")
+                        with v_col_btn:
+                            st.write("")
+                            st.write("")
+                            find_vk_clicked = st.button("🔍 " + T[lang]["pubchem_search_btn"].split()[-1], key=f"btn_vk_f_{active_spectrum_name}")
+
+                        last_vk_f = st.session_state.get(f"vk_last_f_{active_spectrum_name}")
+                        if find_vk_clicked or (sel_vk_f and sel_vk_f != last_vk_f):
+                            with st.spinner(T[lang]["pubchem_searching"]):
+                                vk_matches = chemo_pubchem.lookup_formula_in_pubchem(sel_vk_f, max_records=2, timeout=4.0)
+                                st.session_state[f"vk_res_{active_spectrum_name}"] = vk_matches
+                                st.session_state[f"vk_last_f_{active_spectrum_name}"] = sel_vk_f
+
+                        vk_saved_res = st.session_state.get(f"vk_res_{active_spectrum_name}", [])
+                        if vk_saved_res:
+                            clean_vk_str = chemo_pubchem.clean_formula(sel_vk_f) if hasattr(chemo_pubchem, "clean_formula") else sel_vk_f
+                            vk_chembl_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(clean_vk_str)}"
+                            vk_hmdb_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(clean_vk_str)}&searcher=metabolites"
+
+                            ext_vk1, ext_vk2, _ = st.columns([1.5, 1.5, 3])
+                            with ext_vk1:
+                                st.link_button(T[lang]["pubchem_chembl_btn"], vk_chembl_url)
+                            with ext_vk2:
+                                st.link_button(T[lang]["pubchem_hmdb_btn"], vk_hmdb_url)
+
+                            for idx, item in enumerate(vk_saved_res, 1):
+                                with st.container(border=True):
+                                    c_img, c_info = st.columns([1, 2.2])
+                                    with c_img:
+                                        img_u = item.get("Image_URL")
+                                        if img_u:
+                                            st.image(img_u, caption=f"2D: {item.get('Title', 'Compound')}", width="stretch")
+                                        else:
+                                            st.info("2D structure preview not available" if lang == "en" else "2D структура недоступна")
+                                    with c_info:
+                                        t_name = item.get("Title", "N/A")
+                                        iupac_name = item.get("IUPACName", "N/A")
+                                        cls_name = item.get("Class", "Unknown")
+                                        smi = item.get("SMILES", "N/A")
+                                        cid_val = item.get("CID")
+                                        st.markdown(f"**{T[lang]['pubchem_res_name']}** `{t_name}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_iupac']}** {iupac_name}")
+                                        st.markdown(f"**{T[lang]['pubchem_res_class']}** `{cls_name}`")
+                                        st.markdown(f"**{T[lang]['pubchem_res_smiles']}** `{smi}`")
+                                        if cid_val:
+                                            st.link_button(f"{T[lang]['pubchem_link_btn']} #{cid_val}", f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val}")
             elif proj_type == T[lang]["proj_dbe_c"]:
                 fig_dbe = go.Figure()
                 for cls in ["CHO", "CHON", "CHOS", "CHONS"]:
@@ -680,6 +753,10 @@ def render_fticr_studio(T: dict, lang: str):
                         x=sub["C"], y=sub["DBE"], mode="markers", name=f"{cls} ({len(sub):,})",
                         marker=dict(color=color, size=2.0 + 5.0 * (norm_vals / 100.0) ** pow_exp, opacity=0.65),
                     ))
+                max_c = float(assigned_data["C"].max()) if "C" in assigned_data.columns and not assigned_data["C"].isna().all() else 60.0
+                c_line = np.linspace(4, max(60.0, max_c), 100)
+                fig_dbe.add_trace(go.Scatter(x=c_line, y=c_line * 0.9, mode="lines", name="Planar limit", line=dict(color="red", dash="dot")))
+
                 fig_dbe.update_layout(xaxis=dict(title="Carbon (C)", gridcolor="#f1f3f5"), yaxis=dict(title="DBE", gridcolor="#f1f3f5"), plot_bgcolor="white", height=560)
                 st_plotly(fig_dbe)
             else:
@@ -749,43 +826,343 @@ def render_fticr_studio(T: dict, lang: str):
             T[lang]["tab_desc"],
         ])
 
-    with st_sub_cmp:
+with st_sub_cmp:
+        st.subheader(T[lang]["tab_cmp"])
+
+        with st.popover("ℹ️ " + ("Руководство: Зачем нужна Алгебра спектров и как её применять" if lang == "ru" else "Guide: Spectrum Algebra & Comparative Analysis"), width="stretch"):
+            st.markdown(r"""
+### 🔬 Зачем нужна Алгебра спектров в экологическом анализе?
+
+В масс-спектрометрии ультравысокого разрешения (FT-ICR MS) природных вод (оз. Байкал, притоки) и техногенных загрязнений (шлам-лигнин БЦБК) спектры содержат тысячи индивидуальных пиков. Алгебра спектров позволяет строго математически разделить природный фон и антропогенные маркеры:
+
+---
+
+#### 1. Вычитание бланка / разность ($A \setminus B$)
+* **Физический смысл:** Удаление фонового матричного шума (чистая байкальская вода или бланк растворителя) из загрязненной пробы.
+* **Результат:** Остаются **только уникальные компоненты**, характерные для источника воздействия (сульфатный шлам-лигнин, техногенные серосодержащие соединения).
+
+#### 2. Консервативное ядро / пересечение ($A \cap B$)
+* **Физический смысл:** Поиск соединений, присутствующих **одновременно** в обоих образцах в пределах заданного допуска $ppm$.
+* **Результат:** Выделение устойчивого природного гуминового скелета (NOM), инвариантного к внешним факторам.
+
+#### 3. Симметрическая разность ($A \oplus B$) и объединение ($A \cup B$)
+* **$A \oplus B$:** Компоненты, уникальные либо для $A$, либо для $B$ (химическая дивергенция составов).
+* **$A \cup B$:** Полная композитная карта молекулярного разнообразия экосистемы.
+
+---
+
+#### 📐 Параметры и метрики:
+* **Допуск сопоставления ($\text{ppm}$):** Окно поиска по $m/z$ ($\Delta m = m \cdot \text{ppm} \cdot 10^{-6}$). Для FT-ICR MS стандартно $1.0 - 2.0\text{ ppm}$.
+* **Индекс Жаккара ($J$):** Степень совпадения компонентного состава ($J = \frac{|A \cap B|}{|A \cup B|}$, от 0 до 1).
+* **Косинусное сходство ($\cos \theta$):** Сходство профилей относительных интенсивностей общих пиков.
+""" if lang == "ru" else r"""
+### 🔬 Why Spectrum Algebra Matters in Environmental Analysis?
+
+In high-resolution mass spectrometry of natural waters (Lake Baikal) and industrial impacts (kraft pulp mill sludge lignin), spectra contain thousands of peaks. Spectrum algebra provides rigorous set-theoretic operations to isolate background NOM from anthropogenic tracers:
+
+---
+
+#### 1. Blank Subtraction & Difference ($A \setminus B$)
+* **Physical Meaning:** Removing baseline solvent/background water signals from an impacted sample.
+* **Result:** Yields **only unique tracers** specific to lignin contamination.
+
+#### 2. Conservative Core / Intersection ($A \cap B$)
+* **Physical Meaning:** Identifies compounds shared by both samples within the specified $ppm$ tolerance.
+* **Result:** Isolates resilient natural organic matter (NOM) background.
+
+#### 3. Symmetric Difference ($A \oplus B$) & Union ($A \cup B$)
+* **$A \oplus B$:** Components unique to either sample (chemical divergence).
+* **$A \cup B$:** Composite molecular map of the aquatic system.
+
+---
+
+#### 📐 Metrics & Parameters:
+* **Matching Tolerance ($\text{ppm}$):** $m/z$ alignment window (typically $1.0 - 2.0\text{ ppm}$).
+* **Jaccard Similarity ($J$):** Compositional overlap ($J = \frac{|A \cap B|}{|A \cup B|}$).
+* **Cosine Similarity ($\cos \theta$):** Spectral profile intensity vector similarity.
+""")
+
         all_spectra_list = list(st.session_state.get("spectra_db", {}).keys())
         if len(all_spectra_list) < 2:
             st.info(T[lang]["cmp_need_two"])
         else:
+            cmp_tab_choice = st.radio(
+                "Раздел / Mode:",
+                [T[lang]["cmp_subtab_view"], T[lang]["cmp_subtab_sub"], T[lang]["cmp_subtab_algebra"]],
+                horizontal=True,
+                key="cmp_internal_mode",
+            )
+
             col_s1, col_s2, col_s3 = st.columns([2, 2, 1.5])
-            with col_s1: name_a = st.selectbox(T[lang]["cmp_spec_a"], all_spectra_list, index=0, key="cmp_spec_a")
-            with col_s2: name_b = st.selectbox(T[lang]["cmp_spec_b"], all_spectra_list, index=1 if len(all_spectra_list) > 1 else 0, key="cmp_spec_b")
-            with col_s3: tol_comp = st.number_input(T[lang]["cmp_tol"], min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
+            with col_s1:
+                name_a = st.selectbox(T[lang]["cmp_spec_a"], all_spectra_list, index=0, key="cmp_spec_a")
+            with col_s2:
+                default_b_idx = 1 if len(all_spectra_list) > 1 else 0
+                name_b = st.selectbox(T[lang]["cmp_spec_b"], all_spectra_list, index=default_b_idx, key="cmp_spec_b")
+            with col_s3:
+                tol_comp = st.number_input(T[lang]["cmp_tol"], min_value=0.1, max_value=5.0, value=1.5, step=0.1, key="cmp_ppm_tol")
 
-            sample_a, sample_b = st.session_state["spectra_db"][name_a], st.session_state["spectra_db"][name_b]
-            peaks_a, peaks_b = ensure_sample_peaks(sample_a), ensure_sample_peaks(sample_b)
+            sample_a = st.session_state["spectra_db"][name_a]
+            sample_b = st.session_state["spectra_db"][name_b]
 
-            if peaks_a is not None and not peaks_a.empty and peaks_b is not None and not peaks_b.empty and name_a != name_b:
+            peaks_a = ensure_sample_peaks(sample_a)
+            peaks_b = ensure_sample_peaks(sample_b)
+
+            if peaks_a is None or peaks_a.empty or peaks_b is None or peaks_b.empty:
+                st.warning("One of the selected samples is empty or could not be parsed." if lang == "en" else "Один из выбранных образцов пуст или не содержит числовых данных пиков.")
+            elif name_a == name_b:
+                st.warning("Same sample selected for comparison!" if lang == "en" else "Выбран один и тот же образец для сравнения!")
+            else:
                 m_a, m_b = align_two_spectra_fast(peaks_a, peaks_b, ppm_tol=tol_comp)
-                n_a, n_b, n_common = len(peaks_a), len(peaks_b), len(m_a)
+                n_a = len(peaks_a)
+                n_b = len(peaks_b)
+                n_common = len(m_a)
                 jaccard = n_common / (n_a + n_b - n_common) if (n_a + n_b - n_common) > 0 else 0.0
 
-                m1, m2, m3 = st.columns(3)
-                m1.metric(f"Peaks in {name_a}", f"{n_a:,}")
-                m2.metric(f"Peaks in {name_b}", f"{n_b:,}")
-                m3.metric(T[lang]["cmp_common"], f"{n_common:,}", delta=T[lang]["cmp_jaccard"].format(val=jaccard))
+                if n_common > 0:
+                    ia_sub = peaks_a.iloc[m_a]["intensity"].values
+                    ib_sub = peaks_b.iloc[m_b]["intensity"].values
+                    dot_prod = float(np.dot(ia_sub, ib_sub))
+                    norm_a = float(np.linalg.norm(peaks_a["intensity"].values))
+                    norm_b = float(np.linalg.norm(peaks_b["intensity"].values))
+                    cos_sim = dot_prod / (norm_a * norm_b) if (norm_a * norm_b) > 0 else 0.0
+                else:
+                    cos_sim = 0.0
 
-                op_choice = st.selectbox("Спектральная алгебра / Operation:", ["and", "or", "sub_a_b", "sub_b_a", "xor"])
-                if st.button("🚀 Выполнить операцию" if lang == "ru" else "🚀 Execute Algebra", type="primary"):
-                    alg_df = perform_spectral_algebra(peaks_a, peaks_b, operation=op_choice, ppm_tol=tol_comp)
-                    if not alg_df.empty:
-                        alg_df["norm_intensity"] = (alg_df["intensity"] / alg_df["intensity"].max()) * 100.0
-                        new_alg_name = f"{name_a}_{op_choice}_{name_b}.csv"
-                        fpath_alg = os.path.join(STORAGE_DIR, new_alg_name)
-                        alg_df.to_csv(fpath_alg, sep="\t", index=False)
-                        st.session_state["spectra_db"][new_alg_name] = {
-                            "raw_path": fpath_alg, "file_bytes": alg_df.to_csv(sep="\t", index=False).encode("utf-8"),
-                            "parsed_peaks": alg_df, "assigned_df": None, "raw_df": alg_df,
-                        }
-                        st.success(f"Создан спектр: {new_alg_name} ({len(alg_df)} пиков)")
-                        st.rerun()
+                # 1. Обычное сравнение (A vs B)
+                if cmp_tab_choice == T[lang]["cmp_subtab_view"]:
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric(f"Peaks in {name_a}" if lang == "en" else f"Пиков в {name_a}", f"{n_a:,}")
+                    m2.metric(f"Peaks in {name_b}" if lang == "en" else f"Пиков в {name_b}", f"{n_b:,}")
+                    m3.metric(T[lang]["cmp_common"], f"{n_common:,}", delta=T[lang]["cmp_jaccard"].format(val=jaccard))
+                    m4.metric(T[lang]["cmp_cosine"], f"{cos_sim:.4f}")
+
+                    assigned_a = sample_a.get("assigned_df")
+                    assigned_b = sample_b.get("assigned_df")
+
+                    if assigned_a is not None and not assigned_a.empty:
+                        st.markdown("##### " + (f"Comparative Van Krevelen: {name_a} vs {name_b}" if lang == "en" else f"Сравнительная диаграмма Ван-Кревелена: {name_a} vs {name_b}"))
+                        common_masses = set(peaks_a.iloc[m_a]["mass"].round(4))
+
+                        assigned_a_common = assigned_a[assigned_a["mass"].round(4).isin(common_masses)]
+                        assigned_a_unique = assigned_a[~assigned_a["mass"].round(4).isin(common_masses)]
+
+                        fig_cmp_inter = go.Figure()
+                        if not assigned_a_common.empty:
+                            fig_cmp_inter.add_trace(go.Scattergl(
+                                x=assigned_a_common["O/C"],
+                                y=assigned_a_common["H/C"],
+                                mode="markers",
+                                name=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)),
+                                marker=dict(color="#7F7F7F", size=3.0, opacity=0.45),
+                            ))
+
+                        if not assigned_a_unique.empty:
+                            fig_cmp_inter.add_trace(go.Scattergl(
+                                x=assigned_a_unique["O/C"],
+                                y=assigned_a_unique["H/C"],
+                                mode="markers",
+                                name=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)),
+                                marker=dict(color="#0020C2", size=3.5, opacity=0.75),
+                            ))
+
+                        if assigned_b is not None and not assigned_b.empty:
+                            assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
+                            if not assigned_b_unique.empty:
+                                fig_cmp_inter.add_trace(go.Scattergl(
+                                    x=assigned_b_unique["O/C"],
+                                    y=assigned_b_unique["H/C"],
+                                    mode="markers",
+                                    name=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)),
+                                    marker=dict(color="#2CA02C", size=3.5, opacity=0.75),
+                                ))
+
+                        fig_cmp_inter.update_layout(
+                            xaxis=dict(title=T[lang]["oc_axis"], range=[0.0, 1.0], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                            yaxis=dict(title=T[lang]["hc_axis"], range=[0.2, 2.2], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                            plot_bgcolor="white",
+                            height=580,
+                            margin=dict(l=45, r=30, t=30, b=40),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        )
+                        st.caption(T[lang]["nav_caption"])
+                        st_plotly(fig_cmp_inter)
+
+                        fig_cmp_mpl, ax_cmp_mpl = plt.subplots(figsize=(12, 7.5), dpi=150)
+                        if not assigned_a_common.empty:
+                            ax_cmp_mpl.scatter(assigned_a_common["O/C"], assigned_a_common["H/C"], c="#7F7F7F",
+                                               label=T[lang]["cmp_common_label"].format(n=len(assigned_a_common)), s=2.0, alpha=0.4, edgecolors="none", rasterized=True)
+                        if not assigned_a_unique.empty:
+                            ax_cmp_mpl.scatter(assigned_a_unique["O/C"], assigned_a_unique["H/C"], c="#0020C2",
+                                               label=T[lang]["cmp_unique_a"].format(name=name_a, n=len(assigned_a_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+                        if assigned_b is not None and not assigned_b.empty:
+                            assigned_b_unique = assigned_b[~assigned_b["mass"].round(4).isin(common_masses)]
+                            if not assigned_b_unique.empty:
+                                ax_cmp_mpl.scatter(assigned_b_unique["O/C"], assigned_b_unique["H/C"], c="#2CA02C",
+                                                   label=T[lang]["cmp_unique_b"].format(name=name_b, n=len(assigned_b_unique)), s=2.2, alpha=0.75, edgecolors="none", rasterized=True)
+
+                        ax_cmp_mpl.set_xlim(0.0, 1.0)
+                        ax_cmp_mpl.set_ylim(0.2, 2.2)
+                        ax_cmp_mpl.set_xlabel(T[lang]["oc_axis"], fontsize=11, fontweight="medium")
+                        ax_cmp_mpl.set_ylabel(T[lang]["hc_axis"], fontsize=11, fontweight="medium")
+                        ax_cmp_mpl.set_title(f"Comparative Analysis: {name_a} vs {name_b}", fontsize=11)
+                        ax_cmp_mpl.legend(loc="upper right", frameon=True, framealpha=0.9, markerscale=3)
+                        ax_cmp_mpl.grid(True, linestyle="--", linewidth=0.5, alpha=0.3, color="gray")
+                        plt.tight_layout()
+
+                        get_plot_download_buttons(fig_cmp_mpl, f"compare_{name_a}_vs_{name_b}_vk", lang)
+                        plt.close(fig_cmp_mpl)
+
+                    st.markdown("##### " + T[lang]["cmp_mirror_title"])
+                    ia_norm = (peaks_a["intensity"] / max(1e-12, float(peaks_a["intensity"].max()))) * 100.0
+                    ib_norm = (peaks_b["intensity"] / max(1e-12, float(peaks_b["intensity"].max()))) * 100.0
+
+                    ma = peaks_a["mass"].values
+                    mb = peaks_b["mass"].values
+
+                    x_a = np.empty(len(ma) * 3)
+                    y_a = np.empty(len(ma) * 3)
+                    x_a[0::3] = ma
+                    x_a[1::3] = ma
+                    x_a[2::3] = None
+                    y_a[0::3] = 0
+                    y_a[1::3] = ia_norm
+                    y_a[2::3] = None
+
+                    x_b = np.empty(len(mb) * 3)
+                    y_b = np.empty(len(mb) * 3)
+                    x_b[0::3] = mb
+                    x_b[1::3] = mb
+                    x_b[2::3] = None
+                    y_b[0::3] = 0
+                    y_b[1::3] = -ib_norm
+                    y_b[2::3] = None
+
+                    fig_mir_inter = go.Figure()
+                    fig_mir_inter.add_trace(go.Scattergl(x=x_a, y=y_a, mode="lines", line=dict(color="#0020C2", width=1.1), name=f"{name_a} (+)"))
+                    fig_mir_inter.add_trace(go.Scattergl(x=x_b, y=y_b, mode="lines", line=dict(color="#2CA02C", width=1.1), name=f"{name_b} (-)"))
+                    fig_mir_inter.update_layout(
+                        xaxis=dict(title=T[lang]["mz_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        yaxis=dict(title=T[lang]["rel_int_axis"], gridcolor="#f1f3f5", zerolinecolor="#ced4da"),
+                        plot_bgcolor="white",
+                        height=480,
+                        margin=dict(l=45, r=30, t=30, b=40),
+                    )
+                    st.caption(T[lang]["nav_caption"])
+                    st_plotly(fig_mir_inter)
+
+                    fig_mir_mpl, ax_mir_mpl = plt.subplots(figsize=(12, 5), dpi=150)
+                    ax_mir_mpl.vlines(peaks_a["mass"], 0, ia_norm, color="#0020C2", linewidth=0.6, alpha=0.7, label=f"{name_a} (+)")
+                    ax_mir_mpl.vlines(peaks_b["mass"], 0, -ib_norm, color="#2CA02C", linewidth=0.6, alpha=0.7, label=f"{name_b} (-)")
+                    ax_mir_mpl.axhline(0, color="black", linewidth=0.8)
+                    ax_mir_mpl.set_xlabel(T[lang]["mz_axis"], fontsize=11)
+                    ax_mir_mpl.set_ylabel(T[lang]["rel_int_axis"], fontsize=10)
+                    ax_mir_mpl.legend(loc="upper right")
+                    plt.tight_layout()
+
+                    get_plot_download_buttons(fig_mir_mpl, f"head_to_tail_{name_a}_vs_{name_b}", lang)
+                    plt.close(fig_mir_mpl)
+
+                # 2. Вычитание бланка (int_sub)
+                elif cmp_tab_choice == T[lang]["cmp_subtab_sub"]:
+                    st.markdown(f"#### {T[lang]['cmp_subtab_sub']}")
+                    st.write(f"Образец: **{name_a}** | Холостая проба (Бланк): **{name_b}**" if lang == "ru" else f"Sample: **{name_a}** | Blank: **{name_b}**")
+                    sub_factor = st.slider(T[lang]["sub_factor_label"], min_value=0.1, max_value=3.0, value=1.0, step=0.05)
+
+                    if st.button(T[lang]["sub_btn"], type="primary"):
+                        sub_peaks = peaks_a.copy().reset_index(drop=True)
+                        matched_dict = dict(zip(m_a, m_b))
+
+                        new_ints = []
+                        for idx_a_row in range(len(sub_peaks)):
+                            orig_int = sub_peaks.loc[idx_a_row, "intensity"]
+                            if idx_a_row in matched_dict:
+                                idx_b_row = matched_dict[idx_a_row]
+                                blank_int = peaks_b.iloc[idx_b_row]["intensity"]
+                                res_int = max(0.0, float(orig_int - sub_factor * blank_int))
+                            else:
+                                res_int = float(orig_int)
+                            new_ints.append(res_int)
+
+                        sub_peaks["intensity"] = new_ints
+                        clean_sub_df = sub_peaks[sub_peaks["intensity"] > 0].copy().reset_index(drop=True)
+                        if clean_sub_df.empty:
+                            st.warning("В результате вычитания все пики были обнулены." if lang == "ru" else "All peaks were subtracted to zero.")
+                        else:
+                            clean_sub_df["norm_intensity"] = (clean_sub_df["intensity"] / clean_sub_df["intensity"].max()) * 100.0
+                            new_sample_name = f"{name_a}_sub_{name_b}.csv"
+                            fpath_sub = os.path.join(STORAGE_DIR, new_sample_name)
+                            clean_sub_df.to_csv(fpath_sub, sep="\t", index=False)
+
+                            st.session_state["spectra_db"][new_sample_name] = {
+                                "raw_path": fpath_sub,
+                                "file_bytes": clean_sub_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                                "parsed_peaks": clean_sub_df,
+                                "assigned_df": None,
+                                "raw_df": clean_sub_df,
+                            }
+                            st.success(T[lang]["sub_success"].format(name=new_sample_name, n=len(clean_sub_df)))
+                            st.rerun()
+
+                # 3. Алгебра спектров и диаграмма Венна
+                else:
+                    st.markdown(f"#### {T[lang]['cmp_subtab_algebra']}")
+                    op_choice = st.selectbox(
+                        T[lang]["alg_op_label"],
+                        [
+                            ("and", T[lang]["alg_and"]),
+                            ("or", T[lang]["alg_or"]),
+                            ("sub_a_b", T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_a_b"] else f"{T[lang]["alg_sub_a_b"]} ({name_a} \\ {name_b})"),
+                            ("sub_b_a", T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_b_a"] else f"{T[lang]["alg_sub_b_a"]} ({name_b} \\ {name_a})"),
+                            ("xor", T[lang]["alg_xor"]),
+                        ],
+                        format_func=lambda x: x[1],
+                    )
+
+                    # Построение диаграммы Венна (Matplotlib Circles)
+                    fig_v, ax_v = plt.subplots(figsize=(8, 4.5), dpi=150)
+                    c_a = patches.Circle((0.35, 0.5), 0.3, facecolor="#0020C2", alpha=0.4, edgecolor="black", linewidth=1.5)
+                    c_b = patches.Circle((0.65, 0.5), 0.3, facecolor="#2CA02C", alpha=0.4, edgecolor="black", linewidth=1.5)
+                    ax_v.add_patch(c_a)
+                    ax_v.add_patch(c_b)
+
+                    n_uniq_a = n_a - n_common
+                    n_uniq_b = n_b - n_common
+
+                    ax_v.text(0.22, 0.5, f"{name_a[:15]}\n\n{n_uniq_a:,}", ha="center", va="center", fontsize=11, fontweight="bold")
+                    ax_v.text(0.78, 0.5, f"{name_b[:15]}\n\n{n_uniq_b:,}", ha="center", va="center", fontsize=11, fontweight="bold")
+                    ax_v.text(0.50, 0.5, f"A ∩ B\n\n{n_common:,}", ha="center", va="center", fontsize=11, fontweight="bold", color="#800000")
+
+                    ax_v.set_xlim(0, 1)
+                    ax_v.set_ylim(0.1, 0.9)
+                    ax_v.axis("off")
+                    ax_v.set_title(T[lang]["venn_title"].format(tol=tol_comp), fontsize=12, pad=10)
+                    plt.tight_layout()
+                    st.pyplot(fig_v)
+                    get_plot_download_buttons(fig_v, f"venn_{name_a}_vs_{name_b}", lang)
+                    plt.close(fig_v)
+
+                    if st.button(T[lang]["alg_btn"], type="primary"):
+                        alg_df = perform_spectral_algebra(peaks_a, peaks_b, operation=op_choice[0], ppm_tol=tol_comp)
+                        if alg_df.empty:
+                            st.warning("В результате операции пики не найдены." if lang == "ru" else "No peaks resulted from this operation.")
+                        else:
+                            alg_df["norm_intensity"] = (alg_df["intensity"] / alg_df["intensity"].max()) * 100.0
+                            new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
+                            fpath_alg = os.path.join(STORAGE_DIR, new_alg_name)
+                            alg_df.to_csv(fpath_alg, sep="\t", index=False)
+
+                            st.session_state["spectra_db"][new_alg_name] = {
+                                "raw_path": fpath_alg,
+                                "file_bytes": alg_df.to_csv(sep="\t", index=False).encode("utf-8"),
+                                "parsed_peaks": alg_df,
+                                "assigned_df": None,
+                                "raw_df": alg_df,
+                            }
+                            st.success(T[lang]["alg_success"].format(name=new_alg_name, n=len(alg_df)))
+                            st.rerun()
+
+    # 8. TMDS
 
     with st_sub_tmds:
         st.subheader(f"{T[lang]['tab_tmds']}: {active_spectrum_name if active_spectrum_name else ''}")
@@ -963,6 +1340,12 @@ def render_fticr_studio(T: dict, lang: str):
             c3.metric("O/C (Mn)", f"{assigned_data['O/C'].mean():.3f}")
             c4.metric(T[lang]["desc_ai"], f"{assigned_data['AI'].mean():.3f}")
 
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric(T[lang]["desc_mw"], f"{np.average(assigned_data['mass'], weights=assigned_data['intensity']):.2f} Da" if "intensity" in assigned_data.columns and assigned_data["intensity"].sum() > 0 else f"{assigned_data['mass'].mean():.2f} Da")
+            c6.metric(T[lang]["desc_dbe"], f"{assigned_data['DBE'].mean():.2f}")
+            c7.metric("NOSC", f"{assigned_data['NOSC'].mean():.3f}" if "NOSC" in assigned_data.columns else "N/A")
+            c8.metric("DBE - O", f"{(assigned_data['DBE'] - assigned_data['O']).mean():.2f}")
+
         st.markdown("---")
         st.write(f"### {T[lang]['batch_desc_title']}")
         assigned_spectra_all = {
@@ -978,7 +1361,23 @@ def render_fticr_studio(T: dict, lang: str):
             if batch_rows:
                 batch_df = pd.DataFrame(batch_rows)
                 st_df(batch_df)
-                st.download_button(
-                    label=T[lang]["batch_desc_dl_csv"], data=batch_df.to_csv(index=False).encode("utf-8"),
-                    file_name="ChemoSuite_Batch_FTICR_Descriptors.csv", mime="text/csv", key="dl_batch_desc_csv"
-                )
+                col_dl_b1, col_dl_b2 = st.columns([1, 1])
+                with col_dl_b1:
+                    st.download_button(
+                        label=T[lang]["batch_desc_dl_csv"],
+                        data=batch_df.to_csv(index=False).encode("utf-8"),
+                        file_name="ChemoSuite_Batch_FTICR_Descriptors.csv",
+                        mime="text/csv",
+                        key="dl_batch_desc_csv",
+                    )
+                with col_dl_b2:
+                    excel_buf = io.BytesIO()
+                    with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+                        batch_df.to_excel(writer, index=False, sheet_name="FTICR_Descriptors")
+                    st.download_button(
+                        label=T[lang]["batch_desc_dl_excel"] if "batch_desc_dl_excel" in T[lang] else "📊 Скачать Excel (.xlsx)",
+                        data=excel_buf.getvalue(),
+                        file_name="ChemoSuite_Batch_FTICR_Descriptors.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_batch_desc_excel",
+                    )
