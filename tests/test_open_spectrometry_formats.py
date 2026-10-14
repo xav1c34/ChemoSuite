@@ -93,3 +93,9 @@ def test_export_mztab_m():
     assert "C15H18O7" in mztab_str
     assert "C20H24O10" in mztab_str
     assert "2.45" in mztab_str
+
+    # Test flexible signature with DataFrame first and sample_id
+    mztab_str2 = export_mztab_m(df_features, sample_id="Spec_Sample_A")
+    assert "MTD\tmzTab-version\t2.0.0-M" in mztab_str2
+    assert "Spec_Sample_A" in mztab_str2
+    assert "C15H18O7" in mztab_str2

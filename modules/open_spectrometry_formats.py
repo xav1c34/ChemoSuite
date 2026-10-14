@@ -13,7 +13,7 @@ import zlib
 import base64
 import struct
 import xml.etree.ElementTree as ET
-from typing import Dict, Any, Tuple, Optional, List
+from typing import Dict, Any, Tuple, Optional, List, Union
 import numpy as np
 import pandas as pd
 
@@ -183,29 +183,57 @@ def parse_jcamp_dx(content: str) -> Dict[str, Any]:
 
 
 def export_mztab_m(
-    metadata: Dict[str, Any],
-    features_df: pd.DataFrame
+    arg1: Any = None,
+    arg2: Any = None,
+    *,
+    sample_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    features_df: Optional[pd.DataFrame] = None,
+    **kwargs: Any,
 ) -> str:
     """
     Generate Metabolomics Standards Initiative (MSI) compliant mzTab-M table.
 
-    Parameters:
-    -----------
-    metadata: dict with study info (project name, description, author).
-    features_df: DataFrame with compound features (formula, mz, score, vip, etc.).
-
-    Returns:
-    --------
-    Formatted mzTab-M string.
+    Flexibly accepts:
+    - export_mztab_m(metadata, features_df)
+    - export_mztab_m(features_df, sample_id="...")
+    - export_mztab_m(features_df, metadata)
+    - export_mztab_m(features_df=df, sample_id=...)
     """
+    actual_meta: Dict[str, Any] = {}
+    actual_df: Optional[pd.DataFrame] = None
+
+    if isinstance(arg1, pd.DataFrame):
+        actual_df = arg1
+        if isinstance(arg2, dict):
+            actual_meta = dict(arg2)
+    elif isinstance(arg1, dict):
+        actual_meta = dict(arg1)
+        if isinstance(arg2, pd.DataFrame):
+            actual_df = arg2
+
+    if features_df is not None:
+        actual_df = features_df
+    if metadata is not None:
+        actual_meta.update(metadata)
+
+    if sample_id:
+        actual_meta.setdefault("sample_id", sample_id)
+        if "description" not in actual_meta:
+            actual_meta["description"] = f"ChemoSuite Multi-Modal Spectrometry Export - {sample_id}"
+
+    if actual_df is None:
+        actual_df = pd.DataFrame()
+
     out = io.StringIO()
 
     # 1. MTD Section (Metadata)
     out.write("MTD\tmzTab-version\t2.0.0-M\n")
     out.write("MTD\tmzTab-mode\tSummary\n")
     out.write("MTD\tmzTab-type\tIdentification\n")
-    out.write(f"MTD\tdescription\t{metadata.get('description', 'ChemoSuite Multi-Modal Spectrometry Analysis')}\n")
-    out.write(f"MTD\tsoftware[1]\t[MS, MS:1003100, ChemoSuite Pro, 3.1.0]\n")
+    desc = actual_meta.get("description") or f"ChemoSuite Export for {actual_meta.get('sample_id', 'Sample')}"
+    out.write(f"MTD\tdescription\t{desc}\n")
+    out.write("MTD\tsoftware[1]\t[MS, MS:1003100, ChemoSuite Pro, 3.1.0]\n")
 
     # 2. SML Section (Small Molecule Summary header)
     headers = [
@@ -220,19 +248,24 @@ def export_mztab_m(
     out.write("SMH\t" + "\t".join(headers) + "\n")
 
     # 3. SML Rows
-    for idx, row in features_df.iterrows():
+    for idx, row in actual_df.iterrows():
         sml_id = str(idx + 1)
         formula = str(row.get("Formula", row.get("formula", "N/A")))
         smiles = str(row.get("SMILES", row.get("smiles", "N/A")))
-        mass = str(row.get("m/z", row.get("exact_mass", "0.0")))
-        score = str(round(float(row.get("VIP", row.get("concordance_score", 1.0))), 3))
+        mass = str(row.get("m/z", row.get("mz", row.get("mass", row.get("theor_mass", row.get("exact_mass", "0.0"))))))
+        adduct = str(row.get("adduct", "[M-H]-"))
+        raw_score = row.get("VIP", row.get("concordance_score", row.get("reliability_score", 1.0)))
+        try:
+            score = str(round(float(raw_score), 3))
+        except (ValueError, TypeError):
+            score = "1.0"
 
         row_data = [
             sml_id,
             formula,
             smiles,
             mass,
-            "[M-H]-",
+            adduct,
             "1",
             score
         ]
