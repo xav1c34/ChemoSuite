@@ -246,7 +246,7 @@ def test_format_groq_error_401():
 
 @patch("requests.post")
 def test_max_tokens_clamping(mock_post):
-    """Verifies that requested max_tokens is clamped to <= 800 to prevent Groq OTPM rejections."""
+    """Verifies that requested max_tokens is clamped sensibly per model architecture."""
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -257,11 +257,12 @@ def test_max_tokens_clamping(mock_post):
     chemo_agent.call_groq_chat(
         messages=[{"role": "user", "content": "ping"}],
         api_key="gsk_test_key",
+        model="qwen/qwen3.8-27b",
         max_tokens=4096,  # Intentionally large
     )
 
     call_kwargs = mock_post.call_args.kwargs
     sent_payload = call_kwargs["json"]
-    assert sent_payload["max_tokens"] <= 800
+    assert sent_payload["max_tokens"] <= 1200
 
 

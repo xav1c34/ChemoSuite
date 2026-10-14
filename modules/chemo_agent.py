@@ -153,7 +153,21 @@ def normalize_latex(text: str) -> str:
     return text
 
 
-DEFAULT_MAX_TOKENS = 768
+DEFAULT_MAX_TOKENS = 1200
+
+
+def _get_model_max_tokens(model: str, requested: Optional[int] = None) -> int:
+    """
+    Returns optimal token budget:
+    - Reasoning models (e.g. gpt-oss-120b, gpt-oss-20b) generate hidden/chain-of-thought
+      reasoning tokens that consume the output budget. They need 1500-2048 tokens.
+    - Direct generation models (e.g. qwen3.8-27b) output 100% visible tokens and thrive on 1000-1200 tokens,
+      comfortably avoiding token starvation and rate limits.
+    """
+    m = model.lower() if model else ""
+    if "gpt-oss" in m:
+        return min(int(requested or 2048), 2048)
+    return min(int(requested or 1200), 1200)
 
 
 def format_groq_error(status_code: int, raw_text: str) -> str:
@@ -226,7 +240,7 @@ def call_groq_chat(
     """
     Sends chat completion request to Groq API via standard HTTP POST.
     Automatically falls back to DEFAULT_MODEL if model returns 404.
-    Clamps max_tokens <= 800 to prevent on-demand OTPM limit (1000) rejections.
+    Self-heals on OTPM 429 errors by dynamically scaling down max_tokens.
     """
     resolved_key = get_groq_api_key(api_key)
     if not resolved_key:
@@ -242,7 +256,7 @@ def call_groq_chat(
         "Content-Type": "application/json",
     }
 
-    clamped_tokens = min(int(max_tokens or DEFAULT_MAX_TOKENS), 800)
+    clamped_tokens = _get_model_max_tokens(target_model, max_tokens)
     payload = {
         "model": target_model,
         "messages": messages,
@@ -256,7 +270,17 @@ def call_groq_chat(
         if response.status_code == 404 and target_model != DEFAULT_MODEL:
             logger.warning("Groq model %s returned 404, falling back to %s", target_model, DEFAULT_MODEL)
             payload["model"] = DEFAULT_MODEL
+            payload["max_tokens"] = _get_model_max_tokens(DEFAULT_MODEL, max_tokens)
             response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
+
+        # Self-heal on OTPM 429 if Groq reports a lower token limit
+        if response.status_code == 429 and "limit" in response.text.lower():
+            m_limit = re.search(r"Limit\s+(\d+)", response.text, re.IGNORECASE)
+            if m_limit and payload["max_tokens"] > 750:
+                safe_limit = max(int(m_limit.group(1)) - 50, 600)
+                logger.warning("Groq OTPM limit exceeded. Retrying with reduced max_tokens=%d", safe_limit)
+                payload["max_tokens"] = safe_limit
+                response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
 
         if response.status_code == 200:
             data = response.json()
@@ -292,12 +316,12 @@ def stream_groq_chat(
     model: str = DEFAULT_MODEL,
     temperature: float = 0.2,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    timeout: float = 40.0,
+    timeout: float = 60.0,
 ) -> Generator[str, None, None]:
     """
-    Streams response tokens from Groq API in real-time.
+    Streams response tokens from Groq API in real-time with resilient connection handling.
     Automatically falls back to DEFAULT_MODEL if model returns 404.
-    Clamps max_tokens <= 800 to prevent on-demand OTPM limit (1000) rejections.
+    Recovers from OTPM rate limits and handles unexpected socket drops gracefully.
     """
     resolved_key = get_groq_api_key(api_key)
     if not resolved_key:
@@ -308,9 +332,11 @@ def stream_groq_chat(
     headers = {
         "Authorization": f"Bearer {resolved_key}",
         "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Cache-Control": "no-cache",
     }
 
-    clamped_tokens = min(int(max_tokens or DEFAULT_MAX_TOKENS), 800)
+    clamped_tokens = _get_model_max_tokens(target_model, max_tokens)
     payload = {
         "model": target_model,
         "messages": messages,
@@ -320,35 +346,74 @@ def stream_groq_chat(
         "stream": True,
     }
 
+    response = None
+    yielded_any = False
+    finish_reason = None
     try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout, stream=True)
+        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
         if response.status_code == 404 and target_model != DEFAULT_MODEL:
             logger.warning("Groq stream model %s returned 404, falling back to %s", target_model, DEFAULT_MODEL)
             payload["model"] = DEFAULT_MODEL
-            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout, stream=True)
+            payload["max_tokens"] = _get_model_max_tokens(DEFAULT_MODEL, max_tokens)
+            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
+
+        # Self-heal on OTPM 429 if Groq reports a lower limit
+        if response.status_code == 429 and "limit" in response.text.lower():
+            m_limit = re.search(r"Limit\s+(\d+)", response.text, re.IGNORECASE)
+            if m_limit and payload["max_tokens"] > 750:
+                safe_limit = max(int(m_limit.group(1)) - 50, 600)
+                logger.warning("Groq stream OTPM limit exceeded. Retrying with max_tokens=%d", safe_limit)
+                payload["max_tokens"] = safe_limit
+                response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
 
         if response.status_code != 200:
             yield format_groq_error(response.status_code, response.text)
             return
 
-        for line in response.iter_lines():
+        for line in response.iter_lines(decode_unicode=True):
             if not line:
                 continue
-            line_str = line.decode("utf-8")
+            line_str = line if isinstance(line, str) else line.decode("utf-8", errors="replace")
             if line_str.startswith("data: "):
                 data_part = line_str[6:].strip()
                 if data_part == "[DONE]":
                     break
                 try:
                     chunk_json = json.loads(data_part)
-                    delta = chunk_json.get("choices", [{}])[0].get("delta", {})
-                    token = delta.get("content", "")
-                    if token:
-                        yield token
                 except Exception:
                     continue
+
+                if "error" in chunk_json:
+                    err_text = chunk_json.get("error", {}).get("message", str(chunk_json["error"]))
+                    yield f"\n\n{format_groq_error(429 if 'rate' in err_text.lower() else 500, json.dumps(chunk_json))}"
+                    return
+
+                c0 = chunk_json.get("choices", [{}])[0]
+                if c0.get("finish_reason"):
+                    finish_reason = c0.get("finish_reason")
+                delta = c0.get("delta", {})
+                token = delta.get("content", "")
+                if token:
+                    yield token
+                    yielded_any = True
+
+        if finish_reason == "length":
+            yield "\n\n*(Ответ был ограничен лимитом токенов модели. Вы можете написать: «Продолжи»)*"
     except Exception as exc:
-        yield f"❌ **Ошибка сети:** {str(exc)}"
+        err_str = str(exc)
+        logger.warning("Groq stream ended with exception: %s", err_str)
+        # If tokens were already yielded and socket closed (e.g. unexpected EOF / IncompleteRead)
+        if yielded_any and any(k in err_str.lower() for k in ["eof", "incompleteread", "connection broken", "chunked"]):
+            if finish_reason != "length":
+                yield "\n\n*(Генерация завершена сервером)*"
+        else:
+            yield f"\n\n❌ **Ошибка сети:** {err_str}"
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
 
 def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], lang: str = "ru") -> str:
@@ -503,8 +568,8 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
 
     lines.append("")
     if lang == "ru":
-        lines.append("**Задача:** Дай краткое экспертное заключение (2–3 емких абзаца): вероятный генезис (природное РОВ / торф / шлам-лигнин / сток), степень окисления/ароматизации и ключевые маркеры трансформации.")
+        lines.append("**Задача:** Дай краткое экспертное заключение строго в 2–3 абзаца (до 250 слов): вероятный генезис (природное РОВ / торф / шлам-лигнин / сток), степень окисления/ароматизации и ключевые маркеры трансформации. Обязательно закончи вывод кратким резюме.")
     else:
-        lines.append("**Task:** Provide a concise expert interpretation (2–3 short paragraphs): likely geochemical origin, oxidation/aromaticity state, and transformation markers.")
+        lines.append("**Task:** Provide a concise expert interpretation in strictly 2–3 short paragraphs (under 250 words): likely geochemical origin, oxidation/aromaticity state, and transformation markers. Conclude with a clear brief takeaway.")
 
     return "\n".join(lines)
