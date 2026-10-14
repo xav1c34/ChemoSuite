@@ -174,104 +174,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.markdown(
-    """
-    <style>
-    /* Компактный заголовок ChemoSuite */
-    .platform-header-compact {
-        background: linear-gradient(135deg, #091e36 0%, #103763 60%, #1a4f8b 100%);
-        padding: 10px 18px;
-        border-radius: 10px;
-        color: white;
-        margin-bottom: 14px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.12);
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-    .platform-header-compact h2 {
-        color: #ffffff;
-        font-size: 19px;
-        margin: 0;
-        font-weight: 700;
-        letter-spacing: -0.3px;
-        line-height: 1.25;
-    }
-    .platform-header-compact p {
-        color: #9cbdd9;
-        margin: 2px 0 0 0;
-        font-size: 11.5px;
-        letter-spacing: 0.1px;
-    }
-    .header-badge-container {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-    }
-    .header-badge {
-        background: rgba(255, 255, 255, 0.14);
-        padding: 3px 8px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 500;
-        color: #e2edff;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .metric-card {
-        background-color: #f8f9fa;
-        border-radius: 8px;
-        padding: 12px 15px;
-        border-left: 4px solid #2e7bcf;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.07);
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 7px 14px;
-        border-radius: 6px;
-        font-size: 13.5px;
-    }
-    /* Панель активного образца (Sample Toolbar) */
-    .sample-toolbar {
-        background: #fdfdfd;
-        border: 1px solid #e1e7ec;
-        border-radius: 8px;
-        padding: 8px 14px;
-        margin-bottom: 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-    .sample-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        background: #eef4fb;
-        border: 1px solid #d0e1f9;
-        color: #1a4f8b;
-        padding: 3px 9px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    .sample-chip.green {
-        background: #edf7ed;
-        border-color: #c8e6c9;
-        color: #2e7d32;
-    }
-    .sample-chip.orange {
-        background: #fff8e1;
-        border-color: #ffecb3;
-        color: #f57f17;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# Загрузка дизайн-системы Nordic Lab / Apple Pro Scientific
+_css_file = Path(__file__).resolve().parent / "assets" / "style.css"
+if _css_file.exists():
+    with open(_css_file, encoding="utf-8") as _f_css:
+        st.markdown(f"<style>{_f_css.read()}</style>", unsafe_allow_html=True)
+
 
 STORAGE_DIR = "user_spectra"
 os.makedirs(STORAGE_DIR, exist_ok=True)
@@ -1929,13 +1837,13 @@ with st.sidebar:
     c_lang, c_proj = st.columns([1.1, 1.4])
     with c_lang:
         default_lang_idx = 0 if st.session_state.get("lang", "en") == "en" else 1
-        lang_choice = st.selectbox("🌐", ["English", "Русский"], index=default_lang_idx, label_visibility="collapsed")
+        lang_choice = st.selectbox("🌐", ["English", "Русский"], index=default_lang_idx, label_visibility="collapsed", key="global_lang_choice")
         lang = "en" if lang_choice == "English" else "ru"
         st.session_state["lang"] = lang
     with c_proj:
         if PROJECT_IO_AVAILABLE and project_io is not None:
             if hasattr(st, "dialog"):
-                if st.button("💼 Project", help=T[lang]["proj_modal_btn"], use_container_width=True):
+                if st.button("💼 Project", key="btn_open_project_modal", help=T[lang]["proj_modal_btn"], use_container_width=True):
                     show_project_manager_dialog()
             else:
                 pass
@@ -1968,14 +1876,27 @@ with st.sidebar:
     if "selected_module_idx" not in st.session_state:
         st.session_state["selected_module_idx"] = 0
 
+    # Защита от выхода индекса за границы
+    safe_idx = min(max(0, st.session_state.get("selected_module_idx", 0)), len(all_module_keys) - 1)
+
+    # Привязываем ключ сессии для мгновенной однократной регистрации клика
+    if "nav_module_selection" not in st.session_state or st.session_state["nav_module_selection"] not in all_module_keys:
+        st.session_state["nav_module_selection"] = all_module_keys[safe_idx]
+
+    def _on_module_radio_changed():
+        val = st.session_state.get("nav_module_selection")
+        if val in all_module_keys:
+            st.session_state["selected_module_idx"] = all_module_keys.index(val)
+
     active_module = st.radio(
         T[lang]["nav_module_label"],
         all_module_keys,
-        index=st.session_state.get("selected_module_idx", 0),
+        key="nav_module_selection",
+        on_change=_on_module_radio_changed,
         format_func=lambda m: m,
         label_visibility="collapsed",
     )
-    st.session_state["selected_module_idx"] = all_module_keys.index(active_module) if active_module in all_module_keys else 0
+    st.session_state["selected_module_idx"] = all_module_keys.index(active_module)
 
     st.markdown("---")
 
@@ -2012,31 +1933,101 @@ with st.sidebar:
                             st.session_state[k] = v
                     st.rerun()
 
-# Подсчет сводки данных для умных бейджей компактного хедера
+# ==============================================================================
+# NORDIC PRO HEADER & TELEMETRY STRIP (LIVE MULTIMODAL TELEMETRY)
+# ==============================================================================
 _n_ms = len(st.session_state.get("spectra_db", {}))
-_has_eem = "EEM" if st.session_state.get("eem_ml_descriptors") is not None else None
-_has_uv = "UV-Vis" if st.session_state.get("uv_ml_descriptors") is not None else None
-_has_ftir = "FTIR" if st.session_state.get("ftir_ml_descriptors") is not None else None
-_has_nmr = "NMR" if st.session_state.get("nmr_ml_descriptors") is not None else None
-_has_therm = "Thermal" if st.session_state.get("thermal_ml_descriptors") is not None else None
-_has_sec = "SEC" if st.session_state.get("sec_ml_descriptors") is not None else None
-_has_elem = "CHNS-O" if st.session_state.get("elemental_ml_descriptors") is not None else None
-_active_modalities = [m for m in [_has_eem, _has_uv, _has_ftir, _has_nmr, _has_therm, _has_sec, _has_elem] if m]
+_has_eem = st.session_state.get("eem_ml_descriptors") is not None
+_has_uv = st.session_state.get("uv_ml_descriptors") is not None
+_has_ftir = st.session_state.get("ftir_ml_descriptors") is not None
+_has_nmr = st.session_state.get("nmr_ml_descriptors") is not None
+_has_therm = st.session_state.get("thermal_ml_descriptors") is not None
+_has_sec = st.session_state.get("sec_ml_descriptors") is not None
+_has_elem = st.session_state.get("elemental_ml_descriptors") is not None
+_has_ml = st.session_state.get("fused_data") is not None
+
+# Подготовка телеметрических чипов (8 аналитических блоков)
+_chips = []
+# 1. MS
 if _n_ms > 0:
-    _active_modalities.insert(0, f"MS ({_n_ms})")
+    _chips.append(f'<span class="telemetry-chip active-ms"><span class="status-dot"></span>🔬 MS ({_n_ms})</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🔬 MS (0)</span>')
 
-_badges_html = "".join([f'<span class="header-badge">✓ {bm}</span>' for bm in _active_modalities])
-if not _badges_html:
-    _badges_html = f'<span class="header-badge" style="opacity: 0.7;">{"Сессия пуста" if lang == "ru" else "No Data Loaded"}</span>'
+# 2. EEM
+if _has_eem:
+    _chips.append('<span class="telemetry-chip active-eem"><span class="status-dot"></span>💡 EEM</span>')
+else:
+    _chips.append('<span class="telemetry-chip">💡 EEM</span>')
 
-# Компактный современный Header платформы
-platform_hdr_html = (
-    f'<div class="platform-header-compact">'
-    f'<div><h2>{T[lang]["header_title"]}</h2><p>{T[lang]["header_subtitle"]}</p></div>'
-    f'<div class="header-badge-container">{_badges_html}</div>'
-    f'</div>'
-)
+# 3. UV-Vis
+if _has_uv:
+    _chips.append('<span class="telemetry-chip active-eem"><span class="status-dot"></span>🌈 UV-Vis</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🌈 UV-Vis</span>')
+
+# 4. FTIR
+if _has_ftir:
+    _chips.append('<span class="telemetry-chip active-ftir"><span class="status-dot"></span>🔍 FTIR</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🔍 FTIR</span>')
+
+# 5. NMR
+if _has_nmr:
+    _chips.append('<span class="telemetry-chip active-nmr"><span class="status-dot"></span>🧲 NMR</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🧲 NMR</span>')
+
+# 6. Thermal
+if _has_therm:
+    _chips.append('<span class="telemetry-chip active-thermal"><span class="status-dot"></span>🔥 Thermal</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🔥 Thermal</span>')
+
+# 7. SEC
+if _has_sec:
+    _chips.append('<span class="telemetry-chip active-sec"><span class="status-dot"></span>📏 SEC/GPC</span>')
+else:
+    _chips.append('<span class="telemetry-chip">📏 SEC/GPC</span>')
+
+# 8. CHNS-O
+if _has_elem:
+    _chips.append('<span class="telemetry-chip active-elem"><span class="status-dot"></span>⚗️ CHNS-O</span>')
+else:
+    _chips.append('<span class="telemetry-chip">⚗️ CHNS-O</span>')
+
+# 9. ML Fusion
+if _has_ml:
+    _chips.append('<span class="telemetry-chip active-ml"><span class="status-dot"></span>🧬 ML Fused</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🧬 ML Ready</span>')
+
+_telemetry_html = "".join(_chips)
+_telemetry_caption = "Live Modalities:" if lang == "en" else "Телеметрия сессии:"
+_version_tag = '<span style="background: rgba(37,99,235,0.08); color: #1d4ed8; border: 1px solid rgba(37,99,235,0.25); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; font-family: var(--nl-font-mono);">v3.0.0 Pro</span>'
+
+platform_hdr_html = f"""
+<div class="nordic-app-header">
+  <div class="nordic-header-top">
+    <div class="nordic-brand-lockup">
+      <div class="nordic-brand-icon">⚗️</div>
+      <div class="nordic-brand-titles">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h2 class="nordic-brand-title">{T[lang]["header_title"]}</h2>
+          {_version_tag}
+        </div>
+        <p class="nordic-brand-subtitle">{T[lang]["header_subtitle"]}</p>
+      </div>
+    </div>
+  </div>
+  <div class="nordic-telemetry-strip">
+    <span class="telemetry-caption">{_telemetry_caption}</span>
+    {_telemetry_html}
+  </div>
+</div>
+"""
 st.markdown(platform_hdr_html, unsafe_allow_html=True)
+
 
 # ==============================================================================
 # МОДУЛЬ 1: NOM-SPECTRA FT-ICR MS STUDIO
@@ -4507,13 +4498,13 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             # Методологическое предупреждение при малом N (p >> n)
             if len(edited_df) < 20 and len(feat_cols) > len(edited_df):
                 st.info(
-                    f"ℹ️ **Методологическое замечание ($p \gg n$):** Выборка содержит {len(edited_df)} образцов при {len(feat_cols)} признаках. "
+                    f"ℹ️ **Методологическое замечание ($p \\gg n$):** Выборка содержит {len(edited_df)} образцов при {len(feat_cols)} признаках. "
                     f"В многомерных моделях (PLS-DA / OPLS-DA) при малом $N$ возможно переобучение и завышенное разделение классов. "
-                    f"Для надежных геохимических выводов в публикациях рекомендуется использовать выборку $N \ge 30$."
+                    f"Для надежных геохимических выводов в публикациях рекомендуется использовать выборку $N \\ge 30$."
                     if lang == "ru"
-                    else f"ℹ️ **Methodological Note ($p \gg n$):** Dataset contains {len(edited_df)} samples across {len(feat_cols)} descriptors. "
+                    else f"ℹ️ **Methodological Note ($p \\gg n$):** Dataset contains {len(edited_df)} samples across {len(feat_cols)} descriptors. "
                     f"High-dimensional models (PLS-DA / OPLS-DA) risk over-optimistic class separation at small $N$. "
-                    f"For publication-grade geochemical conclusions, a sample size of $N \ge 30$ is recommended."
+                    f"For publication-grade geochemical conclusions, a sample size of $N \\ge 30$ is recommended."
                 )
 
             unique_classes = np.unique(y_input)
