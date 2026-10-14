@@ -15,8 +15,52 @@ import requests
 logger = logging.getLogger("chemo_agent")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
-FALLBACK_MODELS = ["mixtral-8x7b-32768", "gemma2-9b-it"]
+GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+FALLBACK_MODELS = [
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+]
+
+
+def get_available_groq_models(api_key: Optional[str] = None) -> List[str]:
+    """
+    Dynamically queries Groq API to discover available chat/reasoning models.
+    Filters out audio, whisper, and guardrail models.
+    Falls back to curated list if network fails or key is invalid.
+    """
+    resolved_key = get_groq_api_key(api_key)
+    if not resolved_key:
+        return FALLBACK_MODELS
+
+    headers = {"Authorization": f"Bearer {resolved_key}"}
+    try:
+        resp = requests.get(GROQ_MODELS_URL, headers=headers, timeout=3.5)
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            chat_models = []
+            excluded = ["whisper", "guard", "orpheus", "prompt"]
+            for m in data:
+                m_id = m.get("id", "")
+                if m_id and not any(ex in m_id.lower() for ex in excluded):
+                    chat_models.append(m_id)
+            if chat_models:
+                pref_order = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+                sorted_models = []
+                for p in pref_order:
+                    if p in chat_models:
+                        sorted_models.append(p)
+                for m in sorted(chat_models):
+                    if m not in sorted_models:
+                        sorted_models.append(m)
+                return sorted_models
+    except Exception:
+        pass
+
+    return FALLBACK_MODELS
 
 
 def get_groq_api_key(explicit_key: Optional[str] = None) -> Optional[str]:

@@ -159,3 +159,26 @@ def test_save_groq_api_key_to_env(tmp_path, monkeypatch):
     updated_content = env_path.read_text(encoding="utf-8")
     assert "GROQ_API_KEY=gsk_updated_key_000" in updated_content
     assert "gsk_persistence_test_999" not in updated_content
+
+
+@patch("requests.get")
+def test_get_available_groq_models(mock_get):
+    """Verifies that available models are filtered and ranked properly."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": [
+            {"id": "whisper-large-v3"},
+            {"id": "meta-llama/llama-prompt-guard-2-86m"},
+            {"id": "openai/gpt-oss-120b"},
+            {"id": "qwen/qwen3.8-27b"},
+            {"id": "openai/gpt-oss-20b"},
+        ]
+    }
+    mock_get.return_value = mock_resp
+
+    models = chemo_agent.get_available_groq_models("gsk_test")
+    assert "whisper-large-v3" not in models
+    assert "meta-llama/llama-prompt-guard-2-86m" not in models
+    assert "openai/gpt-oss-120b" in models
+    assert models[0] == "openai/gpt-oss-120b"
