@@ -16,10 +16,10 @@ logger = logging.getLogger("chemo_agent")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "qwen/qwen3.8-27b"
 FALLBACK_MODELS = [
-    "openai/gpt-oss-120b",
     "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
 ]
 
@@ -46,7 +46,7 @@ def get_available_groq_models(api_key: Optional[str] = None) -> List[str]:
                 if m_id and not any(ex in m_id.lower() for ex in excluded):
                     chat_models.append(m_id)
             if chat_models:
-                pref_order = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+                pref_order = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
                 sorted_models = []
                 for p in pref_order:
                     if p in chat_models:
@@ -164,6 +164,7 @@ def call_groq_chat(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "reasoning_effort": "low",
     }
 
     try:
@@ -229,6 +230,7 @@ def stream_groq_chat(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "reasoning_effort": "low",
         "stream": True,
     }
 

@@ -1943,7 +1943,7 @@ with st.sidebar:
         # Sanitize any stale deprecated model in active browser session
         _stale_m = st.session_state.get("agent_model_select")
         if _stale_m and any(bad in str(_stale_m).lower() for bad in ["llama", "mixtral", "gemma", "versatile", "instant"]):
-            st.session_state["agent_model_select"] = "openai/gpt-oss-120b"
+            st.session_state["agent_model_select"] = "qwen/qwen3.8-27b"
 
         views.agent_view.render_chemo_agent_sidebar(T, lang)
     except Exception as _e_agent:

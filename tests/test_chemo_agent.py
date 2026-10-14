@@ -181,4 +181,4 @@ def test_get_available_groq_models(mock_get):
     assert "whisper-large-v3" not in models
     assert "meta-llama/llama-prompt-guard-2-86m" not in models
     assert "openai/gpt-oss-120b" in models
-    assert models[0] == "openai/gpt-oss-120b"
+    assert models[0] == "qwen/qwen3.8-27b"

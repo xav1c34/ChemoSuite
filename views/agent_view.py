@@ -48,6 +48,21 @@ def save_groq_api_key_to_env(key: str) -> bool:
         return False
 
 
+def _stream_with_loader(stream_gen, loader_placeholder):
+    """
+    Wraps the stream generator: clears the loader_placeholder as soon as the
+    first real token chunk is received, then yields all tokens.
+    """
+    cleared = False
+    for chunk in stream_gen:
+        if not cleared:
+            loader_placeholder.empty()
+            cleared = True
+        yield chunk
+    if not cleared:
+        loader_placeholder.empty()
+
+
 def _get_active_fticr_data() -> Optional[Dict[str, Any]]:
     """Extracts currently active FT-ICR MS sample from session state."""
     db = st.session_state.get("spectra_db", {})
@@ -221,23 +236,27 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 st.markdown(prompt_text)
 
             with st.chat_message("assistant", avatar="🤖"):
-                message_placeholder = st.empty()
-                full_response = ""
-                # Stream tokens
-                req_messages = [{"role": "system", "content": chemo_agent.CHEMO_SYSTEM_PROMPT}] + [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state["chemo_agent_messages"][-6:]
-                ]
-                with st.spinner("ChemoAgent анализирует физико-химические дескрипторы..." if lang == "ru" else "ChemoAgent reasoning..."):
-                    for chunk in chemo_agent.stream_groq_chat(
-                        messages=req_messages,
-                        api_key=current_key,
-                        model=selected_model,
-                        temperature=temperature,
-                    ):
+                loader_ph = st.empty()
+                loader_msg = "ChemoAgent формулирует ответ..." if lang == "ru" else "ChemoAgent generating response..."
+                loader_ph.markdown(
+                    f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                stream_gen = chemo_agent.stream_groq_chat(
+                    messages=req_messages,
+                    api_key=current_key,
+                    model=selected_model,
+                    temperature=temperature,
+                )
+                if hasattr(st, "write_stream"):
+                    full_response = st.write_stream(_stream_with_loader(stream_gen, loader_ph))
+                else:
+                    msg_ph = st.empty()
+                    full_response = ""
+                    for chunk in _stream_with_loader(stream_gen, loader_ph):
                         full_response += chunk
-                        message_placeholder.markdown(full_response + "▌")
-                message_placeholder.markdown(full_response)
+                        msg_ph.markdown(full_response + "▌")
+                    msg_ph.markdown(full_response)
         st.session_state["chemo_agent_messages"].append({"role": "assistant", "content": full_response})
 
     # 6. Interactive Chat Input
@@ -255,21 +274,31 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     st.markdown(user_prompt)
 
                 with st.chat_message("assistant", avatar="🤖"):
-                    message_placeholder = st.empty()
-                    full_response = ""
+                    loader_ph = st.empty()
+                    loader_msg = "ChemoAgent формулирует ответ..." if lang == "ru" else "ChemoAgent generating response..."
+                    loader_ph.markdown(
+                        f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
+                        unsafe_allow_html=True,
+                    )
                     req_messages = [{"role": "system", "content": chemo_agent.CHEMO_SYSTEM_PROMPT}] + [
                         {"role": m["role"], "content": m["content"]}
                         for m in st.session_state["chemo_agent_messages"][-8:]
                     ]
-                    for chunk in chemo_agent.stream_groq_chat(
+                    stream_gen = chemo_agent.stream_groq_chat(
                         messages=req_messages,
                         api_key=current_key,
                         model=selected_model,
                         temperature=temperature,
-                    ):
-                        full_response += chunk
-                        message_placeholder.markdown(full_response + "▌")
-                    message_placeholder.markdown(full_response)
+                    )
+                    if hasattr(st, "write_stream"):
+                        full_response = st.write_stream(_stream_with_loader(stream_gen, loader_ph))
+                    else:
+                        msg_ph = st.empty()
+                        full_response = ""
+                        for chunk in _stream_with_loader(stream_gen, loader_ph):
+                            full_response += chunk
+                            msg_ph.markdown(full_response + "▌")
+                        msg_ph.markdown(full_response)
             st.session_state["chemo_agent_messages"].append({"role": "assistant", "content": full_response})
 
 
@@ -308,12 +337,22 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
             {"role": "system", "content": chemo_agent.CHEMO_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
-        with st.spinner("Генерация экспертного заключения ChemoAgent..." if lang == "ru" else "Generating expert interpretation..."):
-            res = chemo_agent.call_groq_chat(messages, api_key=api_key)
-            if res.get("success"):
-                st.session_state[cache_key] = res.get("content", "")
-            else:
-                st.error(f"Ошибка вызова ChemoAgent: {res.get('error')}")
+        loader_ph = st.empty()
+        loader_msg = "ChemoAgent анализирует спектральные дескрипторы..." if lang == "ru" else "Analyzing spectral descriptors..."
+        loader_ph.markdown(
+            f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
+            unsafe_allow_html=True,
+        )
+        res = chemo_agent.call_groq_chat(
+            messages,
+            api_key=api_key,
+            model=st.session_state.get("agent_model_select", chemo_agent.DEFAULT_MODEL),
+        )
+        loader_ph.empty()
+        if res.get("success"):
+            st.session_state[cache_key] = res.get("content", "")
+        else:
+            st.error(f"Ошибка вызова ChemoAgent: {res.get('error')}")
 
     cached_content = st.session_state.get(cache_key)
     if cached_content:
