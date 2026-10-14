@@ -295,6 +295,13 @@ code, pre, .mono-val, [data-testid="stMarkdownContainer"] code {
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
 }
 
+.telemetry-chip.active-agent {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(59, 130, 246, 0.18) 100%);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
 .status-dot {
   width: 6.5px;
   height: 6.5px;

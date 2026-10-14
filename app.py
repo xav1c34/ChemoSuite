@@ -1933,6 +1933,9 @@ with st.sidebar:
                             st.session_state[k] = v
                     st.rerun()
 
+    import views
+    views.render_chemo_agent_sidebar(T, lang)
+
 # ==============================================================================
 # NORDIC PRO HEADER & TELEMETRY STRIP (LIVE MULTIMODAL TELEMETRY)
 # ==============================================================================
@@ -2001,6 +2004,16 @@ if _has_ml:
     _chips.append('<span class="telemetry-chip active-ml"><span class="status-dot"></span>🧬 ML Fused</span>')
 else:
     _chips.append('<span class="telemetry-chip">🧬 ML Ready</span>')
+
+# 10. AI Copilot
+try:
+    import modules.chemo_agent as chemo_agent
+    if chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key")):
+        _chips.append('<span class="telemetry-chip active-agent"><span class="status-dot"></span>🤖 Groq LPU</span>')
+    else:
+        _chips.append('<span class="telemetry-chip">🤖 AI Copilot</span>')
+except Exception:
+    pass
 
 _telemetry_html = "".join(_chips)
 _telemetry_caption = "Live Modalities:" if lang == "en" else "Телеметрия сессии:"

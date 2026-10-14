@@ -624,6 +624,10 @@ def render_fticr_studio(T: dict, lang: str):
                                         if c_cid:
                                             st.link_button(f"{T[lang]['pubchem_link_btn']} #{c_cid}", f"https://pubchem.ncbi.nlm.nih.gov/compound/{c_cid}")
 
+                st.markdown("---")
+                from views.agent_view import render_sample_ai_card
+                render_sample_ai_card(active_spectrum_name, current_sample, lang=lang)
+
     with st_sub_vk:
         assigned_data = current_sample.get("assigned_df") if current_sample else None
         if assigned_data is None or assigned_data.empty:
@@ -826,7 +830,7 @@ def render_fticr_studio(T: dict, lang: str):
             T[lang]["tab_desc"],
         ])
 
-with st_sub_cmp:
+    with st_sub_cmp:
         st.subheader(T[lang]["tab_cmp"])
 
         with st.popover("ℹ️ " + ("Руководство: Зачем нужна Алгебра спектров и как её применять" if lang == "ru" else "Guide: Spectrum Algebra & Comparative Analysis"), width="stretch"):

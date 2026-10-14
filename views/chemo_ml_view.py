@@ -895,7 +895,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_donut.update_layout(height=420)
                     st_plotly(fig_donut)
 
-with tab_crosscorr:
+            with tab_crosscorr:
                 st.write(f"### {T[lang]['ml_crosscorr_title']}")
                 st.caption(T[lang]['ml_crosscorr_subtitle'])
 
@@ -1106,7 +1106,7 @@ with tab_crosscorr:
                 else:
                     st.info("Structure elucidation engine module available.")
 
-with tab_ml5:
+            with tab_ml5:
                 st.write("### 📥 Выгрузка аналитических отчетов" if lang == "ru" else "### 📥 Download Analytical Reports")
 
                 # Комплексные аналитические паспорта
