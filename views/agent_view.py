@@ -70,28 +70,31 @@ def _get_active_fticr_data() -> Optional[Dict[str, Any]]:
 
 def render_chemo_agent_sidebar(T: Dict[str, Any], lang: str = "ru"):
     """Renders ChemoAgent status and launch trigger in the sidebar."""
-    api_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
-    has_key = bool(api_key)
+    try:
+        api_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
+        has_key = bool(api_key)
 
-    st.markdown("---")
-    
-    # Header with status indicator
-    col_t, col_s = st.columns([2.2, 1.0])
-    with col_t:
-        st.markdown("**🤖 ChemoAgent (AI)**")
-    with col_s:
-        if has_key:
-            st.markdown('<span style="color:#10b981; font-size:12px; font-weight:700;">🟢 Groq LPU</span>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # Header with status indicator
+        col_t, col_s = st.columns([2.2, 1.0])
+        with col_t:
+            st.markdown("**🤖 ChemoAgent (AI)**")
+        with col_s:
+            if has_key:
+                st.markdown('<span style="color:#10b981; font-size:12px; font-weight:700;">🟢 Groq LPU</span>', unsafe_allow_html=True)
+            else:
+                st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
+
+        btn_label = "💬 Открыть AI-Копилот" if lang == "ru" else "💬 Open AI Copilot"
+        if hasattr(st, "dialog"):
+            if st.button(btn_label, key="btn_open_agent_dialog", use_container_width=True):
+                _show_agent_dialog(T, lang)
         else:
-            st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
-
-    btn_label = "💬 Открыть AI-Копилот" if lang == "ru" else "💬 Open AI Copilot"
-    if hasattr(st, "dialog"):
-        if st.button(btn_label, key="btn_open_agent_dialog", use_container_width=True, type="secondary"):
-            _show_agent_dialog(T, lang)
-    else:
-        with st.expander(btn_label, expanded=False):
-            _render_agent_content(T, lang, is_dialog=False)
+            with st.expander(btn_label, expanded=False):
+                _render_agent_content(T, lang, is_dialog=False)
+    except Exception as exc:
+        st.caption(f"🤖 ChemoAgent: {exc}")
 
 
 if hasattr(st, "dialog"):

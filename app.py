@@ -1933,8 +1933,11 @@ with st.sidebar:
                             st.session_state[k] = v
                     st.rerun()
 
-    import views
-    views.render_chemo_agent_sidebar(T, lang)
+    try:
+        from views.agent_view import render_chemo_agent_sidebar
+        render_chemo_agent_sidebar(T, lang)
+    except Exception as _e_agent:
+        st.caption(f"🤖 ChemoAgent: {_e_agent}")
 
 # ==============================================================================
 # NORDIC PRO HEADER & TELEMETRY STRIP (LIVE MULTIMODAL TELEMETRY)
