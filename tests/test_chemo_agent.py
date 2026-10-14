@@ -69,6 +69,21 @@ def test_build_sample_analysis_prompt_fticr():
     assert "Analyze sample: **Sample_EN**" in prompt_en
 
 
+def test_build_sample_analysis_prompt_raw_unassigned():
+    """Prompt construction must NOT crash with KeyError if H/C is missing (raw peak list)."""
+    raw_df = pd.DataFrame({
+        "m/z": [245.0512, 312.1124, 489.2319],
+        "intensity": [10500.0, 54000.0, 23000.0],
+    })
+    sample_data = {
+        "assigned_df": raw_df,
+    }
+    prompt = chemo_agent.build_sample_analysis_prompt("Raw_Peak_List_01", sample_data, lang="ru")
+    assert "Raw_Peak_List_01" in prompt
+    assert "Число детектированных пиков: 3" in prompt
+    assert "245.05" in prompt or "348" in prompt or "Средняя масса" in prompt
+
+
 def test_call_groq_chat_no_key(monkeypatch):
     """call_groq_chat must return success=False with helpful error when no key is present."""
     monkeypatch.delenv("GROQ_API_KEY", raising=False)

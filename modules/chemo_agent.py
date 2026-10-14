@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional, Generator
 import requests
+import pandas as pd
 
 logger = logging.getLogger("chemo_agent")
 
@@ -306,21 +307,107 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
 
     # FT-ICR MS Descriptors
     if "assigned_df" in sample_data and sample_data["assigned_df"] is not None and not sample_data["assigned_df"].empty:
-        df = sample_data["assigned_df"]
+        raw_df = sample_data["assigned_df"]
+        df = raw_df.copy() if hasattr(raw_df, "copy") else pd.DataFrame(raw_df)
+
+        cols_lower = {str(c).lower().strip(): c for c in df.columns}
+
+        # Auto-compute molecular descriptors if formulas (C, H) are present but H/C is not
+        if ("c" in cols_lower and "h" in cols_lower) and not any(k in cols_lower for k in ["h/c", "hc", "h_c"]):
+            try:
+                import modules.fticr_core as fticr_core
+                df = fticr_core.calculate_descriptors(df)
+                cols_lower = {str(c).lower().strip(): c for c in df.columns}
+            except Exception:
+                pass
+
+        has_formulas = any(k in cols_lower for k in ["h/c", "hc", "h_c", "formula", "formula_str", "c"])
+
         lines.append("### 🔬 1. Масс-спектрометрия сверхвысокого разрешения (FT-ICR MS):")
-        lines.append(f"- Число приписанных формул: {len(df):,}")
-        lines.append(f"- Среднечисленная масса Mn: {df['mass'].mean():.2f} Da")
-        lines.append(f"- H/C (среднее): {df['H/C'].mean():.3f}")
-        lines.append(f"- O/C (среднее): {df['O/C'].mean():.3f}")
-        if "AI" in df.columns:
-            lines.append(f"- Индекс ароматичности AI: {df['AI'].mean():.3f} (доля формул с AI > 0.5: {(df['AI'] > 0.5).mean()*100:.1f}%)")
-        if "DBE" in df.columns:
-            lines.append(f"- Степень ненасыщенности DBE: {df['DBE'].mean():.2f}")
-        if "NOSC" in df.columns:
-            lines.append(f"- Степень окисления углерода NOSC: {df['NOSC'].mean():.3f}")
-        if "Hetero_Class" in df.columns:
-            counts = df["Hetero_Class"].value_counts()
-            lines.append(f"- Гетероатомные классы: CHO={counts.get('CHO', 0)}, CHON={counts.get('CHON', 0)}, CHOS={counts.get('CHOS', 0)}, CHONS={counts.get('CHONS', 0)}")
+        if has_formulas:
+            lines.append(f"- Число приписанных формул: {len(df):,}")
+        else:
+            lines.append(f"- Число детектированных пиков: {len(df):,}")
+            lines.append("*(Внимание: для образца еще не выполнен расчет формул, анализ проводится по профилю распределения m/z)*")
+
+        # Mass / m/z
+        mass_col = None
+        for cand in ["mass", "m/z", "mz", "mw", "calculated_mass", "experimental_mass"]:
+            if cand in cols_lower:
+                mass_col = cols_lower[cand]
+                break
+        if mass_col:
+            m_s = pd.to_numeric(df[mass_col], errors="coerce").dropna()
+            if not m_s.empty:
+                lines.append(f"- Средняя масса Mn (m/z): {m_s.mean():.4f} Da (диапазон: {m_s.min():.2f} – {m_s.max():.2f})")
+
+        # H/C
+        hc_col = None
+        for cand in ["h/c", "hc", "h_c"]:
+            if cand in cols_lower:
+                hc_col = cols_lower[cand]
+                break
+        if hc_col:
+            hc_s = pd.to_numeric(df[hc_col], errors="coerce").dropna()
+            if not hc_s.empty:
+                lines.append(f"- H/C (среднее): {hc_s.mean():.3f} (диапазон: {hc_s.min():.2f} – {hc_s.max():.2f})")
+
+        # O/C
+        oc_col = None
+        for cand in ["o/c", "oc", "o_c"]:
+            if cand in cols_lower:
+                oc_col = cols_lower[cand]
+                break
+        if oc_col:
+            oc_s = pd.to_numeric(df[oc_col], errors="coerce").dropna()
+            if not oc_s.empty:
+                lines.append(f"- O/C (среднее): {oc_s.mean():.3f} (диапазон: {oc_s.min():.2f} – {oc_s.max():.2f})")
+
+        # AI (Modified Aromaticity Index)
+        ai_col = None
+        for cand in ["ai", "ai_mod", "ai_koch", "aromaticity_index"]:
+            if cand in cols_lower:
+                ai_col = cols_lower[cand]
+                break
+        if ai_col:
+            ai_s = pd.to_numeric(df[ai_col], errors="coerce").dropna()
+            if not ai_s.empty:
+                high_ai = (ai_s > 0.5).mean() * 100.0
+                condensed = (ai_s >= 0.67).mean() * 100.0
+                lines.append(f"- Индекс ароматичности AI_mod: {ai_s.mean():.3f} (доля AI > 0.5: {high_ai:.1f}%, конденсированные AI >= 0.67: {condensed:.1f}%)")
+
+        # DBE
+        dbe_col = None
+        for cand in ["dbe", "dbe-o"]:
+            if cand in cols_lower:
+                dbe_col = cols_lower[cand]
+                break
+        if dbe_col:
+            dbe_s = pd.to_numeric(df[dbe_col], errors="coerce").dropna()
+            if not dbe_s.empty:
+                lines.append(f"- Степень ненасыщенности DBE: {dbe_s.mean():.2f}")
+
+        # NOSC
+        nosc_col = None
+        for cand in ["nosc"]:
+            if cand in cols_lower:
+                nosc_col = cols_lower[cand]
+                break
+        if nosc_col:
+            nosc_s = pd.to_numeric(df[nosc_col], errors="coerce").dropna()
+            if not nosc_s.empty:
+                lines.append(f"- Степень окисления углерода NOSC: {nosc_s.mean():.3f}")
+
+        # Hetero_Class
+        hetero_col = None
+        for cand in ["hetero_class", "class", "heteroclass"]:
+            if cand in cols_lower:
+                hetero_col = cols_lower[cand]
+                break
+        if hetero_col and hetero_col in df.columns:
+            counts = df[hetero_col].value_counts().to_dict()
+            pools_str = ", ".join(f"{k}={v}" for k, v in list(counts.items())[:6])
+            lines.append(f"- Гетероатомные классы: {pools_str}")
         lines.append("")
 
     # EEM-PARAFAC
