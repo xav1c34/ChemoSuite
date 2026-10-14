@@ -153,6 +153,58 @@ def normalize_latex(text: str) -> str:
     return text
 
 
+DEFAULT_MAX_TOKENS = 768
+
+
+def format_groq_error(status_code: int, raw_text: str) -> str:
+    """
+    Formats Groq API errors into a concise, polite, human-readable notification.
+    Hides raw technical JSON dumps inside an interactive collapsible <details> block.
+    """
+    msg = ""
+    try:
+        data = json.loads(raw_text)
+        err = data.get("error", {})
+        msg = err.get("message", "")
+    except Exception:
+        msg = str(raw_text)
+
+    msg_lower = msg.lower()
+
+    if status_code == 429:
+        if any(w in msg_lower for w in ["otpm", "limit 1000", "expected output", "output tokens per minute"]):
+            header = "⚠️ **Превышен минутный лимит токенов Groq (429 Rate Limit)**"
+            hint = "Бесплатный тариф Groq On-Demand временно исчерпал лимит токенов генерации (OTPM). Лимит восстанавливается за 15–30 секунд. Пожалуйста, подождите полминуты и повторите запрос."
+        else:
+            header = "⚠️ **Превышен лимит запросов к Groq (429 Too Many Requests)**"
+            hint = "Слишком много запросов в минуту. Пожалуйста, подождите 15–20 секунд перед следующим запросом."
+    elif status_code == 404:
+        header = "❌ **Модель недоступна в Groq (404 Not Found)**"
+        hint = "Выбранная модель устарела или недоступна на вашем ключе. Выберите доступную модель в настройках."
+    elif status_code == 401:
+        header = "❌ **Неверный GROQ_API_KEY (401 Unauthorized)**"
+        hint = "Проверьте правильность API ключа в настройках боковой панели или в файле `.env`."
+    elif status_code == 400:
+        header = "❌ **Некорректный запрос (400 Bad Request)**"
+        hint = "Запрос превышает контекст или содержит неподдерживаемые параметры."
+    else:
+        header = f"❌ **Ошибка Groq API (HTTP {status_code})**"
+        hint = "Не удалось завершить генерацию ответа нейросетью. Попробуйте повторить запрос."
+
+    # Clean technical details snippet for collapsible block
+    clean_snippet = str(raw_text).strip().replace("```", "'''")
+    if len(clean_snippet) > 350:
+        clean_snippet = clean_snippet[:350] + "..."
+
+    return (
+        f"{header}\n\n"
+        f"*{hint}*\n\n"
+        f"<details><summary style='font-size:12px; color:#94a3b8; cursor:pointer;'>🔍 Технические подробности ошибки</summary>\n\n"
+        f"```json\n{clean_snippet}\n```\n"
+        f"</details>"
+    )
+
+
 def _sanitize_model(model: Optional[str]) -> str:
     """Ensures model is valid, remapping deprecated or unpermitted models to DEFAULT_MODEL."""
     if not model:
@@ -168,12 +220,13 @@ def call_groq_chat(
     api_key: Optional[str] = None,
     model: str = DEFAULT_MODEL,
     temperature: float = 0.2,
-    max_tokens: int = 2048,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: float = 30.0,
 ) -> Dict[str, Any]:
     """
     Sends chat completion request to Groq API via standard HTTP POST.
     Automatically falls back to DEFAULT_MODEL if model returns 404.
+    Clamps max_tokens <= 800 to prevent on-demand OTPM limit (1000) rejections.
     """
     resolved_key = get_groq_api_key(api_key)
     if not resolved_key:
@@ -189,11 +242,12 @@ def call_groq_chat(
         "Content-Type": "application/json",
     }
 
+    clamped_tokens = min(int(max_tokens or DEFAULT_MAX_TOKENS), 800)
     payload = {
         "model": target_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": clamped_tokens,
         "reasoning_effort": "low",
     }
 
@@ -216,8 +270,8 @@ def call_groq_chat(
                 "error": None,
             }
         else:
-            err_msg = f"HTTP {response.status_code}: {response.text}"
-            logger.error("Groq API error: %s", err_msg)
+            err_msg = format_groq_error(response.status_code, response.text)
+            logger.error("Groq API error: HTTP %d", response.status_code)
             return {
                 "success": False,
                 "content": "",
@@ -237,12 +291,13 @@ def stream_groq_chat(
     api_key: Optional[str] = None,
     model: str = DEFAULT_MODEL,
     temperature: float = 0.2,
-    max_tokens: int = 2048,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: float = 40.0,
 ) -> Generator[str, None, None]:
     """
     Streams response tokens from Groq API in real-time.
     Automatically falls back to DEFAULT_MODEL if model returns 404.
+    Clamps max_tokens <= 800 to prevent on-demand OTPM limit (1000) rejections.
     """
     resolved_key = get_groq_api_key(api_key)
     if not resolved_key:
@@ -255,11 +310,12 @@ def stream_groq_chat(
         "Content-Type": "application/json",
     }
 
+    clamped_tokens = min(int(max_tokens or DEFAULT_MAX_TOKENS), 800)
     payload = {
         "model": target_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": clamped_tokens,
         "reasoning_effort": "low",
         "stream": True,
     }
@@ -272,7 +328,7 @@ def stream_groq_chat(
             response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout, stream=True)
 
         if response.status_code != 200:
-            yield f"❌ **Groq API Error (HTTP {response.status_code}):** {response.text}"
+            yield format_groq_error(response.status_code, response.text)
             return
 
         for line in response.iter_lines():
@@ -297,13 +353,21 @@ def stream_groq_chat(
 
 def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], lang: str = "ru") -> str:
     """
-    Aggregates analytical parameters into a rich context prompt for LLM evaluation.
+    Aggregates analytical parameters into a compact, high-density context prompt for LLM evaluation.
+    Keeps token length minimal to fit comfortably within free-tier Groq rate limits.
     """
-    lines = [
-        f"Проанализируй образец: **{sample_name}**." if lang == "ru" else f"Analyze sample: **{sample_name}**.",
-        "Ниже приведены экспериментальные параметры, полученные методами ChemoSuite:",
-        "",
-    ]
+    if lang == "ru":
+        lines = [
+            f"Проанализируй образец: **{sample_name}**.",
+            "Ниже приведены экспериментальные параметры ChemoSuite:",
+            "",
+        ]
+    else:
+        lines = [
+            f"Analyze sample: **{sample_name}**.",
+            "Below are experimental parameters from ChemoSuite:",
+            "",
+        ]
 
     # FT-ICR MS Descriptors
     if "assigned_df" in sample_data and sample_data["assigned_df"] is not None and not sample_data["assigned_df"].empty:
@@ -323,12 +387,14 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
 
         has_formulas = any(k in cols_lower for k in ["h/c", "hc", "h_c", "formula", "formula_str", "c"])
 
-        lines.append("### 🔬 1. Масс-спектрометрия сверхвысокого разрешения (FT-ICR MS):")
+        lines.append("🔬 **FT-ICR MS:**")
         if has_formulas:
-            lines.append(f"- Число приписанных формул: {len(df):,}")
+            count_line = f"- Число формул: {len(df):,}"
         else:
-            lines.append(f"- Число детектированных пиков: {len(df):,}")
-            lines.append("*(Внимание: для образца еще не выполнен расчет формул, анализ проводится по профилю распределения m/z)*")
+            count_line = f"- Число детектированных пиков: {len(df):,}"
+
+        # Gather metric snippets
+        metrics = []
 
         # Mass / m/z
         mass_col = None
@@ -339,7 +405,7 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         if mass_col:
             m_s = pd.to_numeric(df[mass_col], errors="coerce").dropna()
             if not m_s.empty:
-                lines.append(f"- Средняя масса Mn (m/z): {m_s.mean():.4f} Da (диапазон: {m_s.min():.2f} – {m_s.max():.2f})")
+                metrics.append(f"Mn: {m_s.mean():.1f} Da ({m_s.min():.0f}–{m_s.max():.0f})")
 
         # H/C
         hc_col = None
@@ -350,7 +416,7 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         if hc_col:
             hc_s = pd.to_numeric(df[hc_col], errors="coerce").dropna()
             if not hc_s.empty:
-                lines.append(f"- H/C (среднее): {hc_s.mean():.3f} (диапазон: {hc_s.min():.2f} – {hc_s.max():.2f})")
+                metrics.append(f"H/C (среднее): {hc_s.mean():.2f}")
 
         # O/C
         oc_col = None
@@ -361,7 +427,7 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         if oc_col:
             oc_s = pd.to_numeric(df[oc_col], errors="coerce").dropna()
             if not oc_s.empty:
-                lines.append(f"- O/C (среднее): {oc_s.mean():.3f} (диапазон: {oc_s.min():.2f} – {oc_s.max():.2f})")
+                metrics.append(f"O/C: {oc_s.mean():.2f}")
 
         # AI (Modified Aromaticity Index)
         ai_col = None
@@ -374,7 +440,7 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
             if not ai_s.empty:
                 high_ai = (ai_s > 0.5).mean() * 100.0
                 condensed = (ai_s >= 0.67).mean() * 100.0
-                lines.append(f"- Индекс ароматичности AI_mod: {ai_s.mean():.3f} (доля AI > 0.5: {high_ai:.1f}%, конденсированные AI >= 0.67: {condensed:.1f}%)")
+                metrics.append(f"AI_mod: {ai_s.mean():.3f} (доля >0.5: {high_ai:.0f}%, конденс.: {condensed:.0f}%)")
 
         # DBE
         dbe_col = None
@@ -385,7 +451,7 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         if dbe_col:
             dbe_s = pd.to_numeric(df[dbe_col], errors="coerce").dropna()
             if not dbe_s.empty:
-                lines.append(f"- Степень ненасыщенности DBE: {dbe_s.mean():.2f}")
+                metrics.append(f"DBE: {dbe_s.mean():.1f}")
 
         # NOSC
         nosc_col = None
@@ -396,7 +462,12 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         if nosc_col:
             nosc_s = pd.to_numeric(df[nosc_col], errors="coerce").dropna()
             if not nosc_s.empty:
-                lines.append(f"- Степень окисления углерода NOSC: {nosc_s.mean():.3f}")
+                metrics.append(f"NOSC: {nosc_s.mean():.2f}")
+
+        if metrics:
+            lines.append(f"{count_line} | " + ", ".join(metrics))
+        else:
+            lines.append(count_line)
 
         # Hetero_Class
         hetero_col = None
@@ -406,44 +477,34 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
                 break
         if hetero_col and hetero_col in df.columns:
             counts = df[hetero_col].value_counts().to_dict()
-            pools_str = ", ".join(f"{k}={v}" for k, v in list(counts.items())[:6])
-            lines.append(f"- Гетероатомные классы: {pools_str}")
+            pools_str = ", ".join(f"{k}:{v}" for k, v in list(counts.items())[:5])
+            lines.append(f"- Классы: {pools_str}")
         lines.append("")
 
     # EEM-PARAFAC
     if "eem" in sample_data and sample_data["eem"]:
-        lines.append("### 💡 2. Флуоресценция EEM-PARAFAC:")
-        for k, v in sample_data["eem"].items():
-            lines.append(f"- {k}: {v}")
-        lines.append("")
+        eem_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["eem"].items())[:4])
+        lines.append(f"💡 **EEM-PARAFAC:** {eem_items}")
 
     # NMR 13C
     if "nmr" in sample_data and sample_data["nmr"]:
-        lines.append("### 🧪 3. ЯМР-спектроскопия 13C:")
-        for k, v in sample_data["nmr"].items():
-            lines.append(f"- {k}: {v}")
-        lines.append("")
+        nmr_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["nmr"].items())[:4])
+        lines.append(f"🧪 **ЯМР 13C:** {nmr_items}")
 
     # FTIR
     if "ftir" in sample_data and sample_data["ftir"]:
-        lines.append("### 📈 4. Колебательная спектроскопия ATR-FTIR:")
-        for k, v in sample_data["ftir"].items():
-            lines.append(f"- {k}: {v}")
-        lines.append("")
+        ftir_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["ftir"].items())[:4])
+        lines.append(f"📈 **ATR-FTIR:** {ftir_items}")
 
     # Elemental CHNS-O
     if "elemental" in sample_data and sample_data["elemental"]:
-        lines.append("### ⚗️ 5. Валовая стехиометрия CHNS-O:")
-        for k, v in sample_data["elemental"].items():
-            lines.append(f"- {k}: {v}")
-        lines.append("")
+        elem_items = ", ".join(f"{k}: {v}" for k, v in sample_data["elemental"].items())
+        lines.append(f"⚗️ **CHNS-O:** {elem_items}")
 
-    lines.extend([
-        "**Задачи для ChemoAgent:**",
-        "1. Определи вероятный геохимический генезис пробы (природное РОВ / торф / почва / техногенный шлам-лигнин / трансформированный сток).",
-        "2. Оцени степень ароматической конденсации, окисленности и алифатичности.",
-        "3. Выдели потенциальные маркеры трансформации или антропогенного воздействия.",
-        "4. Сформулируй краткое экспертное заключение (3–4 абзаца с выводами).",
-    ])
+    lines.append("")
+    if lang == "ru":
+        lines.append("**Задача:** Дай краткое экспертное заключение (2–3 емких абзаца): вероятный генезис (природное РОВ / торф / шлам-лигнин / сток), степень окисления/ароматизации и ключевые маркеры трансформации.")
+    else:
+        lines.append("**Task:** Provide a concise expert interpretation (2–3 short paragraphs): likely geochemical origin, oxidation/aromaticity state, and transformation markers.")
 
     return "\n".join(lines)

@@ -134,7 +134,7 @@ def test_call_groq_chat_http_error(mock_post):
 
     res = chemo_agent.call_groq_chat([{"role": "user", "content": "hi"}], api_key="gsk_invalid")
     assert res["success"] is False
-    assert "HTTP 401" in res["error"]
+    assert "401" in res["error"]
 
 
 @patch("requests.post")
@@ -213,4 +213,55 @@ def test_normalize_latex():
     # 4. AI_mod formatting
     assert chemo_agent.normalize_latex("Shows $AI_mod$ index") == r"Shows $AI_{\text{mod}}$ index"
     assert chemo_agent.normalize_latex("Shows $AI_{mod}$ index") == r"Shows $AI_{\text{mod}}$ index"
+
+
+def test_format_groq_error_429_otpm():
+    """Verifies that 429 rate limit errors (OTPM) produce helpful messages with collapsible details."""
+    raw_error = json.dumps({
+        "error": {
+            "message": "Request too large for model qwen/qwen3.8-27b on output tokens per minute (OTPM): Limit 1000, Requested 2048.",
+            "type": "tokens",
+            "code": "rate_limit_exceeded",
+        }
+    })
+    formatted = chemo_agent.format_groq_error(429, raw_error)
+    assert "Превышен минутный лимит токенов Groq" in formatted
+    assert "<details>" in formatted
+    assert "</details>" in formatted
+    assert "Limit 1000" in formatted
+
+
+def test_format_groq_error_404():
+    """Verifies that 404 model errors produce clear guidance."""
+    formatted = chemo_agent.format_groq_error(404, '{"error":{"message":"model not found"}}')
+    assert "Модель недоступна в Groq" in formatted
+    assert "<details>" in formatted
+
+
+def test_format_groq_error_401():
+    """Verifies that 401 unauthorized errors guide the user to check API key."""
+    formatted = chemo_agent.format_groq_error(401, "Invalid API Key")
+    assert "Неверный GROQ_API_KEY" in formatted
+
+
+@patch("requests.post")
+def test_max_tokens_clamping(mock_post):
+    """Verifies that requested max_tokens is clamped to <= 800 to prevent Groq OTPM rejections."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": "Ok"}}],
+    }
+    mock_post.return_value = mock_resp
+
+    chemo_agent.call_groq_chat(
+        messages=[{"role": "user", "content": "ping"}],
+        api_key="gsk_test_key",
+        max_tokens=4096,  # Intentionally large
+    )
+
+    call_kwargs = mock_post.call_args.kwargs
+    sent_payload = call_kwargs["json"]
+    assert sent_payload["max_tokens"] <= 800
+
 

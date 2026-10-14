@@ -221,7 +221,8 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         for msg in st.session_state["chemo_agent_messages"]:
             avatar = "🤖" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=avatar):
-                st.markdown(chemo_agent.normalize_latex(msg["content"]))
+                display_text = msg.get("display_content", msg["content"])
+                st.markdown(chemo_agent.normalize_latex(display_text), unsafe_allow_html=True)
 
     # 5. Handle Sample Analysis Button Trigger
     if btn_analyze_sample and active_data:
@@ -230,10 +231,15 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
             sample_data=active_data,
             lang=lang,
         )
-        st.session_state["chemo_agent_messages"].append({"role": "user", "content": prompt_text})
+        short_display = f"🔬 **Экспертный анализ образца:** `{active_data['name']}`" if lang == "ru" else f"🔬 **Expert sample analysis:** `{active_data['name']}`"
+        st.session_state["chemo_agent_messages"].append({
+            "role": "user",
+            "content": prompt_text,
+            "display_content": short_display,
+        })
         with chat_box:
             with st.chat_message("user", avatar="👤"):
-                st.markdown(prompt_text)
+                st.markdown(short_display)
 
             with st.chat_message("assistant", avatar="🤖"):
                 loader_ph = st.empty()
@@ -356,7 +362,7 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
         if res.get("success"):
             st.session_state[cache_key] = res.get("content", "")
         else:
-            st.error(f"Ошибка вызова ChemoAgent: {res.get('error')}")
+            st.markdown(res.get("error", "Произошла ошибка"), unsafe_allow_html=True)
 
     cached_content = st.session_state.get(cache_key)
     if cached_content:
