@@ -587,18 +587,32 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
 
     # EEM-PARAFAC
     if "eem" in sample_data and sample_data["eem"]:
-        eem_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["eem"].items())[:4])
+        eem_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["eem"].items())[:5])
         lines.append(f"💡 **EEM-PARAFAC:** {eem_items}")
 
     # NMR 13C
     if "nmr" in sample_data and sample_data["nmr"]:
-        nmr_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["nmr"].items())[:4])
+        nmr_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["nmr"].items())[:5])
         lines.append(f"🧪 **ЯМР 13C:** {nmr_items}")
 
     # FTIR
     if "ftir" in sample_data and sample_data["ftir"]:
-        ftir_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["ftir"].items())[:4])
+        ftir_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["ftir"].items())[:5])
         lines.append(f"📈 **ATR-FTIR:** {ftir_items}")
+
+    # SEC / GPC
+    if "sec" in sample_data and sample_data["sec"]:
+        sec_d = sample_data["sec"]
+        if isinstance(sec_d, dict):
+            sec_items = ", ".join(f"{k}: {v}" for k, v in list(sec_d.items())[:4])
+            lines.append(f"📏 **SEC/GPC:** {sec_items}")
+
+    # Thermal Analysis
+    if "thermal" in sample_data and sample_data["thermal"]:
+        therm_d = sample_data["thermal"]
+        if isinstance(therm_d, dict):
+            therm_items = ", ".join(f"{k}: {v}" for k, v in list(therm_d.items())[:4])
+            lines.append(f"🔥 **Термодеструкция (Py-GC & TGA):** {therm_items}")
 
     # Elemental CHNS-O
     if "elemental" in sample_data and sample_data["elemental"]:
@@ -612,3 +626,519 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         lines.append("**Task:** Provide a concise expert interpretation in strictly 2–3 short paragraphs (under 250 words): likely geochemical origin, oxidation/aromaticity state, and transformation markers. Conclude with a clear brief takeaway.")
 
     return "\n".join(lines)
+
+
+# ==============================================================================
+# КРОСС-МОДАЛЬНЫЙ СИНТЕЗ (CROSS-MODAL SYNTHESIS & MULTI-OMICS FUSION)
+# ==============================================================================
+
+def _normalize_sample_id(s: str) -> str:
+    """Normalizes sample identifier across different studio file naming schemes."""
+    if not s:
+        return ""
+    base = str(s).rsplit(".", 1)[0].lower()
+    for tag in [
+        "_fticr", "-fticr", "_ft-icr", "-ft-icr",
+        "_ms", "-ms", "_eem", "-eem",
+        "_nmr", "-nmr", "_13c", "-13c", "_1h", "-1h",
+        "_ftir", "-ftir", "_atr", "-atr",
+        "_sec", "-sec", "_gpc", "-gpc",
+        "_thermal", "-thermal", "_pygcms", "-pygcms", "_py-gcms", "-py-gcms", "_tga", "-tga",
+        "_elem", "-elem", "_chns", "-chns", "_chnso", "-chnso"
+    ]:
+        base = base.replace(tag, "")
+    base = re.sub(r'[\s_\-]+', '_', base).strip('_')
+    return base
+
+
+def match_sample_in_container(sample_name: str, container: Any) -> Optional[Any]:
+    """
+    Finds matching sample in dict or DataFrame with multi-level key resolution:
+    1. Exact string match
+    2. Base name match without extension
+    3. Normalized ID match
+    4. Single-sample fallback if container has exactly 1 element
+    """
+    if container is None:
+        return None
+
+    norm_target = _normalize_sample_id(sample_name)
+    base_target = str(sample_name).rsplit(".", 1)[0].lower()
+
+    # 1. Container is a dictionary (sample_id -> object or dict)
+    if isinstance(container, dict):
+        if not container:
+            return None
+        if sample_name in container:
+            return container[sample_name]
+        for k, v in container.items():
+            if str(k).rsplit(".", 1)[0].lower() == base_target:
+                return v
+        for k, v in container.items():
+            if _normalize_sample_id(str(k)) == norm_target:
+                return v
+        if len(container) == 1:
+            return list(container.values())[0]
+        return None
+
+    # 2. Container is a pandas DataFrame
+    if isinstance(container, pd.DataFrame):
+        if container.empty:
+            return None
+        id_col = None
+        for cand in ["Sample_ID", "sample_id", "Sample", "sample", "ID", "id"]:
+            if cand in container.columns:
+                id_col = cand
+                break
+        if id_col is not None:
+            col_series = container[id_col].astype(str)
+            m_exact = container[col_series.str.lower() == sample_name.lower()]
+            if not m_exact.empty:
+                return m_exact.iloc[0].to_dict()
+            m_stem = container[col_series.apply(lambda x: str(x).rsplit(".", 1)[0].lower()) == base_target]
+            if not m_stem.empty:
+                return m_stem.iloc[0].to_dict()
+            m_norm = container[col_series.apply(_normalize_sample_id) == norm_target]
+            if not m_norm.empty:
+                return m_norm.iloc[0].to_dict()
+        if len(container) == 1:
+            return container.iloc[0].to_dict()
+
+    return None
+
+
+def harvest_multimodal_descriptors(
+    sample_name: str,
+    spectra_db: Optional[Dict[str, Any]] = None,
+    eem_samples: Optional[Any] = None,
+    nmr_samples: Optional[Any] = None,
+    ftir_samples: Optional[Any] = None,
+    sec_samples: Optional[Any] = None,
+    thermal_samples: Optional[Any] = None,
+    elemental_samples: Optional[Any] = None,
+    eem_ml: Optional[pd.DataFrame] = None,
+    nmr_ml: Optional[pd.DataFrame] = None,
+    ftir_ml: Optional[pd.DataFrame] = None,
+    sec_ml: Optional[pd.DataFrame] = None,
+    thermal_ml: Optional[pd.DataFrame] = None,
+    eem_db: Optional[Dict[str, Any]] = None,
+    nmr_db: Optional[Dict[str, Any]] = None,
+    ftir_db: Optional[Dict[str, Any]] = None,
+    elemental_db: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Harvests and unifies multi-omics analytical descriptors across all 7 ChemoSuite studios
+    for a chosen sample name.
+    """
+    result: Dict[str, Any] = {
+        "name": sample_name,
+        "fticr": None,
+        "eem": None,
+        "nmr": None,
+        "ftir": None,
+        "sec": None,
+        "thermal": None,
+        "elemental": None,
+        "active_modalities": [],
+    }
+
+    # 1. FT-ICR MS
+    if spectra_db and sample_name in spectra_db:
+        spec = spectra_db[sample_name]
+        df_assigned = spec.get("assigned_df")
+        if df_assigned is None:
+            df_assigned = spec.get("raw_df", spec.get("parsed_peaks"))
+
+        if df_assigned is not None and not df_assigned.empty:
+            df = df_assigned.copy() if hasattr(df_assigned, "copy") else pd.DataFrame(df_assigned)
+            cols_lower = {str(c).lower().strip(): c for c in df.columns}
+
+            # Calculate basic metrics
+            fticr_data: Dict[str, Any] = {
+                "assigned_df": df,
+                "n_peaks": len(df),
+                "has_formulas": any(k in cols_lower for k in ["h/c", "hc", "formula", "formula_str", "c"]),
+            }
+
+            # Mn
+            for cand in ["mass", "m/z", "mz", "mw", "calculated_mass"]:
+                if cand in cols_lower:
+                    s_m = pd.to_numeric(df[cols_lower[cand]], errors="coerce").dropna()
+                    if not s_m.empty:
+                        fticr_data["mn"] = round(float(s_m.mean()), 1)
+                        fticr_data["mass_range"] = (round(float(s_m.min()), 0), round(float(s_m.max()), 0))
+                    break
+
+            # H/C
+            for cand in ["h/c", "hc", "h_c"]:
+                if cand in cols_lower:
+                    s_hc = pd.to_numeric(df[cols_lower[cand]], errors="coerce").dropna()
+                    if not s_hc.empty:
+                        fticr_data["hc_mean"] = round(float(s_hc.mean()), 2)
+                    break
+
+            # O/C
+            for cand in ["o/c", "oc", "o_c"]:
+                if cand in cols_lower:
+                    s_oc = pd.to_numeric(df[cols_lower[cand]], errors="coerce").dropna()
+                    if not s_oc.empty:
+                        fticr_data["oc_mean"] = round(float(s_oc.mean()), 2)
+                    break
+
+            # AI_mod
+            for cand in ["ai", "ai_mod", "ai_koch", "aromaticity_index"]:
+                if cand in cols_lower:
+                    s_ai = pd.to_numeric(df[cols_lower[cand]], errors="coerce").dropna()
+                    if not s_ai.empty:
+                        fticr_data["ai_mod"] = round(float(s_ai.mean()), 3)
+                        fticr_data["high_ai_pct"] = round(float((s_ai > 0.5).mean() * 100.0), 1)
+                        fticr_data["condensed_pct"] = round(float((s_ai >= 0.67).mean() * 100.0), 1)
+                    break
+
+            # DBE
+            for cand in ["dbe", "dbe-o"]:
+                if cand in cols_lower:
+                    s_dbe = pd.to_numeric(df[cols_lower[cand]], errors="coerce").dropna()
+                    if not s_dbe.empty:
+                        fticr_data["dbe_mean"] = round(float(s_dbe.mean()), 1)
+                    break
+
+            # NOSC
+            if "nosc" in cols_lower:
+                s_nosc = pd.to_numeric(df[cols_lower["nosc"]], errors="coerce").dropna()
+                if not s_nosc.empty:
+                    fticr_data["nosc_mean"] = round(float(s_nosc.mean()), 2)
+
+            # Heteroatom Classes
+            for cand in ["hetero_class", "class", "heteroclass"]:
+                if cand in cols_lower and cols_lower[cand] in df.columns:
+                    fticr_data["hetero_classes"] = df[cols_lower[cand]].value_counts().to_dict()
+                    break
+
+            result["fticr"] = fticr_data
+            result["active_modalities"].append("fticr")
+
+    # 2. EEM / UV-Vis
+    eem_obj = match_sample_in_container(sample_name, eem_samples) or match_sample_in_container(sample_name, eem_ml) or (eem_db.get(sample_name) if eem_db else None)
+    if eem_obj is not None:
+        eem_data: Dict[str, Any] = {}
+        if isinstance(eem_obj, dict):
+            for k in ["FI", "fi", "HIX", "hix", "BIX", "bix", "SUVA254", "suva254", "DOC", "doc", "A254", "a254", "C1", "C2", "C3", "C4", "C1_Fulvic", "C2_Humic_Lignin", "C3_Protein"]:
+                if k in eem_obj and pd.notnull(eem_obj[k]):
+                    eem_data[k.lower()] = round(float(eem_obj[k]), 2)
+        elif hasattr(eem_obj, "data"):
+            try:
+                import modules.eem_core as eem_core
+                indices = eem_core.calculate_spectral_indices(eem_obj)
+                for k, v in indices.items():
+                    if pd.notnull(v):
+                        eem_data[k.lower()] = round(float(v), 2)
+            except Exception:
+                pass
+        if eem_data:
+            result["eem"] = eem_data
+            result["active_modalities"].append("eem")
+
+    # 3. NMR 13C
+    nmr_obj = match_sample_in_container(sample_name, nmr_samples) or match_sample_in_container(sample_name, nmr_ml) or (nmr_db.get(sample_name) if nmr_db else None)
+    if nmr_obj is not None:
+        nmr_data: Dict[str, Any] = {}
+        if isinstance(nmr_obj, dict):
+            for k in ["fa", "aliphatic", "carbohydrate", "aromatic", "phenolic", "carboxyl", "carbonyl", "c_alk_c_oalk", "hydrophobicity_ratio"]:
+                if k in nmr_obj and pd.notnull(nmr_obj[k]):
+                    nmr_data[k] = round(float(nmr_obj[k]), 2)
+        elif hasattr(nmr_obj, "indices") or hasattr(nmr_obj, "integrals"):
+            if getattr(nmr_obj, "indices", None):
+                for k, v in nmr_obj.indices.items():
+                    if pd.notnull(v):
+                        nmr_data[k] = round(float(v), 2)
+            if getattr(nmr_obj, "integrals", None):
+                for k, v in nmr_obj.integrals.items():
+                    if pd.notnull(v):
+                        nmr_data[k] = round(float(v), 2)
+        if nmr_data:
+            result["nmr"] = nmr_data
+            result["active_modalities"].append("nmr")
+
+    # 4. ATR-FTIR
+    ftir_obj = match_sample_in_container(sample_name, ftir_samples) or match_sample_in_container(sample_name, ftir_ml) or (ftir_db.get(sample_name) if ftir_db else None)
+    if ftir_obj is not None:
+        ftir_data: Dict[str, Any] = {}
+        if isinstance(ftir_obj, dict):
+            for k in ["FTIR_Aromaticity_Idx", "FTIR_Lignin_Idx", "FTIR_Oxidation_Idx", "FTIR_Branching_Idx", "FTIR_GS_Ratio", "FTIR_Polysaccharide_Idx", "FTIR_Phenolic_Idx", "aromaticity_idx", "lignin_idx", "oxidation_idx"]:
+                if k in ftir_obj and pd.notnull(ftir_obj[k]):
+                    clean_k = k.replace("FTIR_", "").lower()
+                    ftir_data[clean_k] = round(float(ftir_obj[k]), 3)
+        elif hasattr(ftir_obj, "indices"):
+            for k, v in getattr(ftir_obj, "indices", {}).items():
+                if pd.notnull(v):
+                    ftir_data[k.lower()] = round(float(v), 3)
+        if ftir_data:
+            result["ftir"] = ftir_data
+            result["active_modalities"].append("ftir")
+
+    # 5. SEC / GPC
+    sec_obj = match_sample_in_container(sample_name, sec_samples) or match_sample_in_container(sample_name, sec_ml)
+    if sec_obj is not None:
+        sec_data: Dict[str, Any] = {}
+        if isinstance(sec_obj, dict):
+            for k in ["SEC_Mw", "SEC_Mn", "SEC_Polydispersity", "SEC_Fraction_I_pct", "SEC_Fraction_II_pct", "SEC_Fraction_III_pct", "mw", "mn", "pdi"]:
+                if k in sec_obj and pd.notnull(sec_obj[k]):
+                    clean_k = k.replace("SEC_", "").lower()
+                    sec_data[clean_k] = round(float(sec_obj[k]), 2)
+        elif hasattr(sec_obj, "descriptors"):
+            for k, v in getattr(sec_obj, "descriptors", {}).items():
+                if pd.notnull(v):
+                    sec_data[k.lower()] = round(float(v), 2)
+        if sec_data:
+            result["sec"] = sec_data
+            result["active_modalities"].append("sec")
+
+    # 6. Thermal Analysis (Py-GC/MS & TGA)
+    therm_obj = match_sample_in_container(sample_name, thermal_samples) or match_sample_in_container(sample_name, thermal_ml)
+    if therm_obj is not None:
+        therm_data: Dict[str, Any] = {}
+        if isinstance(therm_obj, dict):
+            for k in ["py_phenols", "py_guaiacols", "py_syringols", "py_aromatics", "py_lipids", "py_polysaccharides", "tga_labile_pct", "tga_refractory_pct", "tga_char_pct", "T_max"]:
+                if k in therm_obj and pd.notnull(therm_obj[k]):
+                    therm_data[k] = round(float(therm_obj[k]), 1)
+        elif hasattr(therm_obj, "py_gcms") or hasattr(therm_obj, "tga"):
+            try:
+                import modules.thermal_core as thermal_core
+                desc = thermal_core.extract_thermal_descriptors(therm_obj)
+                for k, v in desc.items():
+                    if pd.notnull(v):
+                        therm_data[k] = round(float(v), 1)
+            except Exception:
+                pass
+        if therm_data:
+            result["thermal"] = therm_data
+            result["active_modalities"].append("thermal")
+
+    # 7. Elemental CHNS-O
+    elem_obj = match_sample_in_container(sample_name, elemental_samples) or (elemental_db.get(sample_name) if elemental_db else None)
+    if elem_obj is not None:
+        elem_data: Dict[str, Any] = {}
+        if isinstance(elem_obj, dict):
+            for k in ["c_pct", "h_pct", "n_pct", "s_pct", "o_pct", "c_n", "h_c", "o_c", "nosc"]:
+                if k in elem_obj and pd.notnull(elem_obj[k]):
+                    elem_data[k] = round(float(elem_obj[k]), 2)
+        elif hasattr(elem_obj, "c_pct"):
+            for k in ["c_pct", "h_pct", "n_pct", "s_pct", "o_pct", "h_c", "o_c", "n_c", "s_c", "nosc"]:
+                v = getattr(elem_obj, k, None)
+                if v is not None and pd.notnull(v):
+                    elem_data[k] = round(float(v), 2)
+        if elem_data:
+            result["elemental"] = elem_data
+            result["active_modalities"].append("elemental")
+
+    return result
+
+
+def compute_cross_modal_insights(multimodal_data: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Computes rigorous analytical cross-modal correlations, identifying convergence
+    and potential analytical divergence (such as ESI ionization selectivity vs bulk NMR).
+    """
+    insights: List[Dict[str, str]] = []
+    fticr = multimodal_data.get("fticr") or {}
+    eem = multimodal_data.get("eem") or {}
+    nmr = multimodal_data.get("nmr") or {}
+    ftir = multimodal_data.get("ftir") or {}
+    sec = multimodal_data.get("sec") or {}
+    thermal = multimodal_data.get("thermal") or {}
+    elemental = multimodal_data.get("elemental") or {}
+
+    # 1. Aromaticity & Condensation Coherence
+    ai = fticr.get("ai_mod")
+    fa = nmr.get("fa")
+    ftir_arom = ftir.get("aromaticity_idx")
+    suva = eem.get("suva254")
+
+    active_arom = [v for v in [ai, fa, ftir_arom, suva] if v is not None]
+    if len(active_arom) >= 2:
+        if ai is not None and fa is not None and ai >= 0.45 and fa < 0.18:
+            insights.append({
+                "category": "Ароматичность / Селективность ESI(-)",
+                "status": "⚠️ Аналитическое расхождение (Селективность ESI)",
+                "detail": f"В FT-ICR MS наблюдается высокий индекс $AI_{{\\text{{mod}}}} = {ai:.3f}$, тогда как в объёмном ЯМР доля $f_a = {fa:.2f}$ низка. Это типичный признак селективной ионизации полифенолов в ESI(-) на фоне объемного алифатического матрикса.",
+            })
+        elif (ai is not None and ai >= 0.35) and (fa is None or fa >= 0.25) and (suva is None or suva >= 2.8):
+            insights.append({
+                "category": "Ароматичность / Конвергенция",
+                "status": "✅ Высокая сходимость методов (Ароматический кор)",
+                "detail": "FT-ICR, ЯМР и оптические спектры согласованно подтверждают развитый ароматический каркас высокой окислительной устойчивости.",
+            })
+        elif (ai is not None and ai < 0.28) and (fa is None or fa < 0.20):
+            insights.append({
+                "category": "Ароматичность / Конвергенция",
+                "status": "✅ Высокая сходимость методов (Алифатическое/биогенное РОВ)",
+                "detail": "Методы независимо подтверждают низкую ароматичность и преобладание алифатических структур.",
+            })
+
+    # 2. Supramolecular Aggregation State (SEC vs FT-ICR)
+    sec_mw = sec.get("mw")
+    fticr_mn = fticr.get("mn")
+    if sec_mw and fticr_mn and fticr_mn > 0:
+        ar = sec_mw / fticr_mn
+        insights.append({
+            "category": "Супрамолекулярная структура",
+            "status": f"🧬 Коэффициент агрегации: {ar:.1f}x",
+            "detail": f"Кажущаяся гидродинамическая масса в растворе (SEC $M_w = {sec_mw:.0f}$ Da) превышает массу индивидуальных ионизированных мономеров (FT-ICR $M_n = {fticr_mn:.0f}$ Da) в {ar:.1f} раз. Это подтверждает супрамолекулярную ассоциацию олигомеров РОВ.",
+        })
+
+    # 3. Technogenic Lignin & Sulfate Markers
+    lignin_flags = []
+    if fticr.get("hetero_classes", {}).get("CHOS", 0) > 0:
+        lignin_flags.append(f"CHOS формулы ({fticr['hetero_classes']['CHOS']} шт)")
+    if ftir.get("lignin_idx") and ftir["lignin_idx"] > 0.35:
+        lignin_flags.append(f"FTIR полоса 1510 см⁻¹ (индекс {ftir['lignin_idx']:.2f})")
+    if thermal.get("py_guaiacols") and thermal["py_guaiacols"] > 10.0:
+        lignin_flags.append(f"Py-GC/MS гваяцилы ({thermal['py_guaiacols']:.1f}%)")
+    if elemental.get("s_pct") and elemental["s_pct"] > 0.7:
+        lignin_flags.append(f"Элементная сера S = {elemental['s_pct']:.2f}%")
+
+    if len(lignin_flags) >= 2:
+        insights.append({
+            "category": "Техногенный след / Шлам-лигнин",
+            "status": "🚨 Обнаружен устойчивый маркерный кластер лигнина/сульфонатов",
+            "detail": "Кросс-модальное совпадение: " + "; ".join(lignin_flags) + ". Высокая вероятность техногенного вклада сульфатного лигнина.",
+        })
+
+    # 4. Fresh Biogenic / Microbial Organic Matter
+    bio_flags = []
+    if fticr.get("hetero_classes", {}).get("CHON", 0) > 0:
+        bio_flags.append("пептидоподобные CHON")
+    if eem.get("c3_protein") and eem["c3_protein"] > 10.0:
+        bio_flags.append(f"белковоподобный флуорофор C3 ({eem['c3_protein']:.1f}%)")
+    if elemental.get("c_n_ratio") and elemental["c_n_ratio"] < 15.0:
+        bio_flags.append(f"обогащение азотом (C/N = {elemental['c_n_ratio']:.1f})")
+
+    if len(bio_flags) >= 2:
+        insights.append({
+            "category": "Биогенный автохтонный пул",
+            "status": "🌱 Свежая микробная / протеиновая продукция",
+            "detail": "Согласованные маркеры: " + "; ".join(bio_flags) + ". Свидетельствует об активном автохтонном продуцировании РОВ планктоном/бактериями.",
+        })
+
+    return insights
+
+
+def build_cross_modal_synthesis_prompt(
+    sample_name: str,
+    multimodal_data: Dict[str, Any],
+    lang: str = "ru",
+) -> str:
+    """
+    Builds a rigorous, multi-omics scientific synthesis prompt integrating all
+    available analytical techniques for ChemoAgent.
+    """
+    lines: List[str] = []
+    active = multimodal_data.get("active_modalities", [])
+    mod_str = ", ".join(m.upper() for m in active) if active else "FT-ICR MS"
+
+    if lang == "ru":
+        lines = [
+            f"Проведи глубокий **кросс-модальный аналитический синтез** образца: **{sample_name}**.",
+            f"В исследовании объединены данные {len(active)} аналитических методов: **{mod_str}**.",
+            "",
+            "### 🔬 Экспериментальные данные по модальностям:",
+        ]
+    else:
+        lines = [
+            f"Perform a deep **cross-modal analytical synthesis** for sample: **{sample_name}**.",
+            f"The analysis fuses {len(active)} analytical modalities: **{mod_str}**.",
+            "",
+            "### 🔬 Experimental Multi-Modal Data:",
+        ]
+
+    # FT-ICR MS
+    fticr = multimodal_data.get("fticr")
+    if fticr:
+        f_lines = []
+        if fticr.get("n_peaks"):
+            f_lines.append(f"Число формул/пиков: {fticr['n_peaks']:,}")
+        if fticr.get("mn"):
+            m_min, m_max = fticr.get("mass_range", (200, 800))
+            f_lines.append(f"Mn: {fticr['mn']} Da ({m_min:.0f}–{m_max:.0f})")
+        if fticr.get("hc_mean") is not None:
+            f_lines.append(f"H/C: {fticr['hc_mean']}")
+        if fticr.get("oc_mean") is not None:
+            f_lines.append(f"O/C: {fticr['oc_mean']}")
+        if fticr.get("ai_mod") is not None:
+            f_lines.append(f"AI_mod: {fticr['ai_mod']} (доля >0.5: {fticr.get('high_ai_pct', 0)}%, конд.: {fticr.get('condensed_pct', 0)}%)")
+        if fticr.get("dbe_mean") is not None:
+            f_lines.append(f"DBE: {fticr['dbe_mean']}")
+        if fticr.get("nosc_mean") is not None:
+            f_lines.append(f"NOSC: {fticr['nosc_mean']}")
+        lines.append(f"1. **FT-ICR MS:** {', '.join(f_lines)}")
+        if fticr.get("hetero_classes"):
+            top_classes = ", ".join(f"{k}:{v}" for k, v in list(fticr["hetero_classes"].items())[:5])
+            lines.append(f"   - Классы: {top_classes}")
+
+    # EEM
+    eem = multimodal_data.get("eem")
+    if eem:
+        e_items = ", ".join(f"{k}: {v}" for k, v in eem.items())
+        lines.append(f"2. **Оптическая спектроскопия (EEM-PARAFAC / UV):** {e_items}")
+
+    # NMR
+    nmr = multimodal_data.get("nmr")
+    if nmr:
+        n_items = ", ".join(f"{k}: {v}" for k, v in nmr.items())
+        lines.append(f"3. **Спектроскопия ЯМР 13C:** {n_items}")
+
+    # FTIR
+    ftir = multimodal_data.get("ftir")
+    if ftir:
+        f_items = ", ".join(f"{k}: {v}" for k, v in ftir.items())
+        lines.append(f"4. **ИК-Фурье (ATR-FTIR):** {f_items}")
+
+    # SEC
+    sec = multimodal_data.get("sec")
+    if sec:
+        s_items = ", ".join(f"{k}: {v}" for k, v in sec.items())
+        lines.append(f"5. **Эксклюзионная хроматография (SEC/GPC):** {s_items}")
+
+    # Thermal
+    thermal = multimodal_data.get("thermal")
+    if thermal:
+        t_items = ", ".join(f"{k}: {v}" for k, v in thermal.items())
+        lines.append(f"6. **Термодеструкция (Py-GC/MS & TGA):** {t_items}")
+
+    # Elemental
+    elemental = multimodal_data.get("elemental")
+    if elemental:
+        elem_items = ", ".join(f"{k}: {v}" for k, v in elemental.items())
+        lines.append(f"7. **Элементный микроанализ (CHNS-O):** {elem_items}")
+
+    # Cross-Modal Correlations
+    insights = compute_cross_modal_insights(multimodal_data)
+    if insights:
+        lines.append("")
+        lines.append("### ⚖️ Предварительные кросс-модальные сопоставления ChemoSuite:")
+        for ins in insights:
+            lines.append(f"- **{ins['status']}** ({ins['category']}): {ins['detail']}")
+
+    lines.append("")
+    if lang == "ru":
+        lines.extend([
+            "### 🎯 Твоя задача:",
+            "Сформируй исчерпывающее, строгое экспертное заключение в 4 структурированных разделах (суммарно до 350 слов):",
+            "1. **🧬 Комплексный хемотип и генезис**: синтез происхождения (природное РОВ / торф / шлам-лигнин / микробный автохтон) с опорой на ВСЕ представленные методы.",
+            "2. **⚖️ Кросс-модальная валидация**: прямое сопоставление данных ЯМР, FTIR, EEM, SEC и FT-ICR (согласуются ли оптические, спектроскопические и масс-спектрометрические маркеры).",
+            "3. **🔬 Инструментальные расхождения**: выявление эффектов селективности ионизации ESI(-), супрамолекулярной ассоциации в растворе против депротонированных мономеров в вакууме.",
+            "4. **🎯 Итоговый вердикт и ключевые маркеры**: однозначный вывод об экологическом состоянии и генезисе пробы.",
+        ])
+    else:
+        lines.extend([
+            "### 🎯 Task:",
+            "Provide a rigorous expert interpretation in 4 structured sections (up to 350 words total):",
+            "1. **🧬 Multi-Modal Chemotype & Origin**: synthesis across all available techniques.",
+            "2. **⚖️ Cross-Modal Validation**: direct comparison of NMR, FTIR, EEM, SEC, and FT-ICR.",
+            "3. **🔬 Analytical Discrepancies**: ionization selectivity of ESI(-) vs bulk spectroscopy, supramolecular aggregation.",
+            "4. **🎯 Definitive Takeaway & Key Biomarkers**.",
+        ])
+
+    return "\n".join(lines)
+

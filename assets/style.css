@@ -857,3 +857,39 @@ div[data-testid="stBackdrop"] {
   display: inline-block;
 }
 
+/* ChemoAgent Multi-Modal Modality Ribbon */
+.chemo-mod-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 10px 0;
+}
+
+.chemo-mod-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-weight: 500;
+  line-height: 1.2;
+  transition: all 0.2s ease;
+}
+
+.chemo-mod-pill.active {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.15);
+}
+
+.chemo-mod-pill.inactive {
+  background: rgba(148, 163, 184, 0.06);
+  color: #64748b;
+  border: 1px dashed rgba(148, 163, 184, 0.25);
+  opacity: 0.75;
+}
+
+

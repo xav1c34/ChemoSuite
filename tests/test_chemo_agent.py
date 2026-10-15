@@ -316,4 +316,112 @@ def test_get_active_fticr_data_selection():
     assert _get_active_fticr_data("Sample_A.csv") is None
 
 
+def test_normalize_sample_id():
+    """Verifies that sample IDs are normalized by stripping extensions and analytical technique suffixes."""
+    assert chemo_agent._normalize_sample_id("Baikal_Pristine_01_fticr.csv") == "baikal_pristine_01"
+    assert chemo_agent._normalize_sample_id("Baikal_Pristine_01_nmr.jdx") == "baikal_pristine_01"
+    assert chemo_agent._normalize_sample_id("Baikal_Pristine_01_eem.dat") == "baikal_pristine_01"
+    assert chemo_agent._normalize_sample_id("Sample-1-pygcms.txt") == "sample_1"
+
+
+def test_match_sample_in_container():
+    """Verifies multi-level sample matching in dictionaries and DataFrames."""
+    dict_container = {
+        "Baikal_Deep_01_nmr": {"fa": 0.35},
+        "Other_Sample": {"fa": 0.12},
+    }
+    # Stem match
+    m1 = chemo_agent.match_sample_in_container("Baikal_Deep_01_fticr.csv", dict_container)
+    assert m1 is not None and m1["fa"] == 0.35
+
+    # Single-item fallback
+    single_dict = {"Lignin_Control": {"lignin_idx": 0.88}}
+    m_single = chemo_agent.match_sample_in_container("Any_Query.csv", single_dict)
+    assert m_single is not None and m_single["lignin_idx"] == 0.88
+
+    # DataFrame match
+    df_container = pd.DataFrame([
+        {"Sample_ID": "Baikal_Deep_01_eem", "HIX": 8.5},
+        {"Sample_ID": "Other_01", "HIX": 2.1},
+    ])
+    m_df = chemo_agent.match_sample_in_container("Baikal_Deep_01_fticr.csv", df_container)
+    assert m_df is not None and m_df["HIX"] == 8.5
+
+
+def test_harvest_and_cross_modal_synthesis():
+    """Tests end-to-end multi-modal data harvesting, insight computation, and prompt synthesis."""
+    fticr_df = pd.DataFrame({
+        "m/z": [340.1, 420.2, 510.3],
+        "H/C": [1.12, 0.95, 1.25],
+        "O/C": [0.45, 0.60, 0.35],
+        "AI": [0.35, 0.58, 0.20],
+        "DBE": [11.0, 15.0, 9.0],
+        "NOSC": [-0.1, 0.2, -0.3],
+        "Hetero_Class": ["CHO", "CHON", "CHOS"],
+    })
+
+    spectra_db = {
+        "Baikal_01.csv": {"assigned_df": fticr_df}
+    }
+    eem_samples = {
+        "Baikal_01_eem": {"SUVA254": 3.4, "HIX": 8.1, "C1_Fulvic": 45.0, "C2_Humic_Lignin": 32.0, "C3_Protein": 8.0}
+    }
+    nmr_samples = {
+        "Baikal_01_nmr": {"fa": 0.32, "aliphatic": 44.0, "aromatic": 25.0, "carboxyl": 14.0}
+    }
+    ftir_samples = {
+        "Baikal_01_ftir": {"FTIR_Lignin_Idx": 0.42, "FTIR_Aromaticity_Idx": 0.52}
+    }
+    sec_samples = {
+        "Baikal_01_sec": {"SEC_Mw": 3800.0, "SEC_Mn": 2100.0, "SEC_Polydispersity": 1.81}
+    }
+    thermal_samples = {
+        "Baikal_01_thermal": {"py_guaiacols": 12.5, "tga_labile_pct": 52.0}
+    }
+    elemental_samples = {
+        "Baikal_01_elem": {"c_pct": 52.4, "h_pct": 4.8, "n_pct": 1.5, "s_pct": 0.85, "o_pct": 40.4}
+    }
+
+    harvested = chemo_agent.harvest_multimodal_descriptors(
+        sample_name="Baikal_01.csv",
+        spectra_db=spectra_db,
+        eem_samples=eem_samples,
+        nmr_samples=nmr_samples,
+        ftir_samples=ftir_samples,
+        sec_samples=sec_samples,
+        thermal_samples=thermal_samples,
+        elemental_samples=elemental_samples,
+    )
+
+    assert len(harvested["active_modalities"]) == 7
+    assert "fticr" in harvested["active_modalities"]
+    assert "eem" in harvested["active_modalities"]
+    assert "nmr" in harvested["active_modalities"]
+    assert "ftir" in harvested["active_modalities"]
+    assert "sec" in harvested["active_modalities"]
+    assert "thermal" in harvested["active_modalities"]
+    assert "elemental" in harvested["active_modalities"]
+
+    # Compute insights
+    insights = chemo_agent.compute_cross_modal_insights(harvested)
+    assert len(insights) >= 2
+    # Verify aggregation ratio (SEC Mw ~3800 / FT-ICR Mn ~423 Da -> ~9.0x)
+    assert any("Коэффициент агрегации" in ins["status"] for ins in insights)
+
+    # Prompt generation in Russian and English
+    prompt_ru = chemo_agent.build_cross_modal_synthesis_prompt("Baikal_01.csv", harvested, lang="ru")
+    assert "кросс-модальный аналитический синтез" in prompt_ru
+    assert "FT-ICR MS" in prompt_ru
+    assert "EEM-PARAFAC" in prompt_ru
+    assert "ЯМР 13C" in prompt_ru
+    assert "ATR-FTIR" in prompt_ru
+    assert "SEC/GPC" in prompt_ru
+    assert "CHNS-O" in prompt_ru
+    assert "Коэффициент агрегации" in prompt_ru
+
+    prompt_en = chemo_agent.build_cross_modal_synthesis_prompt("Baikal_01.csv", harvested, lang="en")
+    assert "cross-modal analytical synthesis" in prompt_en
+
+
+
 

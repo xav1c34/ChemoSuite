@@ -63,8 +63,8 @@ def _stream_with_loader(stream_gen, loader_placeholder):
         loader_placeholder.empty()
 
 
-def _get_active_fticr_data(selected_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Extracts FT-ICR MS sample from session state by selected_name, active_spectrum_name, or first available."""
+def _get_active_multimodal_data(selected_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Extracts unified multi-modal analytical data across all active studios in session state."""
     db = st.session_state.get("spectra_db", {})
     if not db:
         return None
@@ -75,24 +75,38 @@ def _get_active_fticr_data(selected_name: Optional[str] = None) -> Optional[Dict
         if not name or name not in db:
             name = list(db.keys())[0]
 
-    if name and name in db:
-        spec = db[name]
-        assigned_df = spec.get("assigned_df")
-        if assigned_df is None and "raw_df" in spec:
-            assigned_df = spec.get("raw_df")
-        if assigned_df is None and "parsed_peaks" in spec:
-            assigned_df = spec.get("parsed_peaks")
+    if not name or name not in db:
+        return None
 
-        return {
-            "name": name,
-            "assigned_df": assigned_df,
-            "spec": spec,
-            "eem": spec.get("eem") or st.session_state.get("eem_db", {}).get(name),
-            "nmr": spec.get("nmr") or st.session_state.get("nmr_db", {}).get(name),
-            "ftir": spec.get("ftir") or st.session_state.get("ftir_db", {}).get(name),
-            "elemental": spec.get("elemental") or st.session_state.get("elemental_db", {}).get(name),
-        }
-    return None
+    harvested = chemo_agent.harvest_multimodal_descriptors(
+        sample_name=name,
+        spectra_db=db,
+        eem_samples=st.session_state.get("eem_samples"),
+        nmr_samples=st.session_state.get("nmr_samples"),
+        ftir_samples=st.session_state.get("ftir_samples"),
+        sec_samples=st.session_state.get("sec_samples"),
+        thermal_samples=st.session_state.get("thermal_samples"),
+        elemental_samples=st.session_state.get("elemental_samples"),
+        eem_ml=st.session_state.get("eem_ml_descriptors"),
+        nmr_ml=st.session_state.get("nmr_ml_descriptors"),
+        ftir_ml=st.session_state.get("ftir_ml_descriptors"),
+        sec_ml=st.session_state.get("sec_ml_descriptors"),
+        thermal_ml=st.session_state.get("thermal_ml_descriptors"),
+        eem_db=st.session_state.get("eem_db"),
+        nmr_db=st.session_state.get("nmr_db"),
+        ftir_db=st.session_state.get("ftir_db"),
+        elemental_db=st.session_state.get("elemental_db"),
+    )
+
+    if harvested.get("fticr"):
+        harvested["assigned_df"] = harvested["fticr"].get("assigned_df")
+        harvested["spec"] = db.get(name, {})
+    return harvested
+
+
+def _get_active_fticr_data(selected_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Backward-compatible wrapper for FT-ICR sample retrieval."""
+    return _get_active_multimodal_data(selected_name)
 
 
 def render_chemo_agent_sidebar(T: Dict[str, Any], lang: str = "ru"):
@@ -222,36 +236,142 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 label_visibility="collapsed",
                 help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
             )
-        active_data = _get_active_fticr_data(selected_sample_name)
+        active_data = _get_active_multimodal_data(selected_sample_name)
+        active_mods = active_data.get("active_modalities", ["fticr"]) if active_data else []
+        has_multimodal = len(active_mods) >= 2
 
-        with col_act2:
-            btn_analyze_sample = st.button(
-                "🔬 Отправить в ИИ" if lang == "ru" else "🔬 Send to AI",
-                key="btn_agent_analyze_sample",
-                disabled=(active_data is None or not bool(current_key)),
-                use_container_width=True,
-                type="primary",
-                help="Сформировать экспертное биогеохимическое заключение для выбранного спектра" if lang == "ru" else "Generate biogeochemical expert interpretation for selected spectrum",
-            )
-        with col_act3:
-            if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True, help="Очистить историю сообщений"):
-                st.session_state["chemo_agent_messages"] = [
-                    {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
-                ]
-                st.rerun()
+        btn_cross_modal = False
+        btn_analyze_sample = False
 
-        # Brief descriptor chip
+        if has_multimodal:
+            col_act1, col_act2, col_act3, col_act4 = st.columns([1.7, 1.4, 1.1, 0.7])
+            with col_act1:
+                selected_sample_name = st.selectbox(
+                    "Спектр для анализа:" if lang == "ru" else "Spectrum to analyze:",
+                    options=available_samples,
+                    index=default_idx,
+                    key="agent_spectrum_selector",
+                    label_visibility="collapsed",
+                    help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
+                )
+            with col_act2:
+                btn_cross_modal = st.button(
+                    "🧬 Кросс-модальный синтез" if lang == "ru" else "🧬 Multi-Modal Synthesis",
+                    key="btn_agent_cross_modal",
+                    disabled=(active_data is None or not bool(current_key)),
+                    use_container_width=True,
+                    type="primary",
+                    help=f"Комплексный синтез данных ({len(active_mods)} активных методов: {', '.join(m.upper() for m in active_mods)})" if lang == "ru" else f"Fused synthesis ({len(active_mods)} modalities: {', '.join(m.upper() for m in active_mods)})",
+                )
+            with col_act3:
+                btn_analyze_sample = st.button(
+                    "🔬 FT-ICR анализ" if lang == "ru" else "🔬 FT-ICR Analysis",
+                    key="btn_agent_analyze_sample",
+                    disabled=(active_data is None or not bool(current_key)),
+                    use_container_width=True,
+                    type="secondary",
+                    help="Сформировать экспертное биогеохимическое заключение строго по FT-ICR MS" if lang == "ru" else "Generate single-spectrum FT-ICR MS interpretation",
+                )
+            with col_act4:
+                if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True, help="Очистить историю сообщений"):
+                    st.session_state["chemo_agent_messages"] = [
+                        {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
+                    ]
+                    st.rerun()
+        else:
+            col_act1, col_act2, col_act3 = st.columns([2.2, 1.4, 0.9])
+            with col_act1:
+                selected_sample_name = st.selectbox(
+                    "Спектр для анализа:" if lang == "ru" else "Spectrum to analyze:",
+                    options=available_samples,
+                    index=default_idx,
+                    key="agent_spectrum_selector",
+                    label_visibility="collapsed",
+                    help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
+                )
+            with col_act2:
+                btn_analyze_sample = st.button(
+                    "🔬 Отправить в ИИ" if lang == "ru" else "🔬 Send to AI",
+                    key="btn_agent_analyze_sample",
+                    disabled=(active_data is None or not bool(current_key)),
+                    use_container_width=True,
+                    type="primary",
+                    help="Сформировать экспертное биогеохимическое заключение для выбранного спектра" if lang == "ru" else "Generate biogeochemical expert interpretation for selected spectrum",
+                )
+            with col_act3:
+                if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True, help="Очистить историю сообщений"):
+                    st.session_state["chemo_agent_messages"] = [
+                        {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
+                    ]
+                    st.rerun()
+
+        # Multi-Modal Availability Matrix Ribbon
         if active_data:
-            df_assigned = active_data.get("assigned_df")
-            n_rows = len(df_assigned) if df_assigned is not None and not df_assigned.empty else 0
-            has_formulas = n_rows > 0 and any(str(c).lower().strip() in ["formula", "formula_str", "h/c"] for c in df_assigned.columns)
-            st.caption(
-                f"📊 Выбран: `{active_data['name']}` ({n_rows:,} {'формул' if has_formulas else 'пиков'})"
-                if lang == "ru"
-                else f"📊 Selected: `{active_data['name']}` ({n_rows:,} {'formulas' if has_formulas else 'peaks'})"
-            )
+            pills = []
+            # 1. FT-ICR
+            if "fticr" in active_mods:
+                n_p = active_data.get("fticr", {}).get("n_peaks", 0)
+                lbl = "формул" if active_data.get("fticr", {}).get("has_formulas") else "пиков"
+                pills.append(f"<span class='chemo-mod-pill active'>🔬 FT-ICR ({n_p:,} {lbl})</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>🔬 FT-ICR</span>")
+
+            # 2. EEM
+            if "eem" in active_mods:
+                suva = active_data.get("eem", {}).get("suva254")
+                v_str = f"SUVA {suva}" if suva else "OK"
+                pills.append(f"<span class='chemo-mod-pill active'>💡 EEM ({v_str})</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>💡 EEM</span>")
+
+            # 3. NMR
+            if "nmr" in active_mods:
+                fa = active_data.get("nmr", {}).get("fa")
+                v_str = f"fa {fa}" if fa else "OK"
+                pills.append(f"<span class='chemo-mod-pill active'>🧪 ЯМР 13C ({v_str})</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>🧪 ЯМР 13C</span>")
+
+            # 4. FTIR
+            if "ftir" in active_mods:
+                lig = active_data.get("ftir", {}).get("lignin_idx")
+                v_str = f"Лигнин {lig}" if lig else "OK"
+                pills.append(f"<span class='chemo-mod-pill active'>📈 FTIR ({v_str})</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>📈 FTIR</span>")
+
+            # 5. SEC
+            if "sec" in active_mods:
+                mw = active_data.get("sec", {}).get("mw")
+                v_str = f"Mw {mw:.0f} Da" if mw else "OK"
+                pills.append(f"<span class='chemo-mod-pill active'>📏 SEC ({v_str})</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>📏 SEC</span>")
+
+            # 6. Thermal
+            if "thermal" in active_mods:
+                pills.append("<span class='chemo-mod-pill active'>🔥 Термо (Py-GC)</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>🔥 Термо</span>")
+
+            # 7. Elemental
+            if "elemental" in active_mods:
+                c_n = active_data.get("elemental", {}).get("c_n")
+                v_str = f"C/N {c_n}" if c_n else "OK"
+                pills.append(f"<span class='chemo-mod-pill active'>⚗️ CHNS-O ({v_str})</span>")
+            else:
+                pills.append("<span class='chemo-mod-pill inactive'>⚗️ CHNS-O</span>")
+
+            st.markdown(f"<div class='chemo-mod-ribbon'>{' '.join(pills)}</div>", unsafe_allow_html=True)
+            if not has_multimodal:
+                st.caption(
+                    "ℹ️ *Совет: загрузите спектры EEM, ЯМР, FTIR или SEC в соответствующих студиях для полной кросс-модальной верификации.*"
+                    if lang == "ru"
+                    else "ℹ️ *Tip: upload EEM, NMR, FTIR or SEC spectra in their studios to unlock full cross-modal synthesis.*"
+                )
     else:
         active_data = None
+        btn_cross_modal = False
         btn_analyze_sample = False
         col_act1, col_act3 = st.columns([3.5, 1.0])
         with col_act1:
@@ -272,15 +392,30 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 display_text = msg.get("display_content", msg["content"])
                 st.markdown(chemo_agent.normalize_latex(display_text), unsafe_allow_html=True)
 
-    # 5. Handle Sample Analysis Button Trigger
-    if btn_analyze_sample and active_data:
+    # 5. Handle Analysis & Synthesis Triggers
+    is_triggered = (btn_cross_modal or btn_analyze_sample) and bool(active_data)
+    if is_triggered:
         st.session_state["active_spectrum_name"] = active_data["name"]
-        prompt_text = chemo_agent.build_sample_analysis_prompt(
-            sample_name=active_data["name"],
-            sample_data=active_data,
-            lang=lang,
-        )
-        short_display = f"🔬 **Экспертный анализ образца:** `{active_data['name']}`" if lang == "ru" else f"🔬 **Expert sample analysis:** `{active_data['name']}`"
+        if btn_cross_modal:
+            prompt_text = chemo_agent.build_cross_modal_synthesis_prompt(
+                sample_name=active_data["name"],
+                multimodal_data=active_data,
+                lang=lang,
+            )
+            mod_names = [m.upper() for m in active_mods]
+            short_display = (
+                f"🧬 **Кросс-модальный синтез:** `{active_data['name']}` ({len(active_mods)} метода: {', '.join(mod_names)})"
+                if lang == "ru"
+                else f"🧬 **Multi-Modal Synthesis:** `{active_data['name']}` ({len(active_mods)} modalities: {', '.join(mod_names)})"
+            )
+        else:
+            prompt_text = chemo_agent.build_sample_analysis_prompt(
+                sample_name=active_data["name"],
+                sample_data=active_data,
+                lang=lang,
+            )
+            short_display = f"🔬 **Экспертный анализ образца:** `{active_data['name']}`" if lang == "ru" else f"🔬 **Expert sample analysis:** `{active_data['name']}`"
+
         st.session_state["chemo_agent_messages"].append({
             "role": "user",
             "content": prompt_text,
@@ -292,7 +427,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
             with st.chat_message("assistant", avatar="🤖"):
                 loader_ph = st.empty()
-                loader_msg = "ChemoAgent формулирует ответ..." if lang == "ru" else "ChemoAgent generating response..."
+                loader_msg = "ChemoAgent выполняет синтез данных..." if btn_cross_modal else ("ChemoAgent формулирует ответ..." if lang == "ru" else "ChemoAgent generating response...")
                 loader_ph.markdown(
                     f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
                     unsafe_allow_html=True,
