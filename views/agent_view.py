@@ -351,20 +351,12 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
     available_samples = list(spectra_db.keys())
 
     if available_samples:
-        current_active = st.session_state.get("active_spectrum_name")
-        default_idx = available_samples.index(current_active) if current_active in available_samples else 0
+        current_active = st.session_state.get("agent_spectrum_selector") or st.session_state.get("active_spectrum_name")
+        if current_active not in available_samples:
+            current_active = available_samples[0]
+        default_idx = available_samples.index(current_active)
 
-        col_act1, col_act2, col_act3 = st.columns([2.2, 1.4, 0.9])
-        with col_act1:
-            selected_sample_name = st.selectbox(
-                "Спектр для анализа:" if lang == "ru" else "Spectrum to analyze:",
-                options=available_samples,
-                index=default_idx,
-                key="agent_spectrum_selector",
-                label_visibility="collapsed",
-                help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
-            )
-        active_data = _get_active_multimodal_data(selected_sample_name)
+        active_data = _get_active_multimodal_data(current_active)
         active_mods = active_data.get("active_modalities", ["fticr"]) if active_data else []
         has_multimodal = len(active_mods) >= 2
 
@@ -432,6 +424,10 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                         {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
                     ]
                     st.rerun()
+
+        if selected_sample_name != current_active:
+            active_data = _get_active_multimodal_data(selected_sample_name)
+            active_mods = active_data.get("active_modalities", ["fticr"]) if active_data else []
 
         # Multi-Modal Availability Matrix Ribbon
         if active_data:
