@@ -1111,13 +1111,23 @@ In high-resolution mass spectrometry of natural waters (Lake Baikal) and industr
                 # 3. Алгебра спектров и диаграмма Венна
                 else:
                     st.markdown(f"#### {T[lang]['cmp_subtab_algebra']}")
+                    label_sub_a_b = (
+                        T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b)
+                        if "{a}" in T[lang]["alg_sub_a_b"]
+                        else f"{T[lang]['alg_sub_a_b']} ({name_a} \\ {name_b})"
+                    )
+                    label_sub_b_a = (
+                        T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b)
+                        if "{a}" in T[lang]["alg_sub_b_a"]
+                        else f"{T[lang]['alg_sub_b_a']} ({name_b} \\ {name_a})"
+                    )
                     op_choice = st.selectbox(
                         T[lang]["alg_op_label"],
                         [
                             ("and", T[lang]["alg_and"]),
                             ("or", T[lang]["alg_or"]),
-                            ("sub_a_b", T[lang]["alg_sub_a_b"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_a_b"] else f"{T[lang]["alg_sub_a_b"]} ({name_a} \\ {name_b})"),
-                            ("sub_b_a", T[lang]["alg_sub_b_a"].format(a=name_a, b=name_b) if "{a}" in T[lang]["alg_sub_b_a"] else f"{T[lang]["alg_sub_b_a"]} ({name_b} \\ {name_a})"),
+                            ("sub_a_b", label_sub_a_b),
+                            ("sub_b_a", label_sub_b_a),
                             ("xor", T[lang]["alg_xor"]),
                         ],
                         format_func=lambda x: x[1],
