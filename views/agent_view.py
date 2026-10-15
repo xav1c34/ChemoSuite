@@ -283,24 +283,6 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     else:
                         st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
 
-            col_m1, col_m2 = st.columns([1.5, 1.0])
-            with col_m1:
-                gemini_models = chemo_agent.get_available_gemini_models(gemini_key)
-                if st.session_state.get("agent_gemini_model_select") not in gemini_models:
-                    st.session_state["agent_gemini_model_select"] = (
-                        chemo_agent.DEFAULT_GEMINI_MODEL
-                        if chemo_agent.DEFAULT_GEMINI_MODEL in gemini_models
-                        else gemini_models[0]
-                    )
-                def_idx = gemini_models.index(st.session_state["agent_gemini_model_select"])
-                selected_model = st.selectbox(
-                    "Модель Gemini:" if lang == "ru" else "Gemini Model:",
-                    gemini_models,
-                    index=def_idx,
-                    key="agent_gemini_model_select",
-                )
-            with col_m2:
-                temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
             active_key = gemini_key or (key_input.strip() if key_input else None)
         else:
             with col_k1:
@@ -321,9 +303,26 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                             st.rerun()
                     else:
                         st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
+            active_key = groq_key or (key_input.strip() if key_input else None)
 
-            col_m1, col_m2 = st.columns([1.5, 1.0])
-            with col_m1:
+        col_m1, col_m2 = st.columns([1.5, 1.0])
+        with col_m1:
+            if is_gemini:
+                gemini_models = chemo_agent.get_available_gemini_models(gemini_key)
+                if st.session_state.get("agent_gemini_model_select") not in gemini_models:
+                    st.session_state["agent_gemini_model_select"] = (
+                        chemo_agent.DEFAULT_GEMINI_MODEL
+                        if chemo_agent.DEFAULT_GEMINI_MODEL in gemini_models
+                        else gemini_models[0]
+                    )
+                def_idx = gemini_models.index(st.session_state["agent_gemini_model_select"])
+                selected_model = st.selectbox(
+                    "Модель Gemini:" if lang == "ru" else "Gemini Model:",
+                    gemini_models,
+                    index=def_idx,
+                    key="agent_gemini_model_select",
+                )
+            else:
                 raw_options = chemo_agent.get_available_groq_models(groq_key)
                 model_options = [
                     m for m in raw_options
@@ -342,16 +341,20 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     index=def_idx,
                     key="agent_groq_model_select",
                 )
-            with col_m2:
-                temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
-            active_key = groq_key or (key_input.strip() if key_input else None)
+        with col_m2:
+            temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
 
     # 3. Spectrum Selection & Quick Action: Load Selected Sample into Agent Context
     spectra_db = st.session_state.get("spectra_db", {})
     available_samples = list(spectra_db.keys())
 
     if available_samples:
-        current_active = st.session_state.get("agent_spectrum_selector") or st.session_state.get("active_spectrum_name")
+        current_active = (
+            st.session_state.get("agent_spectrum_selector_mm")
+            or st.session_state.get("agent_spectrum_selector_sm")
+            or st.session_state.get("agent_spectrum_selector")
+            or st.session_state.get("active_spectrum_name")
+        )
         if current_active not in available_samples:
             current_active = available_samples[0]
         default_idx = available_samples.index(current_active)
@@ -370,7 +373,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     "Спектр для анализа:" if lang == "ru" else "Spectrum to analyze:",
                     options=available_samples,
                     index=default_idx,
-                    key="agent_spectrum_selector",
+                    key="agent_spectrum_selector_mm",
                     label_visibility="collapsed",
                     help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
                 )
@@ -386,14 +389,14 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
             with col_act3:
                 btn_analyze_sample = st.button(
                     "🔬 FT-ICR анализ" if lang == "ru" else "🔬 FT-ICR Analysis",
-                    key="btn_agent_analyze_sample",
+                    key="btn_agent_analyze_sample_mm",
                     disabled=(active_data is None or not bool(active_key)),
                     use_container_width=True,
                     type="secondary",
                     help="Сформировать экспертное биогеохимическое заключение строго по FT-ICR MS" if lang == "ru" else "Generate single-spectrum FT-ICR MS interpretation",
                 )
             with col_act4:
-                if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True, help="Очистить историю сообщений"):
+                if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat_mm", use_container_width=True, help="Очистить историю сообщений"):
                     st.session_state["chemo_agent_messages"] = [
                         {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
                     ]
@@ -405,21 +408,21 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     "Спектр для анализа:" if lang == "ru" else "Spectrum to analyze:",
                     options=available_samples,
                     index=default_idx,
-                    key="agent_spectrum_selector",
+                    key="agent_spectrum_selector_sm",
                     label_visibility="collapsed",
                     help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
                 )
             with col_act2:
                 btn_analyze_sample = st.button(
                     "🔬 Отправить в ИИ" if lang == "ru" else "🔬 Send to AI",
-                    key="btn_agent_analyze_sample",
+                    key="btn_agent_analyze_sample_sm",
                     disabled=(active_data is None or not bool(active_key)),
                     use_container_width=True,
                     type="primary",
                     help="Сформировать экспертное биогеохимическое заключение для выбранного спектра" if lang == "ru" else "Generate biogeochemical expert interpretation for selected spectrum",
                 )
             with col_act3:
-                if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True, help="Очистить историю сообщений"):
+                if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat_sm", use_container_width=True, help="Очистить историю сообщений"):
                     st.session_state["chemo_agent_messages"] = [
                         {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
                     ]
@@ -501,7 +504,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         with col_act1:
             st.caption("ℹ️ Спектры FT-ICR еще не загружены. Загрузите файлы в студии FT-ICR MS." if lang == "ru" else "ℹ️ No FT-ICR spectra loaded yet. Upload data in FT-ICR MS Studio.")
         with col_act3:
-            if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat", use_container_width=True):
+            if st.button("🧹 Очистить" if lang == "ru" else "🧹 Clear", key="btn_agent_clear_chat_none", use_container_width=True):
                 st.session_state["chemo_agent_messages"] = [
                     {"role": "assistant", "content": "История очищена. Задайте новый вопрос или выберите образец для анализа." if lang == "ru" else "Chat history cleared. Ask a question or select a sample."}
                 ]

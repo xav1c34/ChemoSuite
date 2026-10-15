@@ -263,4 +263,6 @@ __marimo__/
 .env.*
 *.env
 !assets/*
+scratch/
+
 

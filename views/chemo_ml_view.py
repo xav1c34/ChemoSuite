@@ -524,7 +524,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=1, max_value=max(1, max_ortho), value=1, key="opls_ortho_slider") if max_ortho > 1 else 1
                 use_perm = False
             elif is_spls:
-                n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider") if max_allowed_lvs > 2 else 2
+                n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="spls_lvs_slider") if max_allowed_lvs > 2 else 2
                 feat_count = max(1, len(edited_df.columns) - 2)
                 max_keep = max(4, min(50, feat_count))
                 keep_x_val = st.slider(T[lang]["ml_spls_keep_slider"], min_value=3, max_value=max_keep, value=min(15, max_keep), step=1, key="spls_keep_slider") if max_keep > 3 else min(3, feat_count)
