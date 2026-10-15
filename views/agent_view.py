@@ -48,6 +48,70 @@ def save_groq_api_key_to_env(key: str) -> bool:
         return False
 
 
+def save_gemini_api_key_to_env(key: str) -> bool:
+    """Safely saves or updates GEMINI_API_KEY in the local .env file."""
+    key = key.strip()
+    if not key:
+        return False
+    env_file = Path(".env")
+    lines = []
+    found = False
+    if env_file.exists():
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("GEMINI_API_KEY="):
+                        lines.append(f"GEMINI_API_KEY={key}\n")
+                        found = True
+                    else:
+                        lines.append(line)
+        except Exception:
+            pass
+
+    if not found:
+        lines.append(f"GEMINI_API_KEY={key}\n")
+
+    try:
+        with open(env_file, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        os.environ["GEMINI_API_KEY"] = key
+        return True
+    except Exception as exc:
+        st.error(f"Не удалось записать в .env: {exc}")
+        return False
+
+
+def _get_active_ai_config():
+    """
+    Returns (provider_code, active_key, selected_model, temperature, gemini_key, groq_key)
+    based on session state and environment.
+    """
+    gemini_key = chemo_agent.get_gemini_api_key(st.session_state.get("gemini_api_key"))
+    groq_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
+
+    stored_provider = st.session_state.get("agent_provider")
+    if not stored_provider:
+        if gemini_key:
+            stored_provider = "Google Gemini"
+        elif groq_key:
+            stored_provider = "Groq LPU"
+        else:
+            stored_provider = "Google Gemini"
+        st.session_state["agent_provider"] = stored_provider
+
+    is_gemini = (stored_provider == "Google Gemini")
+    provider_code = "gemini" if is_gemini else "groq"
+    active_key = gemini_key if is_gemini else groq_key
+
+    if is_gemini:
+        model = st.session_state.get("agent_gemini_model_select", chemo_agent.DEFAULT_GEMINI_MODEL)
+    else:
+        model = st.session_state.get("agent_groq_model_select", chemo_agent.DEFAULT_MODEL)
+
+    temp = float(st.session_state.get("agent_temp_slider", 0.2))
+    return provider_code, active_key, model, temp, gemini_key, groq_key
+
+
 def _stream_with_loader(stream_gen, loader_placeholder):
     """
     Wraps the stream generator: clears the loader_placeholder as soon as the
@@ -112,20 +176,26 @@ def _get_active_fticr_data(selected_name: Optional[str] = None) -> Optional[Dict
 def render_chemo_agent_sidebar(T: Dict[str, Any], lang: str = "ru"):
     """Renders ChemoAgent status and launch trigger in the sidebar."""
     try:
-        api_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
-        has_key = bool(api_key)
+        provider_code, active_key, model, temp, gemini_key, groq_key = _get_active_ai_config()
+        has_key = bool(active_key)
 
         st.markdown("---")
         
         # Header with status indicator
-        col_t, col_s = st.columns([2.2, 1.0])
+        col_t, col_s = st.columns([2.0, 1.2])
         with col_t:
             st.markdown("**🤖 ChemoAgent (AI)**")
         with col_s:
-            if has_key:
-                st.markdown('<span style="color:#10b981; font-size:12px; font-weight:700;">🟢 Groq LPU</span>', unsafe_allow_html=True)
+            if provider_code == "gemini":
+                if has_key:
+                    st.markdown('<span style="color:#38bdf8; font-size:12px; font-weight:700;">🟢 Gemini</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
             else:
-                st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
+                if has_key:
+                    st.markdown('<span style="color:#10b981; font-size:12px; font-weight:700;">🟢 Groq LPU</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
 
         btn_label = "💬 Открыть AI-Копилот" if lang == "ru" else "💬 Open AI Copilot"
         if hasattr(st, "dialog"):
@@ -170,53 +240,111 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         ]
 
     # 2. Key Check and Settings Expander
-    current_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
+    provider_code, active_key, selected_model, temperature, gemini_key, groq_key = _get_active_ai_config()
     
-    with st.expander("⚙️ Конфигурация Groq API & Модели" if lang == "ru" else "⚙️ Groq API & Model Settings", expanded=not bool(current_key)):
+    with st.expander(
+        "⚙️ Конфигурация AI-провайдера (Gemini / Groq) & Модели" if lang == "ru" else "⚙️ AI Provider (Gemini / Groq) & Model Settings",
+        expanded=not bool(active_key),
+    ):
+        provider_options = ["Google Gemini", "Groq LPU"]
+        cur_p_idx = 0 if st.session_state.get("agent_provider") == "Google Gemini" else 1
+        chosen_provider = st.radio(
+            "Провайдер нейросети:" if lang == "ru" else "AI Provider:",
+            options=provider_options,
+            index=cur_p_idx,
+            horizontal=True,
+            key="agent_provider_radio",
+        )
+        if chosen_provider != st.session_state.get("agent_provider"):
+            st.session_state["agent_provider"] = chosen_provider
+            st.rerun()
+
+        is_gemini = (chosen_provider == "Google Gemini")
+        provider_code = "gemini" if is_gemini else "groq"
+
         col_k1, col_k2 = st.columns([2.5, 1.0])
-        with col_k1:
-            key_input = st.text_input(
-                "Groq API Key (gsk_...):",
-                value=st.session_state.get("groq_api_key", current_key or ""),
-                type="password",
-                help="Бесплатный ключ LPU доступен мгновенно на console.groq.com/keys",
-                key="agent_key_input_field",
-            )
-        with col_k2:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_key_env", use_container_width=True):
-                if key_input.strip():
-                    st.session_state["groq_api_key"] = key_input.strip()
-                    if save_groq_api_key_to_env(key_input.strip()):
-                        st.success("Ключ сохранен в .env и окружение!" if lang == "ru" else "Key saved to .env & environment!")
-                        st.rerun()
-                else:
-                    st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
+        if is_gemini:
+            with col_k1:
+                key_input = st.text_input(
+                    "Google Gemini API Key:",
+                    value=st.session_state.get("gemini_api_key", gemini_key or ""),
+                    type="password",
+                    help="Ключ Gemini API из Google AI Studio (aistudio.google.com/apikey)",
+                    key="agent_gemini_key_input_field",
+                )
+            with col_k2:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_gemini_key_env", use_container_width=True):
+                    if key_input.strip():
+                        st.session_state["gemini_api_key"] = key_input.strip()
+                        if save_gemini_api_key_to_env(key_input.strip()):
+                            st.success("Ключ Gemini сохранен в .env!" if lang == "ru" else "Gemini Key saved to .env!")
+                            st.rerun()
+                    else:
+                        st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
 
-        col_m1, col_m2 = st.columns([1.5, 1.0])
-        with col_m1:
-            raw_options = chemo_agent.get_available_groq_models(current_key)
-            model_options = [
-                m for m in raw_options
-                if not any(d in m.lower() for d in ["llama-3.3", "llama-3.1", "mixtral", "gemma"])
-            ]
-            if not model_options:
-                model_options = chemo_agent.FALLBACK_MODELS
+            col_m1, col_m2 = st.columns([1.5, 1.0])
+            with col_m1:
+                gemini_models = chemo_agent.get_available_gemini_models(gemini_key)
+                if st.session_state.get("agent_gemini_model_select") not in gemini_models:
+                    st.session_state["agent_gemini_model_select"] = (
+                        chemo_agent.DEFAULT_GEMINI_MODEL
+                        if chemo_agent.DEFAULT_GEMINI_MODEL in gemini_models
+                        else gemini_models[0]
+                    )
+                def_idx = gemini_models.index(st.session_state["agent_gemini_model_select"])
+                selected_model = st.selectbox(
+                    "Модель Gemini:" if lang == "ru" else "Gemini Model:",
+                    gemini_models,
+                    index=def_idx,
+                    key="agent_gemini_model_select",
+                )
+            with col_m2:
+                temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
+            active_key = gemini_key or (key_input.strip() if key_input else None)
+        else:
+            with col_k1:
+                key_input = st.text_input(
+                    "Groq API Key (gsk_...):",
+                    value=st.session_state.get("groq_api_key", groq_key or ""),
+                    type="password",
+                    help="Бесплатный ключ LPU доступен мгновенно на console.groq.com/keys",
+                    key="agent_groq_key_input_field",
+                )
+            with col_k2:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_groq_key_env", use_container_width=True):
+                    if key_input.strip():
+                        st.session_state["groq_api_key"] = key_input.strip()
+                        if save_groq_api_key_to_env(key_input.strip()):
+                            st.success("Ключ Groq сохранен в .env!" if lang == "ru" else "Groq Key saved to .env!")
+                            st.rerun()
+                    else:
+                        st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
 
-            # Force purge stale deprecated selections from session_state
-            if st.session_state.get("agent_model_select") not in model_options:
-                st.session_state["agent_model_select"] = model_options[0]
+            col_m1, col_m2 = st.columns([1.5, 1.0])
+            with col_m1:
+                raw_options = chemo_agent.get_available_groq_models(groq_key)
+                model_options = [
+                    m for m in raw_options
+                    if not any(d in m.lower() for d in ["llama-3.3", "llama-3.1", "mixtral", "gemma"])
+                ]
+                if not model_options:
+                    model_options = chemo_agent.FALLBACK_MODELS
 
-            def_idx = model_options.index(st.session_state["agent_model_select"])
+                if st.session_state.get("agent_groq_model_select") not in model_options:
+                    st.session_state["agent_groq_model_select"] = model_options[0]
 
-            selected_model = st.selectbox(
-                "Модель нейросети:" if lang == "ru" else "AI Model:",
-                model_options,
-                index=def_idx,
-                key="agent_model_select",
-            )
-        with col_m2:
-            temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
+                def_idx = model_options.index(st.session_state["agent_groq_model_select"])
+                selected_model = st.selectbox(
+                    "Модель Groq:" if lang == "ru" else "Groq Model:",
+                    model_options,
+                    index=def_idx,
+                    key="agent_groq_model_select",
+                )
+            with col_m2:
+                temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
+            active_key = groq_key or (key_input.strip() if key_input else None)
 
     # 3. Spectrum Selection & Quick Action: Load Selected Sample into Agent Context
     spectra_db = st.session_state.get("spectra_db", {})
@@ -258,7 +386,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 btn_cross_modal = st.button(
                     "🧬 Кросс-модальный синтез" if lang == "ru" else "🧬 Multi-Modal Synthesis",
                     key="btn_agent_cross_modal",
-                    disabled=(active_data is None or not bool(current_key)),
+                    disabled=(active_data is None or not bool(active_key)),
                     use_container_width=True,
                     type="primary",
                     help=f"Комплексный синтез данных ({len(active_mods)} активных методов: {', '.join(m.upper() for m in active_mods)})" if lang == "ru" else f"Fused synthesis ({len(active_mods)} modalities: {', '.join(m.upper() for m in active_mods)})",
@@ -267,7 +395,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 btn_analyze_sample = st.button(
                     "🔬 FT-ICR анализ" if lang == "ru" else "🔬 FT-ICR Analysis",
                     key="btn_agent_analyze_sample",
-                    disabled=(active_data is None or not bool(current_key)),
+                    disabled=(active_data is None or not bool(active_key)),
                     use_container_width=True,
                     type="secondary",
                     help="Сформировать экспертное биогеохимическое заключение строго по FT-ICR MS" if lang == "ru" else "Generate single-spectrum FT-ICR MS interpretation",
@@ -293,7 +421,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 btn_analyze_sample = st.button(
                     "🔬 Отправить в ИИ" if lang == "ru" else "🔬 Send to AI",
                     key="btn_agent_analyze_sample",
-                    disabled=(active_data is None or not bool(current_key)),
+                    disabled=(active_data is None or not bool(active_key)),
                     use_container_width=True,
                     type="primary",
                     help="Сформировать экспертное биогеохимическое заключение для выбранного спектра" if lang == "ru" else "Generate biogeochemical expert interpretation for selected spectrum",
@@ -436,9 +564,10 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state["chemo_agent_messages"][-6:]
                 ]
-                stream_gen = chemo_agent.stream_groq_chat(
+                stream_gen = chemo_agent.stream_chat(
                     messages=req_messages,
-                    api_key=current_key,
+                    provider=provider_code,
+                    api_key=active_key,
                     model=selected_model,
                     temperature=temperature,
                 )
@@ -459,8 +588,9 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         key="agent_user_chat_input",
     )
     if user_prompt:
-        if not current_key:
-            st.error("Пожалуйста, укажите GROQ_API_KEY в настройках выше!" if lang == "ru" else "Please specify GROQ_API_KEY in the settings above!")
+        if not active_key:
+            key_name = "GEMINI_API_KEY" if provider_code == "gemini" else "GROQ_API_KEY"
+            st.error(f"Пожалуйста, укажите {key_name} в настройках выше!" if lang == "ru" else f"Please specify {key_name} in the settings above!")
         else:
             context_hint = ""
             if active_data and not any(active_data["name"] in m.get("content", "") for m in st.session_state["chemo_agent_messages"][-3:]):
@@ -486,9 +616,10 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                         {"role": m["role"], "content": m["content"]}
                         for m in st.session_state["chemo_agent_messages"][-8:]
                     ]
-                    stream_gen = chemo_agent.stream_groq_chat(
+                    stream_gen = chemo_agent.stream_chat(
                         messages=req_messages,
-                        api_key=current_key,
+                        provider=provider_code,
+                        api_key=active_key,
                         model=selected_model,
                         temperature=temperature,
                     )
@@ -509,17 +640,18 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
     Renders an on-demand AI Analysis card inside FT-ICR MS or ML Studio.
     Caches results per sample in st.session_state so repeated views do not re-query the API.
     """
-    api_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
+    provider_code, active_key, model, temp, gemini_key, groq_key = _get_active_ai_config()
     cache_key = f"ai_summary_{sample_name}"
 
     st.markdown("### 🤖 Экспертное AI-заключение (ChemoAgent)" if lang == "ru" else "### 🤖 AI Expert Interpretation (ChemoAgent)")
     
     col_info, col_btn = st.columns([3.0, 1.2])
     with col_info:
+        prov_title = "Google Gemini" if provider_code == "gemini" else "Groq LPU"
         st.caption(
-            "Глубокая биогеохимическая интерпретация на базе нейросети Groq LPU (GPT-OSS 120B / Qwen 27B): генезис пробы, степень ароматической конденсации, техногенные маркеры."
+            f"Глубокая биогеохимическая интерпретация на базе нейросети {prov_title} ({model}): генезис пробы, степень ароматической конденсации, техногенные маркеры."
             if lang == "ru"
-            else "In-depth biogeochemical reasoning powered by Groq LPU (GPT-OSS 120B / Qwen 27B): origin, aromatic condensation, contamination markers."
+            else f"In-depth biogeochemical reasoning powered by {prov_title} ({model}): origin, aromatic condensation, contamination markers."
         )
     with col_btn:
         run_btn = st.button(
@@ -530,8 +662,9 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
         )
 
     if run_btn:
-        if not api_key:
-            st.warning("Укажите GROQ_API_KEY в боковой панели ChemoAgent для генерации заключения." if lang == "ru" else "Specify GROQ_API_KEY in the sidebar ChemoAgent to generate interpretation.")
+        if not active_key:
+            key_name = "GEMINI_API_KEY" if provider_code == "gemini" else "GROQ_API_KEY"
+            st.warning(f"Укажите {key_name} в боковой панели ChemoAgent для генерации заключения." if lang == "ru" else f"Specify {key_name} in the sidebar ChemoAgent to generate interpretation.")
             return
 
         prompt = chemo_agent.build_sample_analysis_prompt(sample_name, sample_data, lang=lang)
@@ -545,10 +678,12 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
             f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
             unsafe_allow_html=True,
         )
-        res = chemo_agent.call_groq_chat(
+        res = chemo_agent.call_chat(
             messages,
-            api_key=api_key,
-            model=st.session_state.get("agent_model_select", chemo_agent.DEFAULT_MODEL),
+            provider=provider_code,
+            api_key=active_key,
+            model=model,
+            temperature=temp,
         )
         loader_ph.empty()
         if res.get("success"):

@@ -12,7 +12,7 @@ import pytest
 import pandas as pd
 
 import modules.chemo_agent as chemo_agent
-from views.agent_view import save_groq_api_key_to_env
+from views.agent_view import save_groq_api_key_to_env, save_gemini_api_key_to_env
 
 
 def test_get_groq_api_key_explicit():
@@ -421,6 +421,150 @@ def test_harvest_and_cross_modal_synthesis():
 
     prompt_en = chemo_agent.build_cross_modal_synthesis_prompt("Baikal_01.csv", harvested, lang="en")
     assert "cross-modal analytical synthesis" in prompt_en
+
+
+def test_get_gemini_api_key_explicit():
+    """Explicit Gemini key takes precedence."""
+    key = chemo_agent.get_gemini_api_key("gemini_explicit_test_key_999")
+    assert key == "gemini_explicit_test_key_999"
+
+
+def test_get_gemini_api_key_env_var(monkeypatch):
+    """Environment variable GEMINI_API_KEY is read if explicit key is None."""
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini_env_key_888")
+    key = chemo_agent.get_gemini_api_key(None)
+    assert key == "gemini_env_key_888"
+
+
+def test_get_gemini_api_key_missing(monkeypatch):
+    """Returns None when no key is present anywhere."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with patch("os.path.exists", return_value=False):
+        key = chemo_agent.get_gemini_api_key(None)
+        assert key is None
+
+
+def test_save_gemini_api_key_to_env(tmp_path, monkeypatch):
+    """save_gemini_api_key_to_env writes key into .env and updates os.environ."""
+    test_env = tmp_path / ".env"
+    test_env.write_text("SOME_VAR=123\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    ok = save_gemini_api_key_to_env("AQ_test_gemini_key_xyz")
+    assert ok is True
+    content = test_env.read_text(encoding="utf-8")
+    assert "GEMINI_API_KEY=AQ_test_gemini_key_xyz" in content
+    assert os.environ.get("GEMINI_API_KEY") == "AQ_test_gemini_key_xyz"
+
+
+def test_get_available_gemini_models_success():
+    """Dynamically parses and filters Gemini chat models."""
+    mock_payload = {
+        "data": [
+            {"id": "models/gemini-2.5-flash"},
+            {"id": "models/gemini-2.5-flash-lite"},
+            {"id": "models/gemini-3.5-flash"},
+            {"id": "models/gemini-embedding-001"},
+            {"id": "models/gemini-3.1-flash-tts-preview"},
+            {"id": "models/veo-3.1-generate-preview"},
+        ]
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_payload
+
+    with patch("requests.get", return_value=mock_resp):
+        models = chemo_agent.get_available_gemini_models("test_key")
+        assert "gemini-2.5-flash" in models
+        assert "gemini-2.5-flash-lite" in models
+        assert "gemini-3.5-flash" in models
+        # Excluded non-chat models
+        assert not any("embedding" in m for m in models)
+        assert not any("tts" in m for m in models)
+        assert not any("veo" in m for m in models)
+
+
+def test_call_gemini_chat_success():
+    """Mock Gemini chat completion returns parsed message."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "model": "gemini-2.5-flash",
+        "choices": [
+            {"message": {"role": "assistant", "content": "Молекулярный индекс $H/C = 1.25$."}}
+        ],
+        "usage": {"total_tokens": 42},
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        res = chemo_agent.call_gemini_chat(
+            messages=[{"role": "user", "content": "test"}],
+            api_key="valid_gemini_key",
+            model="gemini-2.5-flash",
+        )
+        assert res["success"] is True
+        assert "$H/C = 1.25$" in res["content"]
+        assert res["model"] == "gemini-2.5-flash"
+
+
+def test_call_gemini_chat_missing_key(monkeypatch):
+    """call_gemini_chat fails gracefully if key is missing."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with patch("os.path.exists", return_value=False):
+        res = chemo_agent.call_gemini_chat([{"role": "user", "content": "hi"}], api_key=None)
+        assert res["success"] is False
+        assert "GEMINI_API_KEY не найден" in res["error"]
+
+
+def test_stream_gemini_chat_mock():
+    """stream_gemini_chat handles SSE data chunks correctly."""
+    lines = [
+        b'data: {"choices":[{"delta":{"content":"\xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82"}}]}',
+        b'data: {"choices":[{"delta":{"content":" \xd0\xbc\xd0\xb8\xd1\x80"}}]}',
+        b"data: [DONE]",
+    ]
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.iter_lines.return_value = lines
+
+    with patch("requests.post", return_value=mock_resp):
+        tokens = list(chemo_agent.stream_gemini_chat([{"role": "user", "content": "hi"}], api_key="gem_key"))
+        assert "".join(tokens) == "Привет мир"
+
+
+def test_format_gemini_error():
+    """format_gemini_error builds clean collapsible markdown for various error codes."""
+    err_429 = chemo_agent.format_gemini_error(429, '{"error": {"message": "Resource has been exhausted (e.g. check quota)."}}')
+    assert "Превышен лимит запросов Google Gemini API" in err_429
+
+    err_401 = chemo_agent.format_gemini_error(401, '{"error": {"message": "API key not valid."}}')
+    assert "Неверный GEMINI_API_KEY" in err_401
+
+    err_503 = chemo_agent.format_gemini_error(503, '{"error": {"message": "high demand"}}')
+    assert "Высокая нагрузка на модель Google Gemini" in err_503
+
+
+def test_resolve_provider():
+    """resolve_provider accurately routes provider based on explicit choice, model prefix, or credentials."""
+    assert chemo_agent.resolve_provider("gemini") == "gemini"
+    assert chemo_agent.resolve_provider("groq") == "groq"
+    assert chemo_agent.resolve_provider("auto", model="gemini-2.5-flash") == "gemini"
+    assert chemo_agent.resolve_provider("auto", model="models/gemini-3.5-flash") == "gemini"
+    assert chemo_agent.resolve_provider("auto", model="qwen/qwen3.8-27b") == "groq"
+    assert chemo_agent.resolve_provider("auto", model="openai/gpt-oss-120b") == "groq"
+
+
+def test_unified_call_and_stream_chat(monkeypatch):
+    """call_chat and stream_chat route properly to Gemini or Groq."""
+    with patch("modules.chemo_agent.call_gemini_chat", return_value={"success": True, "content": "gemini reply"}) as mock_gem:
+        res = chemo_agent.call_chat([{"role": "user", "content": "hi"}], provider="gemini", api_key="k", model="gemini-2.5-flash")
+        assert res["content"] == "gemini reply"
+        assert mock_gem.called
+
+    with patch("modules.chemo_agent.call_groq_chat", return_value={"success": True, "content": "groq reply"}) as mock_groq:
+        res = chemo_agent.call_chat([{"role": "user", "content": "hi"}], provider="groq", api_key="k", model="qwen/qwen3.8-27b")
+        assert res["content"] == "groq reply"
+        assert mock_groq.called
 
 
 

@@ -25,6 +25,17 @@ FALLBACK_MODELS = [
     "openai/gpt-oss-20b",
 ]
 
+# Google Gemini API configuration
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/openai/models"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+FALLBACK_GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+]
+
 
 def get_available_groq_models(api_key: Optional[str] = None) -> List[str]:
     """
@@ -63,6 +74,54 @@ def get_available_groq_models(api_key: Optional[str] = None) -> List[str]:
     return FALLBACK_MODELS
 
 
+def get_available_gemini_models(api_key: Optional[str] = None) -> List[str]:
+    """
+    Dynamically queries Gemini API to discover chat-capable models.
+    Filters out audio, tts, image, video, and embedding models.
+    Falls back to curated list if network fails or key is invalid.
+    """
+    resolved_key = get_gemini_api_key(api_key)
+    if not resolved_key:
+        return FALLBACK_GEMINI_MODELS
+
+    headers = {"Authorization": f"Bearer {resolved_key}"}
+    try:
+        resp = requests.get(GEMINI_MODELS_URL, headers=headers, timeout=3.5)
+        if resp.status_code == 200:
+            data = resp.json().get("data", [])
+            chat_models = []
+            excluded = [
+                "tts", "image", "audio", "embedding", "veo", "banana",
+                "robotics", "lyria", "transcribe", "live", "aqa", "preview-tts",
+            ]
+            for m in data:
+                m_id = m.get("id", "")
+                if m_id.startswith("models/"):
+                    m_id = m_id[7:]
+                if m_id and not any(ex in m_id.lower() for ex in excluded):
+                    if "gemini" in m_id.lower():
+                        chat_models.append(m_id)
+            if chat_models:
+                pref_order = [
+                    "gemini-2.5-flash",
+                    "gemini-2.5-flash-lite",
+                    "gemini-3.5-flash",
+                    "gemini-3.1-pro-preview",
+                ]
+                sorted_models = []
+                for p in pref_order:
+                    if p in chat_models:
+                        sorted_models.append(p)
+                for m in sorted(chat_models):
+                    if m not in sorted_models:
+                        sorted_models.append(m)
+                return sorted_models
+    except Exception:
+        pass
+
+    return FALLBACK_GEMINI_MODELS
+
+
 def get_groq_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
     """
     Safely resolves Groq API key with priority:
@@ -98,6 +157,49 @@ def get_groq_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
         import streamlit as st
         if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
             val = str(st.secrets["GROQ_API_KEY"]).strip()
+            if val:
+                return val
+    except Exception:
+        pass
+
+    return None
+
+
+def get_gemini_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
+    """
+    Safely resolves Google Gemini API key with priority:
+    1. Explicit key passed from UI session state / widget.
+    2. Environment variable GEMINI_API_KEY.
+    3. .env file in project directory or home directory.
+    4. Streamlit secrets (st.secrets["GEMINI_API_KEY"]).
+    """
+    if explicit_key and explicit_key.strip():
+        return explicit_key.strip()
+
+    # 1. Environment variable
+    env_key = os.getenv("GEMINI_API_KEY")
+    if env_key and env_key.strip():
+        return env_key.strip()
+
+    # 2. Local .env file
+    for env_path in [".env", os.path.expanduser("~/.env")]:
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GEMINI_API_KEY="):
+                            val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            if val:
+                                return val
+            except Exception:
+                pass
+
+    # 3. Streamlit secrets
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            val = str(st.secrets["GEMINI_API_KEY"]).strip()
             if val:
                 return val
     except Exception:
@@ -453,6 +555,337 @@ def stream_groq_chat(
                 response.close()
             except Exception:
                 pass
+
+
+def format_gemini_error(status_code: int, raw_text: str) -> str:
+    """
+    Formats Google Gemini API errors into a concise, polite, human-readable notification.
+    Hides raw technical JSON dumps inside an interactive collapsible <details> block.
+    """
+    msg = ""
+    try:
+        data = json.loads(raw_text)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+        err = data.get("error", {})
+        msg = err.get("message", "")
+    except Exception:
+        msg = str(raw_text)
+
+    msg_lower = msg.lower()
+    if status_code == 429 or "quota" in msg_lower or "resource_exhausted" in msg_lower:
+        header = "⚠️ **Превышен лимит запросов Google Gemini API (429 Quota / Rate Limit)**"
+        hint = "Бесплатный тариф Google Gemini временно исчерпал лимит запросов или токенов. Переключитесь на модель gemini-2.5-flash-lite или подождите немного перед следующим запросом."
+    elif status_code in (401, 403) or "api_key" in msg_lower or "unauthenticated" in msg_lower:
+        header = "❌ **Неверный GEMINI_API_KEY (401/403 Unauthorized)**"
+        hint = "Проверьте правильность GEMINI_API_KEY в файле `.env` или укажите его в настройках."
+    elif status_code == 404:
+        header = "❌ **Модель недоступна в Google Gemini (404 Not Found)**"
+        hint = "Выбранная модель устарела или недоступна на вашем ключе. Рекомендуется использовать `gemini-2.5-flash` или `gemini-2.5-flash-lite`."
+    elif status_code == 400:
+        header = "❌ **Некорректный запрос к Gemini API (400 Bad Request)**"
+        hint = "Запрос содержит неподдерживаемые параметры или превышает контекстное окно."
+    elif status_code == 503 or "high demand" in msg_lower:
+        header = "⚠️ **Высокая нагрузка на модель Google Gemini (HTTP 503)**"
+        hint = "Серверы модели испытывают временный всплеск нагрузки. Попробуйте модель `gemini-2.5-flash-lite` или повторите запрос через несколько секунд."
+    elif status_code >= 500:
+        header = f"❌ **Сервер Google Gemini временно недоступен (HTTP {status_code})**"
+        hint = "Попробуйте повторить запрос через несколько секунд."
+    else:
+        header = f"❌ **Ошибка Google Gemini API (HTTP {status_code})**"
+        hint = "Не удалось завершить генерацию ответа нейросетью. Попробуйте повторить запрос."
+
+    clean_snippet = str(raw_text).strip().replace("```", "'''")
+    if len(clean_snippet) > 350:
+        clean_snippet = clean_snippet[:350] + "..."
+
+    return (
+        f"{header}\n\n"
+        f"*{hint}*\n\n"
+        f"<details><summary style='font-size:12px; color:#94a3b8; cursor:pointer;'>🔍 Технические подробности ошибки</summary>\n\n"
+        f"```json\n{clean_snippet}\n```\n"
+        f"</details>"
+    )
+
+
+def _sanitize_gemini_model(model: Optional[str]) -> str:
+    """Ensures Gemini model identifier is clean and valid."""
+    if not model:
+        return DEFAULT_GEMINI_MODEL
+    s = str(model).strip()
+    if s.startswith("models/"):
+        s = s[7:]
+    if not s or any(bad in s.lower() for bad in ["llama", "mixtral", "qwen", "gpt-oss"]):
+        return DEFAULT_GEMINI_MODEL
+    return s
+
+
+def call_gemini_chat(
+    messages: List[Dict[str, str]],
+    api_key: Optional[str] = None,
+    model: str = DEFAULT_GEMINI_MODEL,
+    temperature: float = 0.2,
+    max_tokens: int = 2048,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    Sends chat completion request to Google Gemini API via standard OpenAI-compatible endpoint.
+    Automatically falls back to gemini-2.5-flash-lite on 404 or 503.
+    """
+    resolved_key = get_gemini_api_key(api_key)
+    if not resolved_key:
+        return {
+            "success": False,
+            "content": "",
+            "error": "GEMINI_API_KEY не найден. Добавьте его в файл .env (GEMINI_API_KEY=...) или укажите в поле ввода в настройках.",
+        }
+
+    target_model = _sanitize_gemini_model(model)
+    headers = {
+        "Authorization": f"Bearer {resolved_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": target_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=timeout)
+        if response.status_code in (404, 503) and target_model != "gemini-2.5-flash-lite":
+            logger.warning("Gemini model %s returned HTTP %d, falling back to gemini-2.5-flash-lite", target_model, response.status_code)
+            payload["model"] = "gemini-2.5-flash-lite"
+            response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=timeout)
+
+        if response.status_code == 200:
+            data = response.json()
+            choice = data.get("choices", [{}])[0]
+            reply_text = choice.get("message", {}).get("content", "")
+            return {
+                "success": True,
+                "content": reply_text,
+                "model": data.get("model", payload["model"]),
+                "usage": data.get("usage", {}),
+                "error": None,
+            }
+        else:
+            err_msg = format_gemini_error(response.status_code, response.text)
+            logger.error("Gemini API error: HTTP %d", response.status_code)
+            return {
+                "success": False,
+                "content": "",
+                "error": err_msg,
+            }
+    except Exception as exc:
+        logger.exception("Failed to connect to Gemini API: %s", exc)
+        return {
+            "success": False,
+            "content": "",
+            "error": f"Ошибка соединения с Gemini API: {str(exc)}",
+        }
+
+
+def stream_gemini_chat(
+    messages: List[Dict[str, str]],
+    api_key: Optional[str] = None,
+    model: str = DEFAULT_GEMINI_MODEL,
+    temperature: float = 0.2,
+    max_tokens: int = 2048,
+    timeout: float = 60.0,
+) -> Generator[str, None, None]:
+    """
+    Streams response tokens from Google Gemini API in real-time with resilient connection handling.
+    Automatically falls back to gemini-2.5-flash-lite on 404 or 503 temporary demand spikes.
+    """
+    resolved_key = get_gemini_api_key(api_key)
+    if not resolved_key:
+        yield "❌ **Ошибка:** GEMINI_API_KEY не найден. Добавьте его в файл `.env` (`GEMINI_API_KEY=...`) или введите в настройках."
+        return
+
+    target_model = _sanitize_gemini_model(model)
+    headers = {
+        "Authorization": f"Bearer {resolved_key}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Cache-Control": "no-cache",
+    }
+    payload = {
+        "model": target_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+
+    response = None
+    yielded_any = False
+    finish_reason = None
+    try:
+        response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
+        if response.status_code in (404, 503) and target_model != "gemini-2.5-flash-lite":
+            logger.warning("Gemini stream model %s returned HTTP %d, falling back to gemini-2.5-flash-lite", target_model, response.status_code)
+            payload["model"] = "gemini-2.5-flash-lite"
+            response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
+
+        if response.status_code != 200:
+            yield format_gemini_error(response.status_code, response.text)
+            return
+
+        try:
+            response.encoding = "utf-8"
+        except Exception:
+            pass
+
+        for line in response.iter_lines():
+            if not line:
+                continue
+            line_str = line.decode("utf-8", errors="replace") if isinstance(line, (bytes, bytearray)) else str(line)
+            if line_str.startswith("data: "):
+                data_part = line_str[6:].strip()
+                if data_part == "[DONE]":
+                    break
+                try:
+                    chunk_json = json.loads(data_part)
+                except Exception:
+                    continue
+
+                if "error" in chunk_json:
+                    err_text = chunk_json.get("error", {}).get("message", str(chunk_json["error"]))
+                    yield f"\n\n{format_gemini_error(429 if 'quota' in err_text.lower() else 500, json.dumps(chunk_json))}"
+                    return
+
+                c0 = chunk_json.get("choices", [{}])[0]
+                if c0.get("finish_reason"):
+                    finish_reason = c0.get("finish_reason")
+                delta = c0.get("delta", {})
+                token = delta.get("content", "")
+                if token:
+                    yield repair_mojibake(token)
+                    yielded_any = True
+
+        if finish_reason == "length":
+            yield "\n\n*(Ответ был ограничен лимитом токенов модели. Вы можете написать: «Продолжи»)*"
+    except Exception as exc:
+        err_str = str(exc)
+        logger.warning("Gemini stream ended with exception: %s", err_str)
+        if yielded_any and any(k in err_str.lower() for k in ["eof", "incompleteread", "connection broken", "chunked"]):
+            if finish_reason != "length":
+                yield "\n\n*(Генерация завершена сервером)*"
+        else:
+            yield f"\n\n❌ **Ошибка сети Gemini:** {err_str}"
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+
+def resolve_provider(provider: str = "auto", model: Optional[str] = None, api_key: Optional[str] = None) -> str:
+    """
+    Resolves the target AI provider ('gemini' or 'groq') based on explicit request,
+    model name prefix, or available credentials.
+    """
+    prov = (provider or "auto").strip().lower()
+    if prov in ("gemini", "google", "google-gemini", "google gemini"):
+        return "gemini"
+    if prov in ("groq", "lpu", "groq lpu"):
+        return "groq"
+
+    # Inspect model name
+    m = (model or "").lower().strip()
+    if any(k in m for k in ["gemini", "gemma"]):
+        return "gemini"
+    if any(k in m for k in ["qwen", "gpt-oss", "groq", "llama", "mixtral"]):
+        return "groq"
+
+    # Inspect key credentials availability
+    has_gem = bool(get_gemini_api_key(api_key if "gemini" in prov else None))
+    has_groq = bool(get_groq_api_key(api_key if "groq" in prov else None))
+
+    if has_gem and not has_groq:
+        return "gemini"
+    if has_groq and not has_gem:
+        return "groq"
+    if has_gem:
+        return "gemini"
+    return "groq"
+
+
+def call_chat(
+    messages: List[Dict[str, str]],
+    provider: str = "auto",
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.2,
+    max_tokens: Optional[int] = None,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    Unified AI chat completion dispatcher supporting Google Gemini and Groq LPU.
+    """
+    prov = resolve_provider(provider, model, api_key)
+    if prov == "gemini":
+        target_model = model or DEFAULT_GEMINI_MODEL
+        tokens = max_tokens or 2048
+        return call_gemini_chat(
+            messages=messages,
+            api_key=api_key,
+            model=target_model,
+            temperature=temperature,
+            max_tokens=tokens,
+            timeout=timeout,
+        )
+    else:
+        target_model = model or DEFAULT_MODEL
+        tokens = max_tokens or DEFAULT_MAX_TOKENS
+        return call_groq_chat(
+            messages=messages,
+            api_key=api_key,
+            model=target_model,
+            temperature=temperature,
+            max_tokens=tokens,
+            timeout=timeout,
+        )
+
+
+def stream_chat(
+    messages: List[Dict[str, str]],
+    provider: str = "auto",
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.2,
+    max_tokens: Optional[int] = None,
+    timeout: float = 60.0,
+) -> Generator[str, None, None]:
+    """
+    Unified real-time streaming dispatcher supporting Google Gemini and Groq LPU.
+    """
+    prov = resolve_provider(provider, model, api_key)
+    if prov == "gemini":
+        target_model = model or DEFAULT_GEMINI_MODEL
+        tokens = max_tokens or 2048
+        yield from stream_gemini_chat(
+            messages=messages,
+            api_key=api_key,
+            model=target_model,
+            temperature=temperature,
+            max_tokens=tokens,
+            timeout=timeout,
+        )
+    else:
+        target_model = model or DEFAULT_MODEL
+        tokens = max_tokens or DEFAULT_MAX_TOKENS
+        yield from stream_groq_chat(
+            messages=messages,
+            api_key=api_key,
+            model=target_model,
+            temperature=temperature,
+            max_tokens=tokens,
+            timeout=timeout,
+        )
 
 
 def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], lang: str = "ru") -> str:
