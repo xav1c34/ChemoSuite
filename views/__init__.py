@@ -12,6 +12,7 @@ from views.fticr_view import render_fticr_studio
 from views.agent_view import (
     render_chemo_agent_sidebar,
     render_sample_ai_card,
+    save_polza_api_key_to_env,
     save_groq_api_key_to_env,
     save_gemini_api_key_to_env,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "render_fticr_studio",
     "render_chemo_agent_sidebar",
     "render_sample_ai_card",
+    "save_polza_api_key_to_env",
     "save_groq_api_key_to_env",
     "save_gemini_api_key_to_env",
 ]

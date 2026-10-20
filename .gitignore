@@ -264,5 +264,6 @@ __marimo__/
 *.env
 !assets/*
 scratch/
+.agent_usage.json
 
 

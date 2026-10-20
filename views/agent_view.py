@@ -7,6 +7,7 @@ and secure API key management.
 """
 
 import os
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional
 import streamlit as st
@@ -15,8 +16,8 @@ import pandas as pd
 import modules.chemo_agent as chemo_agent
 
 
-def save_groq_api_key_to_env(key: str) -> bool:
-    """Safely saves or updates GROQ_API_KEY in the local .env file."""
+def save_polza_api_key_to_env(key: str) -> bool:
+    """Safely saves or updates POLZA_AI_KEY in the local .env file."""
     key = key.strip()
     if not key:
         return False
@@ -27,8 +28,8 @@ def save_groq_api_key_to_env(key: str) -> bool:
         try:
             with open(env_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.strip().startswith("GROQ_API_KEY="):
-                        lines.append(f"GROQ_API_KEY={key}\n")
+                    if line.strip().startswith("POLZA_AI_KEY="):
+                        lines.append(f"POLZA_AI_KEY={key}\n")
                         found = True
                     else:
                         lines.append(line)
@@ -36,80 +37,42 @@ def save_groq_api_key_to_env(key: str) -> bool:
             pass
 
     if not found:
-        lines.append(f"GROQ_API_KEY={key}\n")
+        lines.append(f"POLZA_AI_KEY={key}\n")
 
     try:
         with open(env_file, "w", encoding="utf-8") as f:
             f.writelines(lines)
-        os.environ["GROQ_API_KEY"] = key
+        os.environ["POLZA_AI_KEY"] = key
         return True
     except Exception as exc:
         st.error(f"Не удалось записать в .env: {exc}")
         return False
 
 
-def save_gemini_api_key_to_env(key: str) -> bool:
-    """Safely saves or updates GEMINI_API_KEY in the local .env file."""
-    key = key.strip()
-    if not key:
-        return False
-    env_file = Path(".env")
-    lines = []
-    found = False
-    if env_file.exists():
-        try:
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip().startswith("GEMINI_API_KEY="):
-                        lines.append(f"GEMINI_API_KEY={key}\n")
-                        found = True
-                    else:
-                        lines.append(line)
-        except Exception:
-            pass
-
-    if not found:
-        lines.append(f"GEMINI_API_KEY={key}\n")
-
-    try:
-        with open(env_file, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-        os.environ["GEMINI_API_KEY"] = key
-        return True
-    except Exception as exc:
-        st.error(f"Не удалось записать в .env: {exc}")
-        return False
+# Backward compatibility aliases
+save_groq_api_key_to_env = save_polza_api_key_to_env
+save_gemini_api_key_to_env = save_polza_api_key_to_env
 
 
 def _get_active_ai_config():
     """
-    Returns (provider_code, active_key, selected_model, temperature, gemini_key, groq_key)
+    Returns (provider_code, active_key, selected_model, temperature, polza_key, polza_key)
     based on session state and environment.
     """
-    gemini_key = chemo_agent.get_gemini_api_key(st.session_state.get("gemini_api_key"))
-    groq_key = chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key"))
-
-    stored_provider = st.session_state.get("agent_provider")
-    if not stored_provider:
-        if gemini_key:
-            stored_provider = "Google Gemini"
-        elif groq_key:
-            stored_provider = "Groq LPU"
-        else:
-            stored_provider = "Google Gemini"
-        st.session_state["agent_provider"] = stored_provider
-
-    is_gemini = (stored_provider == "Google Gemini")
-    provider_code = "gemini" if is_gemini else "groq"
-    active_key = gemini_key if is_gemini else groq_key
-
-    if is_gemini:
-        model = st.session_state.get("agent_gemini_model_select", chemo_agent.DEFAULT_GEMINI_MODEL)
-    else:
-        model = st.session_state.get("agent_groq_model_select", chemo_agent.DEFAULT_MODEL)
-
+    polza_key = chemo_agent.get_polza_api_key(st.session_state.get("polza_api_key"))
+    model = chemo_agent.DEFAULT_MODEL
     temp = float(st.session_state.get("agent_temp_slider", 0.2))
-    return provider_code, active_key, model, temp, gemini_key, groq_key
+    return "polza", polza_key, model, temp, polza_key, polza_key
+
+
+def _check_debounce_allowed() -> bool:
+    """Checks if enough time (2.0s) has passed since the last AI query to prevent double-clicks."""
+    now = time.time()
+    last_ts = st.session_state.get("_last_agent_query_ts", 0.0)
+    if now - last_ts < 2.0:
+        return False
+    st.session_state["_last_agent_query_ts"] = now
+    return True
 
 
 def _stream_with_loader(stream_gen, loader_placeholder):
@@ -176,26 +139,28 @@ def _get_active_fticr_data(selected_name: Optional[str] = None) -> Optional[Dict
 def render_chemo_agent_sidebar(T: Dict[str, Any], lang: str = "ru"):
     """Renders ChemoAgent status and launch trigger in the sidebar."""
     try:
-        provider_code, active_key, model, temp, gemini_key, groq_key = _get_active_ai_config()
+        provider_code, active_key, model, temp, *extra = _get_active_ai_config()
         has_key = bool(active_key)
+        usage = chemo_agent.get_daily_usage(100)
+        used_count = usage["count"]
+        limit = usage["limit"]
+        is_exhausted = used_count >= limit
 
         st.markdown("---")
         
         # Header with status indicator
-        col_t, col_s = st.columns([2.0, 1.2])
+        col_t, col_s = st.columns([1.8, 1.4])
         with col_t:
-            st.markdown("**🤖 ChemoAgent (AI)**")
+            st.markdown("**🤖 ChemoAgent**")
         with col_s:
-            if provider_code == "gemini":
-                if has_key:
-                    st.markdown('<span style="color:#38bdf8; font-size:12px; font-weight:700;">🟢 Gemini</span>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
+            if not has_key:
+                st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
+            elif is_exhausted:
+                st.markdown(f'<span style="color:#f43f5e; font-size:12px; font-weight:700;" title="Лимит исчерпан">🔴 {used_count}/{limit}</span>', unsafe_allow_html=True)
             else:
-                if has_key:
-                    st.markdown('<span style="color:#10b981; font-size:12px; font-weight:700;">🟢 Groq LPU</span>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="color:#10b981; font-size:12px; font-weight:700;" title="Встроенный DeepSeek">🟢 {used_count}/{limit}</span>', unsafe_allow_html=True)
+
+        st.caption("DeepSeek v4.1 Flash • Встроенный ИИ" if lang == "ru" else "DeepSeek v4.1 Flash • Built-in AI")
 
         btn_label = "💬 Открыть AI-Копилот" if lang == "ru" else "💬 Open AI Copilot"
         if hasattr(st, "dialog"):
@@ -224,14 +189,16 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         greeting = (
             "Здравствуйте! Я **ChemoAgent** — ваш специализированный научный ассистент по масс-спектрометрии "
             "ультравысокого разрешения (FT-ICR MS), флуоресценции (EEM-PARAFAC), ЯМР, ИК-спектроскопии и хемометрике.\n\n"
+            "Работаю на базе флагманской модели **DeepSeek v4.1 Flash** через встроенный серверный API. Сервис готов к работе для всех исследователей!\n\n"
             "Я могу помочь:\n"
             "- Проанализировать активный образец и выявить маркеры шлам-лигнина или ненарушенного РОВ.\n"
-            "- Интерпретировать молекулярные индексы ($H/C$, $O/C$, $AI_{\text{mod}}$, $NOSC$, VK-20).\n"
+            "- Интерпретировать молекулярные индексы ($H/C$, $O/C$, $AI_{\\text{mod}}$, $NOSC$, VK-20).\n"
             "- Оценить векторные потоки реакций TMDS (+CH2, +O, -CO2, +SO3).\n"
             "- Сформулировать выводы для научной публикации или паспорта образца."
             if lang == "ru"
             else "Hello! I am **ChemoAgent** — your domain-specialized AI scientific assistant for ultrahigh-resolution "
             "mass spectrometry (FT-ICR MS), fluorescence (EEM-PARAFAC), NMR, FTIR, and chemometrics.\n\n"
+            "Powered by **DeepSeek v4.1 Flash** via built-in server API. Ready out-of-the-box for all researchers!\n\n"
             "I can interpret molecular descriptors, identify contamination markers (e.g. pulp mill lignin vs. natural NOM), "
             "and assist in geochemical classification."
         )
@@ -239,110 +206,67 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
             {"role": "assistant", "content": greeting}
         ]
 
-    # 2. Key Check and Settings Expander
-    provider_code, active_key, selected_model, temperature, gemini_key, groq_key = _get_active_ai_config()
-    
-    with st.expander(
-        "⚙️ Конфигурация AI-провайдера (Gemini / Groq) & Модели" if lang == "ru" else "⚙️ AI Provider (Gemini / Groq) & Model Settings",
-        expanded=not bool(active_key),
-    ):
-        provider_options = ["Google Gemini", "Groq LPU"]
-        cur_p_idx = 0 if st.session_state.get("agent_provider") == "Google Gemini" else 1
-        chosen_provider = st.radio(
-            "Провайдер нейросети:" if lang == "ru" else "AI Provider:",
-            options=provider_options,
-            index=cur_p_idx,
-            horizontal=True,
-            key="agent_provider_radio",
-        )
-        if chosen_provider != st.session_state.get("agent_provider"):
-            st.session_state["agent_provider"] = chosen_provider
-            st.rerun()
+    # 2. Status Banner, Daily Quota Counter, and Admin Config
+    provider_code, active_key, selected_model, temperature, *extra = _get_active_ai_config()
+    usage = chemo_agent.get_daily_usage(100)
+    used_count = usage["count"]
+    limit = usage["limit"]
+    is_exhausted = used_count >= limit
 
-        is_gemini = (chosen_provider == "Google Gemini")
-        provider_code = "gemini" if is_gemini else "groq"
-
-        col_k1, col_k2 = st.columns([2.5, 1.0])
-        if is_gemini:
-            with col_k1:
-                key_input = st.text_input(
-                    "Google Gemini API Key:",
-                    value=st.session_state.get("gemini_api_key", gemini_key or ""),
-                    type="password",
-                    help="Ключ Gemini API из Google AI Studio (aistudio.google.com/apikey)",
-                    key="agent_gemini_key_input_field",
-                )
-            with col_k2:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_gemini_key_env", use_container_width=True):
-                    if key_input.strip():
-                        st.session_state["gemini_api_key"] = key_input.strip()
-                        if save_gemini_api_key_to_env(key_input.strip()):
-                            st.success("Ключ Gemini сохранен в .env!" if lang == "ru" else "Gemini Key saved to .env!")
-                            st.rerun()
-                    else:
-                        st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
-
-            active_key = gemini_key or (key_input.strip() if key_input else None)
+    col_stat1, col_stat2 = st.columns([2.6, 1.4])
+    with col_stat1:
+        if active_key:
+            st.markdown(
+                '<div style="background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; padding: 6px 12px; border-radius: 4px; font-size: 13px;">'
+                '🟢 <b>Встроенный AI активен</b> — DeepSeek v4.1 Flash (Polza.ai)'
+                '</div>' if lang == "ru" else
+                '<div style="background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; padding: 6px 12px; border-radius: 4px; font-size: 13px;">'
+                '🟢 <b>Built-in AI active</b> — DeepSeek v4.1 Flash (Polza.ai)'
+                '</div>',
+                unsafe_allow_html=True,
+            )
         else:
-            with col_k1:
-                key_input = st.text_input(
-                    "Groq API Key (gsk_...):",
-                    value=st.session_state.get("groq_api_key", groq_key or ""),
-                    type="password",
-                    help="Бесплатный ключ LPU доступен мгновенно на console.groq.com/keys",
-                    key="agent_groq_key_input_field",
-                )
-            with col_k2:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_groq_key_env", use_container_width=True):
-                    if key_input.strip():
-                        st.session_state["groq_api_key"] = key_input.strip()
-                        if save_groq_api_key_to_env(key_input.strip()):
-                            st.success("Ключ Groq сохранен в .env!" if lang == "ru" else "Groq Key saved to .env!")
-                            st.rerun()
-                    else:
-                        st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
-            active_key = groq_key or (key_input.strip() if key_input else None)
+            st.error("⚠️ POLZA_AI_KEY не настроен на сервере (.env). Укажите ключ в настройках ниже." if lang == "ru" else "⚠️ POLZA_AI_KEY is not configured in server .env.")
+    with col_stat2:
+        badge_color = "#f43f5e" if is_exhausted else ("#f59e0b" if used_count > 80 else "#10b981")
+        st.markdown(
+            f'<div style="text-align: right; font-size: 13px; padding-top: 6px;">'
+            f'Дневной лимит: <b style="color: {badge_color};">{used_count} / {limit}</b>'
+            f'</div>' if lang == "ru" else
+            f'<div style="text-align: right; font-size: 13px; padding-top: 6px;">'
+            f'Daily quota: <b style="color: {badge_color};">{used_count} / {limit}</b>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-        col_m1, col_m2 = st.columns([1.5, 1.0])
-        with col_m1:
-            if is_gemini:
-                gemini_models = chemo_agent.get_available_gemini_models(gemini_key)
-                if st.session_state.get("agent_gemini_model_select") not in gemini_models:
-                    st.session_state["agent_gemini_model_select"] = (
-                        chemo_agent.DEFAULT_GEMINI_MODEL
-                        if chemo_agent.DEFAULT_GEMINI_MODEL in gemini_models
-                        else gemini_models[0]
-                    )
-                def_idx = gemini_models.index(st.session_state["agent_gemini_model_select"])
-                selected_model = st.selectbox(
-                    "Модель Gemini:" if lang == "ru" else "Gemini Model:",
-                    gemini_models,
-                    index=def_idx,
-                    key="agent_gemini_model_select",
-                )
-            else:
-                raw_options = chemo_agent.get_available_groq_models(groq_key)
-                model_options = [
-                    m for m in raw_options
-                    if not any(d in m.lower() for d in ["llama-3.3", "llama-3.1", "mixtral", "gemma"])
-                ]
-                if not model_options:
-                    model_options = chemo_agent.FALLBACK_MODELS
+    if is_exhausted:
+        st.error(
+            "⚠️ Достигнут суточный лимит в 100 запросов для защиты бюджета. Лимит автоматически сбросится в 00:00 UTC."
+            if lang == "ru" else
+            "⚠️ Daily budget limit of 100 queries reached. Quota will automatically reset at 00:00 UTC."
+        )
 
-                if st.session_state.get("agent_groq_model_select") not in model_options:
-                    st.session_state["agent_groq_model_select"] = model_options[0]
-
-                def_idx = model_options.index(st.session_state["agent_groq_model_select"])
-                selected_model = st.selectbox(
-                    "Модель Groq:" if lang == "ru" else "Groq Model:",
-                    model_options,
-                    index=def_idx,
-                    key="agent_groq_model_select",
-                )
-        with col_m2:
-            temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
+    with st.expander("⚙️ Параметры генерации & API (для администратора)" if lang == "ru" else "⚙️ Generation Parameters & Admin API Key", expanded=False):
+        col_cfg1, col_cfg2 = st.columns([2.0, 1.0])
+        with col_cfg1:
+            key_input = st.text_input(
+                "POLZA_AI_KEY (override / обновить):",
+                value=st.session_state.get("polza_api_key", ""),
+                type="password",
+                help="Встроенный ключ уже подгружается из .env. Введите сюда только если хотите переопределить ключ.",
+                key="agent_polza_key_input_field",
+            )
+        with col_cfg2:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_polza_key_env", use_container_width=True):
+                if key_input.strip():
+                    st.session_state["polza_api_key"] = key_input.strip()
+                    if save_polza_api_key_to_env(key_input.strip()):
+                        st.success("Ключ Polza.ai сохранен в .env!" if lang == "ru" else "Polza.ai Key saved to .env!")
+                        st.rerun()
+                else:
+                    st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
+        temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
 
     # 3. Spectrum Selection & Quick Action: Load Selected Sample into Agent Context
     spectra_db = st.session_state.get("spectra_db", {})
@@ -381,7 +305,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 btn_cross_modal = st.button(
                     "🧬 Кросс-модальный синтез" if lang == "ru" else "🧬 Multi-Modal Synthesis",
                     key="btn_agent_cross_modal",
-                    disabled=(active_data is None or not bool(active_key)),
+                    disabled=(active_data is None or not bool(active_key) or is_exhausted),
                     use_container_width=True,
                     type="primary",
                     help=f"Комплексный синтез данных ({len(active_mods)} активных методов: {', '.join(m.upper() for m in active_mods)})" if lang == "ru" else f"Fused synthesis ({len(active_mods)} modalities: {', '.join(m.upper() for m in active_mods)})",
@@ -390,7 +314,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 btn_analyze_sample = st.button(
                     "🔬 FT-ICR анализ" if lang == "ru" else "🔬 FT-ICR Analysis",
                     key="btn_agent_analyze_sample_mm",
-                    disabled=(active_data is None or not bool(active_key)),
+                    disabled=(active_data is None or not bool(active_key) or is_exhausted),
                     use_container_width=True,
                     type="secondary",
                     help="Сформировать экспертное биогеохимическое заключение строго по FT-ICR MS" if lang == "ru" else "Generate single-spectrum FT-ICR MS interpretation",
@@ -416,7 +340,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                 btn_analyze_sample = st.button(
                     "🔬 Отправить в ИИ" if lang == "ru" else "🔬 Send to AI",
                     key="btn_agent_analyze_sample_sm",
-                    disabled=(active_data is None or not bool(active_key)),
+                    disabled=(active_data is None or not bool(active_key) or is_exhausted),
                     use_container_width=True,
                     type="primary",
                     help="Сформировать экспертное биогеохимическое заключение для выбранного спектра" if lang == "ru" else "Generate biogeochemical expert interpretation for selected spectrum",
@@ -522,6 +446,13 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
     # 5. Handle Analysis & Synthesis Triggers
     is_triggered = (btn_cross_modal or btn_analyze_sample) and bool(active_data)
     if is_triggered:
+        if is_exhausted:
+            st.error("⚠️ Достигнут суточный лимит в 100 запросов. Сброс в 00:00 UTC." if lang == "ru" else "⚠️ Daily limit of 100 queries reached. Resets at midnight.")
+            st.stop()
+        if not _check_debounce_allowed():
+            st.warning("Пожалуйста, подождите 2 секунды перед следующим запросом." if lang == "ru" else "Please wait 2 seconds between queries.")
+            st.stop()
+
         st.session_state["active_spectrum_name"] = active_data["name"]
         if btn_cross_modal:
             prompt_text = chemo_agent.build_cross_modal_synthesis_prompt(
@@ -588,8 +519,11 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
     )
     if user_prompt:
         if not active_key:
-            key_name = "GEMINI_API_KEY" if provider_code == "gemini" else "GROQ_API_KEY"
-            st.error(f"Пожалуйста, укажите {key_name} в настройках выше!" if lang == "ru" else f"Please specify {key_name} in the settings above!")
+            st.error("⚠️ POLZA_AI_KEY не настроен на сервере (.env). Укажите ключ в настройках выше!" if lang == "ru" else "⚠️ POLZA_AI_KEY is not configured in server .env!")
+        elif is_exhausted:
+            st.error("⚠️ Достигнут суточный лимит в 100 запросов для защиты бюджета. Лимит автоматически сбросится в 00:00 UTC." if lang == "ru" else "⚠️ Daily budget limit of 100 queries reached. Quota will automatically reset at 00:00 UTC.")
+        elif not _check_debounce_allowed():
+            st.warning("Пожалуйста, подождите 2 секунды перед следующим запросом." if lang == "ru" else "Please wait 2 seconds between queries.")
         else:
             context_hint = ""
             if active_data and not any(active_data["name"] in m.get("content", "") for m in st.session_state["chemo_agent_messages"][-3:]):
@@ -639,31 +573,42 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
     Renders an on-demand AI Analysis card inside FT-ICR MS or ML Studio.
     Caches results per sample in st.session_state so repeated views do not re-query the API.
     """
-    provider_code, active_key, model, temp, gemini_key, groq_key = _get_active_ai_config()
+    provider_code, active_key, model, temp, *extra = _get_active_ai_config()
+    usage = chemo_agent.get_daily_usage(100)
+    used_count = usage["count"]
+    limit = usage["limit"]
+    is_exhausted = used_count >= limit
     cache_key = f"ai_summary_{sample_name}"
 
     st.markdown("### 🤖 Экспертное AI-заключение (ChemoAgent)" if lang == "ru" else "### 🤖 AI Expert Interpretation (ChemoAgent)")
     
     col_info, col_btn = st.columns([3.0, 1.2])
     with col_info:
-        prov_title = "Google Gemini" if provider_code == "gemini" else "Groq LPU"
         st.caption(
-            f"Глубокая биогеохимическая интерпретация на базе нейросети {prov_title} ({model}): генезис пробы, степень ароматической конденсации, техногенные маркеры."
+            f"Глубокая биогеохимическая интерпретация на базе нейросети DeepSeek v4.1 Flash (Polza.ai): генезис пробы, степень ароматической конденсации, техногенные маркеры. (Использовано сегодня: {used_count}/{limit})"
             if lang == "ru"
-            else f"In-depth biogeochemical reasoning powered by {prov_title} ({model}): origin, aromatic condensation, contamination markers."
+            else f"In-depth biogeochemical reasoning powered by DeepSeek v4.1 Flash (Polza.ai): origin, aromatic condensation, contamination markers. (Daily usage: {used_count}/{limit})"
         )
     with col_btn:
         run_btn = st.button(
             "⚡ Сгенерировать анализ" if lang == "ru" else "⚡ Generate Analysis",
             key=f"btn_run_ai_{sample_name}",
+            disabled=is_exhausted,
             use_container_width=True,
             type="primary" if not st.session_state.get(cache_key) else "secondary",
         )
 
     if run_btn:
+        if is_exhausted:
+            st.error("⚠️ Достигнут суточный лимит в 100 запросов. Сброс в 00:00 UTC." if lang == "ru" else "⚠️ Daily limit of 100 queries reached. Resets at midnight.")
+            return
+
+        if not _check_debounce_allowed():
+            st.warning("Пожалуйста, подождите 2 секунды перед следующим запросом." if lang == "ru" else "Please wait 2 seconds between queries.")
+            return
+
         if not active_key:
-            key_name = "GEMINI_API_KEY" if provider_code == "gemini" else "GROQ_API_KEY"
-            st.warning(f"Укажите {key_name} в боковой панели ChemoAgent для генерации заключения." if lang == "ru" else f"Specify {key_name} in the sidebar ChemoAgent to generate interpretation.")
+            st.warning("POLZA_AI_KEY не найден в .env. Настройте ключ для генерации заключения." if lang == "ru" else "POLZA_AI_KEY not found in .env.")
             return
 
         prompt = chemo_agent.build_sample_analysis_prompt(sample_name, sample_data, lang=lang)
@@ -687,6 +632,7 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
         loader_ph.empty()
         if res.get("success"):
             st.session_state[cache_key] = res.get("content", "")
+            st.rerun()
         else:
             st.markdown(res.get("error", "Произошла ошибка"), unsafe_allow_html=True)
 

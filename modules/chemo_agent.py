@@ -1,211 +1,137 @@
 """
 modules/chemo_agent.py — ChemoSuite AI Scientific Copilot & Biogeochemical Reasoner.
 
-Powered by Groq Ultra-Fast LPU API (llama-3.3-70b-versatile / mixtral-8x7b-32768).
-Zero external dependencies (uses standard requests + urllib).
-Loads API key securely from .env, st.secrets, or UI session state.
+Powered by Polza.ai API (OpenAI-compatible) using DeepSeek v4.1 Flash (deepseek/deepseek-v4.1-flash-1017).
+Built-in web integration: works out-of-the-box for all users via server environment/secrets.
+Hard budget guard: max 100 requests per day, token capping (2500 max), anti-spam rate limiting.
+Zero external heavy dependencies (uses standard requests).
 """
 
 import os
 import re
 import json
 import logging
-from typing import Dict, Any, List, Optional, Generator
+import datetime
+from typing import Dict, Any, List, Optional, Generator, Tuple
 import requests
 import pandas as pd
 
 logger = logging.getLogger("chemo_agent")
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
-DEFAULT_MODEL = "qwen/qwen3.8-27b"
-FALLBACK_MODELS = [
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
+POLZA_API_URL = "https://polza.ai/api/v1/chat/completions"
+POLZA_MODELS_URL = "https://polza.ai/api/v1/models"
+DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
+AVAILABLE_MODELS = [
+    "deepseek/deepseek-v4.1-flash-1017",
+    "deepseek/deepseek-chat",
 ]
+FALLBACK_MODELS = AVAILABLE_MODELS
 
-# Google Gemini API configuration
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/openai/models"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
-FALLBACK_GEMINI_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-3.5-flash",
-    "gemini-3.1-pro-preview",
-]
+DEFAULT_MAX_TOKENS = 2048
+MAX_TOKEN_CAP = 2500
+DAILY_REQUEST_LIMIT = 100
+USAGE_FILE = ".agent_usage.json"
 
 
-def get_available_groq_models(api_key: Optional[str] = None) -> List[str]:
+def _get_today_str() -> str:
+    """Returns today's date formatted as YYYY-MM-DD."""
+    return datetime.date.today().isoformat()
+
+
+def get_daily_usage() -> Dict[str, Any]:
     """
-    Dynamically queries Groq API to discover available chat/reasoning models.
-    Filters out audio, whisper, and guardrail models.
-    Falls back to curated list if network fails or key is invalid.
+    Returns current daily usage statistics:
+    {'date': 'YYYY-MM-DD', 'count': int, 'limit': int, 'remaining': int}
     """
-    resolved_key = get_groq_api_key(api_key)
-    if not resolved_key:
-        return FALLBACK_MODELS
+    today = _get_today_str()
+    data = {
+        "date": today,
+        "count": 0,
+        "limit": DAILY_REQUEST_LIMIT,
+        "remaining": DAILY_REQUEST_LIMIT,
+    }
+    if os.path.exists(USAGE_FILE):
+        try:
+            with open(USAGE_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                if saved.get("date") == today:
+                    cnt = int(saved.get("count", 0))
+                    data["count"] = cnt
+                    data["remaining"] = max(0, DAILY_REQUEST_LIMIT - cnt)
+        except Exception:
+            pass
+    return data
 
-    headers = {"Authorization": f"Bearer {resolved_key}"}
+
+def check_and_increment_daily_usage(max_limit: int = DAILY_REQUEST_LIMIT) -> Tuple[bool, int, str]:
+    """
+    Budget Guard: Checks if today's request limit has been reached.
+    If under limit, increments and persists to disk.
+    Returns (allowed: bool, current_count: int, message: str).
+    """
+    today = _get_today_str()
+    usage = get_daily_usage()
+    if usage["count"] >= max_limit:
+        msg = f"⚠️ Превышен защитный лимит: {max_limit} запросов в день. Лимит обновится в полночь для защиты баланса."
+        return False, usage["count"], msg
+
+    new_count = usage["count"] + 1
     try:
-        resp = requests.get(GROQ_MODELS_URL, headers=headers, timeout=3.5)
-        if resp.status_code == 200:
-            data = resp.json().get("data", [])
-            chat_models = []
-            excluded = ["whisper", "guard", "orpheus", "prompt"]
-            for m in data:
-                m_id = m.get("id", "")
-                if m_id and not any(ex in m_id.lower() for ex in excluded):
-                    chat_models.append(m_id)
-            if chat_models:
-                pref_order = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-                sorted_models = []
-                for p in pref_order:
-                    if p in chat_models:
-                        sorted_models.append(p)
-                for m in sorted(chat_models):
-                    if m not in sorted_models:
-                        sorted_models.append(m)
-                return sorted_models
-    except Exception:
-        pass
+        with open(USAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"date": today, "count": new_count, "limit": max_limit}, f, indent=2)
+    except Exception as exc:
+        logger.warning("Could not persist daily usage: %s", exc)
 
-    return FALLBACK_MODELS
+    return True, new_count, "OK"
 
 
-def get_available_gemini_models(api_key: Optional[str] = None) -> List[str]:
+def get_polza_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
     """
-    Dynamically queries Gemini API to discover chat-capable models.
-    Filters out audio, tts, image, video, and embedding models.
-    Falls back to curated list if network fails or key is invalid.
-    """
-    resolved_key = get_gemini_api_key(api_key)
-    if not resolved_key:
-        return FALLBACK_GEMINI_MODELS
-
-    headers = {"Authorization": f"Bearer {resolved_key}"}
-    try:
-        resp = requests.get(GEMINI_MODELS_URL, headers=headers, timeout=3.5)
-        if resp.status_code == 200:
-            data = resp.json().get("data", [])
-            chat_models = []
-            excluded = [
-                "tts", "image", "audio", "embedding", "veo", "banana",
-                "robotics", "lyria", "transcribe", "live", "aqa", "preview-tts",
-            ]
-            for m in data:
-                m_id = m.get("id", "")
-                if m_id.startswith("models/"):
-                    m_id = m_id[7:]
-                if m_id and not any(ex in m_id.lower() for ex in excluded):
-                    if "gemini" in m_id.lower():
-                        chat_models.append(m_id)
-            if chat_models:
-                pref_order = [
-                    "gemini-2.5-flash",
-                    "gemini-2.5-flash-lite",
-                    "gemini-3.5-flash",
-                    "gemini-3.1-pro-preview",
-                ]
-                sorted_models = []
-                for p in pref_order:
-                    if p in chat_models:
-                        sorted_models.append(p)
-                for m in sorted(chat_models):
-                    if m not in sorted_models:
-                        sorted_models.append(m)
-                return sorted_models
-    except Exception:
-        pass
-
-    return FALLBACK_GEMINI_MODELS
-
-
-def get_groq_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
-    """
-    Safely resolves Groq API key with priority:
+    Safely resolves Polza.ai API key with priority:
     1. Explicit key passed from UI session state / widget.
-    2. Environment variable GROQ_API_KEY.
-    3. .env file in project directory or home directory.
-    4. Streamlit secrets (st.secrets["GROQ_API_KEY"]).
+    2. Environment variable POLZA_AI_KEY.
+    3. Streamlit secrets (st.secrets["POLZA_AI_KEY"]) for web hosting.
+    4. Local .env file in project directory or home directory.
     """
-    if explicit_key and explicit_key.strip():
-        return explicit_key.strip()
+    if explicit_key and str(explicit_key).strip():
+        return str(explicit_key).strip()
 
     # 1. Environment variable
-    env_key = os.getenv("GROQ_API_KEY")
+    env_key = os.getenv("POLZA_AI_KEY")
     if env_key and env_key.strip():
         return env_key.strip()
 
-    # 2. Local .env file
+    # 2. Streamlit secrets
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "POLZA_AI_KEY" in st.secrets:
+            val = str(st.secrets["POLZA_AI_KEY"]).strip()
+            if val:
+                return val
+    except Exception:
+        pass
+
+    # 3. Local .env file
     for env_path in [".env", os.path.expanduser("~/.env")]:
         if os.path.exists(env_path):
             try:
                 with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
                     for line in f:
                         line = line.strip()
-                        if line.startswith("GROQ_API_KEY="):
+                        if line.startswith("POLZA_AI_KEY="):
                             val = line.split("=", 1)[1].strip().strip('"').strip("'")
                             if val:
                                 return val
             except Exception:
                 pass
 
-    # 3. Streamlit secrets
-    try:
-        import streamlit as st
-        if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
-            val = str(st.secrets["GROQ_API_KEY"]).strip()
-            if val:
-                return val
-    except Exception:
-        pass
-
     return None
 
 
-def get_gemini_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
-    """
-    Safely resolves Google Gemini API key with priority:
-    1. Explicit key passed from UI session state / widget.
-    2. Environment variable GEMINI_API_KEY.
-    3. .env file in project directory or home directory.
-    4. Streamlit secrets (st.secrets["GEMINI_API_KEY"]).
-    """
-    if explicit_key and explicit_key.strip():
-        return explicit_key.strip()
+def get_available_models(api_key: Optional[str] = None) -> List[str]:
+    """Returns curated list of chat/reasoning models supported by Polza.ai."""
+    return AVAILABLE_MODELS
 
-    # 1. Environment variable
-    env_key = os.getenv("GEMINI_API_KEY")
-    if env_key and env_key.strip():
-        return env_key.strip()
-
-    # 2. Local .env file
-    for env_path in [".env", os.path.expanduser("~/.env")]:
-        if os.path.exists(env_path):
-            try:
-                with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("GEMINI_API_KEY="):
-                            val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                            if val:
-                                return val
-            except Exception:
-                pass
-
-    # 3. Streamlit secrets
-    try:
-        import streamlit as st
-        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-            val = str(st.secrets["GEMINI_API_KEY"]).strip()
-            if val:
-                return val
-    except Exception:
-        pass
-
-    return None
 
 
 CHEMO_SYSTEM_PROMPT = r"""Ты — ChemoAgent, ведущий мировой эксперт в области аналитической химии, экологической масс-спектрометрии ультравысокого разрешения (FT-ICR MS / Orbitrap), оптической спектроскопии (EEM-PARAFAC, ATR-FTIR), ЯМР (13C / 1H NMR), термодеструкции (Py-GC-MS, TGA) и хемометрики (OPLS-DA, sPLS-DA, Multi-Block PLS).
@@ -286,29 +212,9 @@ def normalize_latex(text: str) -> str:
     return text
 
 
-DEFAULT_MAX_TOKENS = 1200
-
-
-def _get_model_max_tokens(model: str, requested: Optional[int] = None) -> int:
+def format_polza_error(status_code: int, raw_text: str) -> str:
     """
-    Returns optimal token budget:
-    - Reasoning models (e.g. gpt-oss-120b, gpt-oss-20b) generate hidden/chain-of-thought
-      reasoning tokens that consume the output budget. They need 1500-2048 tokens.
-    - Direct generation models (e.g. qwen3.8-27b) on Groq free tier enforce a strict 1000 OTPM
-      (Output Tokens Per Minute) bucket limit. We cap them to 700 tokens to ensure
-      smooth multi-turn conversations without hitting HTTP 429 rate limits.
-    """
-    m = model.lower() if model else ""
-    if "gpt-oss" in m:
-        return min(int(requested or 2048), 2048)
-    if "qwen" in m:
-        return min(int(requested or 700), 750)
-    return min(int(requested or 1000), 1000)
-
-
-def format_groq_error(status_code: int, raw_text: str) -> str:
-    """
-    Formats Groq API errors into a concise, polite, human-readable notification.
+    Formats Polza.ai API errors into a concise, polite, human-readable notification.
     Hides raw technical JSON dumps inside an interactive collapsible <details> block.
     """
     msg = ""
@@ -320,280 +226,24 @@ def format_groq_error(status_code: int, raw_text: str) -> str:
         msg = str(raw_text)
 
     msg_lower = msg.lower()
-
-    if status_code == 429:
-        if any(w in msg_lower for w in ["otpm", "limit 1000", "expected output", "output tokens per minute"]):
-            header = "⚠️ **Превышен минутный лимит токенов Groq (429 Rate Limit)**"
-            hint = "Бесплатный тариф Groq On-Demand временно исчерпал лимит токенов генерации (OTPM). Лимит восстанавливается за 15–30 секунд. Пожалуйста, подождите полминуты и повторите запрос."
-        else:
-            header = "⚠️ **Превышен лимит запросов к Groq (429 Too Many Requests)**"
-            hint = "Слишком много запросов в минуту. Пожалуйста, подождите 15–20 секунд перед следующим запросом."
+    if status_code == 402 or "balance" in msg_lower or "резерв" in msg_lower or "funds" in msg_lower:
+        header = "💳 **Недостаточно средств на балансе Polza.ai (HTTP 402)**"
+        hint = "Исчерпан баланс или лимит расходов в консоли Polza.ai. Пополните баланс на https://polza.ai/dashboard для возобновления работы."
+    elif status_code == 429 or "rate" in msg_lower or "too_many_requests" in msg_lower:
+        header = "⚠️ **Превышена частота запросов к Polza.ai (HTTP 429)**"
+        hint = "Слишком много запросов в минуту. Пожалуйста, подождите 5–10 секунд и повторите."
+    elif status_code in (401, 403) or "unauthorized" in msg_lower or "api_key" in msg_lower:
+        header = "❌ **Ошибка авторизации Polza.ai (HTTP 401/403)**"
+        hint = "Проверьте правильность POLZA_AI_KEY в файле `.env` или `st.secrets`."
     elif status_code == 404:
-        header = "❌ **Модель недоступна в Groq (404 Not Found)**"
-        hint = "Выбранная модель устарела или недоступна на вашем ключе. Выберите доступную модель в настройках."
-    elif status_code == 401:
-        header = "❌ **Неверный GROQ_API_KEY (401 Unauthorized)**"
-        hint = "Проверьте правильность API ключа в настройках боковой панели или в файле `.env`."
-    elif status_code == 400:
-        header = "❌ **Некорректный запрос (400 Bad Request)**"
-        hint = "Запрос превышает контекст или содержит неподдерживаемые параметры."
+        header = "❌ **Модель недоступна в Polza.ai (HTTP 404)**"
+        hint = "Модель `deepseek/deepseek-v4.1-flash-1017` временно недоступна у провайдера."
+    elif status_code in (500, 502, 503):
+        header = f"⚠️ **Сервер Polza.ai временно недоступен (HTTP {status_code})**"
+        hint = "Провайдер Polza.ai временно перегружен. Повторите запрос через минуту."
     else:
-        header = f"❌ **Ошибка Groq API (HTTP {status_code})**"
-        hint = "Не удалось завершить генерацию ответа нейросетью. Попробуйте повторить запрос."
-
-    # Clean technical details snippet for collapsible block
-    clean_snippet = str(raw_text).strip().replace("```", "'''")
-    if len(clean_snippet) > 350:
-        clean_snippet = clean_snippet[:350] + "..."
-
-    return (
-        f"{header}\n\n"
-        f"*{hint}*\n\n"
-        f"<details><summary style='font-size:12px; color:#94a3b8; cursor:pointer;'>🔍 Технические подробности ошибки</summary>\n\n"
-        f"```json\n{clean_snippet}\n```\n"
-        f"</details>"
-    )
-
-
-def _sanitize_model(model: Optional[str]) -> str:
-    """Ensures model is valid, remapping deprecated or unpermitted models to DEFAULT_MODEL."""
-    if not model:
-        return DEFAULT_MODEL
-    s = str(model).strip()
-    if any(bad in s.lower() for bad in ["llama", "mixtral", "gemma", "versatile", "instant"]):
-        return DEFAULT_MODEL
-    return s
-
-
-def call_groq_chat(
-    messages: List[Dict[str, str]],
-    api_key: Optional[str] = None,
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.2,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    timeout: float = 30.0,
-) -> Dict[str, Any]:
-    """
-    Sends chat completion request to Groq API via standard HTTP POST.
-    Automatically falls back to DEFAULT_MODEL if model returns 404.
-    Self-heals on OTPM 429 errors by dynamically scaling down max_tokens.
-    """
-    resolved_key = get_groq_api_key(api_key)
-    if not resolved_key:
-        return {
-            "success": False,
-            "content": "",
-            "error": "GROQ_API_KEY не найден. Добавьте его в файл .env (GROQ_API_KEY=gsk_...) или укажите в поле ввода в сайдбаре.",
-        }
-
-    target_model = _sanitize_model(model)
-    headers = {
-        "Authorization": f"Bearer {resolved_key}",
-        "Content-Type": "application/json",
-    }
-
-    clamped_tokens = _get_model_max_tokens(target_model, max_tokens)
-    payload = {
-        "model": target_model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": clamped_tokens,
-        "reasoning_effort": "low",
-    }
-
-    try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
-        if response.status_code == 404 and target_model != DEFAULT_MODEL:
-            logger.warning("Groq model %s returned 404, falling back to %s", target_model, DEFAULT_MODEL)
-            payload["model"] = DEFAULT_MODEL
-            payload["max_tokens"] = _get_model_max_tokens(DEFAULT_MODEL, max_tokens)
-            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
-
-        # Self-heal on OTPM 429 if Groq reports a lower token limit
-        if response.status_code == 429 and "limit" in response.text.lower():
-            m_limit = re.search(r"Limit\s+(\d+)", response.text, re.IGNORECASE)
-            if m_limit and payload["max_tokens"] > 750:
-                safe_limit = max(int(m_limit.group(1)) - 50, 600)
-                logger.warning("Groq OTPM limit exceeded. Retrying with reduced max_tokens=%d", safe_limit)
-                payload["max_tokens"] = safe_limit
-                response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=timeout)
-
-        if response.status_code == 200:
-            data = response.json()
-            choice = data.get("choices", [{}])[0]
-            reply_text = choice.get("message", {}).get("content", "")
-            return {
-                "success": True,
-                "content": reply_text,
-                "model": data.get("model", payload["model"]),
-                "usage": data.get("usage", {}),
-                "error": None,
-            }
-        else:
-            err_msg = format_groq_error(response.status_code, response.text)
-            logger.error("Groq API error: HTTP %d", response.status_code)
-            return {
-                "success": False,
-                "content": "",
-                "error": err_msg,
-            }
-    except Exception as exc:
-        logger.exception("Failed to connect to Groq API: %s", exc)
-        return {
-            "success": False,
-            "content": "",
-            "error": f"Ошибка соединения с Groq API: {str(exc)}",
-        }
-
-
-def stream_groq_chat(
-    messages: List[Dict[str, str]],
-    api_key: Optional[str] = None,
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.2,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    timeout: float = 60.0,
-) -> Generator[str, None, None]:
-    """
-    Streams response tokens from Groq API in real-time with resilient connection handling.
-    Automatically falls back to DEFAULT_MODEL if model returns 404.
-    Recovers from OTPM rate limits and handles unexpected socket drops gracefully.
-    """
-    resolved_key = get_groq_api_key(api_key)
-    if not resolved_key:
-        yield "❌ **Ошибка:** GROQ_API_KEY не найден. Добавьте его в файл `.env` (`GROQ_API_KEY=gsk_...`) или введите в сайдбаре."
-        return
-
-    target_model = _sanitize_model(model)
-    headers = {
-        "Authorization": f"Bearer {resolved_key}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        "Cache-Control": "no-cache",
-    }
-
-    clamped_tokens = _get_model_max_tokens(target_model, max_tokens)
-    payload = {
-        "model": target_model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": clamped_tokens,
-        "reasoning_effort": "low",
-        "stream": True,
-    }
-
-    response = None
-    yielded_any = False
-    finish_reason = None
-    try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
-        if response.status_code == 404 and target_model != DEFAULT_MODEL:
-            logger.warning("Groq stream model %s returned 404, falling back to %s", target_model, DEFAULT_MODEL)
-            payload["model"] = DEFAULT_MODEL
-            payload["max_tokens"] = _get_model_max_tokens(DEFAULT_MODEL, max_tokens)
-            response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
-
-        # Self-heal on OTPM 429 if Groq reports a lower limit
-        if response.status_code == 429 and "limit" in response.text.lower():
-            m_limit = re.search(r"Limit\s+(\d+)", response.text, re.IGNORECASE)
-            if m_limit and payload["max_tokens"] > 750:
-                safe_limit = max(int(m_limit.group(1)) - 50, 600)
-                logger.warning("Groq stream OTPM limit exceeded. Retrying with max_tokens=%d", safe_limit)
-                payload["max_tokens"] = safe_limit
-                response = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
-
-        if response.status_code != 200:
-            yield format_groq_error(response.status_code, response.text)
-            return
-
-        try:
-            response.encoding = "utf-8"
-        except Exception:
-            pass
-
-        for line in response.iter_lines():
-            if not line:
-                continue
-            line_str = line.decode("utf-8", errors="replace") if isinstance(line, (bytes, bytearray)) else str(line)
-            if line_str.startswith("data: "):
-                data_part = line_str[6:].strip()
-                if data_part == "[DONE]":
-                    break
-                try:
-                    chunk_json = json.loads(data_part)
-                except Exception:
-                    continue
-
-                if "error" in chunk_json:
-                    err_text = chunk_json.get("error", {}).get("message", str(chunk_json["error"]))
-                    yield f"\n\n{format_groq_error(429 if 'rate' in err_text.lower() else 500, json.dumps(chunk_json))}"
-                    return
-
-                c0 = chunk_json.get("choices", [{}])[0]
-                if c0.get("finish_reason"):
-                    finish_reason = c0.get("finish_reason")
-                delta = c0.get("delta", {})
-                token = delta.get("content", "")
-                if token:
-                    yield repair_mojibake(token)
-                    yielded_any = True
-
-        if finish_reason == "length":
-            yield "\n\n*(Ответ был ограничен лимитом токенов модели. Вы можете написать: «Продолжи»)*"
-    except Exception as exc:
-        err_str = str(exc)
-        logger.warning("Groq stream ended with exception: %s", err_str)
-        # If tokens were already yielded and socket closed (e.g. unexpected EOF / IncompleteRead)
-        if yielded_any and any(k in err_str.lower() for k in ["eof", "incompleteread", "connection broken", "chunked"]):
-            if finish_reason != "length":
-                yield "\n\n*(Генерация завершена сервером)*"
-        else:
-            yield f"\n\n❌ **Ошибка сети:** {err_str}"
-    finally:
-        if response is not None:
-            try:
-                response.close()
-            except Exception:
-                pass
-
-
-def format_gemini_error(status_code: int, raw_text: str) -> str:
-    """
-    Formats Google Gemini API errors into a concise, polite, human-readable notification.
-    Hides raw technical JSON dumps inside an interactive collapsible <details> block.
-    """
-    msg = ""
-    try:
-        data = json.loads(raw_text)
-        if isinstance(data, list) and len(data) > 0:
-            data = data[0]
-        err = data.get("error", {})
-        msg = err.get("message", "")
-    except Exception:
-        msg = str(raw_text)
-
-    msg_lower = msg.lower()
-    if status_code == 429 or "quota" in msg_lower or "resource_exhausted" in msg_lower:
-        header = "⚠️ **Превышен лимит запросов Google Gemini API (429 Quota / Rate Limit)**"
-        hint = "Бесплатный тариф Google Gemini временно исчерпал лимит запросов или токенов. Переключитесь на модель gemini-2.5-flash-lite или подождите немного перед следующим запросом."
-    elif status_code in (401, 403) or "api_key" in msg_lower or "unauthenticated" in msg_lower:
-        header = "❌ **Неверный GEMINI_API_KEY (401/403 Unauthorized)**"
-        hint = "Проверьте правильность GEMINI_API_KEY в файле `.env` или укажите его в настройках."
-    elif status_code == 404:
-        header = "❌ **Модель недоступна в Google Gemini (404 Not Found)**"
-        hint = "Выбранная модель устарела или недоступна на вашем ключе. Рекомендуется использовать `gemini-2.5-flash` или `gemini-2.5-flash-lite`."
-    elif status_code == 400:
-        header = "❌ **Некорректный запрос к Gemini API (400 Bad Request)**"
-        hint = "Запрос содержит неподдерживаемые параметры или превышает контекстное окно."
-    elif status_code == 503 or "high demand" in msg_lower:
-        header = "⚠️ **Высокая нагрузка на модель Google Gemini (HTTP 503)**"
-        hint = "Серверы модели испытывают временный всплеск нагрузки. Попробуйте модель `gemini-2.5-flash-lite` или повторите запрос через несколько секунд."
-    elif status_code >= 500:
-        header = f"❌ **Сервер Google Gemini временно недоступен (HTTP {status_code})**"
-        hint = "Попробуйте повторить запрос через несколько секунд."
-    else:
-        header = f"❌ **Ошибка Google Gemini API (HTTP {status_code})**"
-        hint = "Не удалось завершить генерацию ответа нейросетью. Попробуйте повторить запрос."
+        header = f"❌ **Ошибка Polza.ai API (HTTP {status_code})**"
+        hint = "Не удалось завершить генерацию ответа. Попробуйте повторить запрос."
 
     clean_snippet = str(raw_text).strip().replace("```", "'''")
     if len(clean_snippet) > 350:
@@ -608,57 +258,51 @@ def format_gemini_error(status_code: int, raw_text: str) -> str:
     )
 
 
-def _sanitize_gemini_model(model: Optional[str]) -> str:
-    """Ensures Gemini model identifier is clean and valid."""
-    if not model:
-        return DEFAULT_GEMINI_MODEL
-    s = str(model).strip()
-    if s.startswith("models/"):
-        s = s[7:]
-    if not s or any(bad in s.lower() for bad in ["llama", "mixtral", "qwen", "gpt-oss"]):
-        return DEFAULT_GEMINI_MODEL
-    return s
-
-
-def call_gemini_chat(
+def call_polza_chat(
     messages: List[Dict[str, str]],
     api_key: Optional[str] = None,
-    model: str = DEFAULT_GEMINI_MODEL,
+    model: str = DEFAULT_MODEL,
     temperature: float = 0.2,
-    max_tokens: int = 2048,
-    timeout: float = 30.0,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    timeout: float = 40.0,
 ) -> Dict[str, Any]:
     """
-    Sends chat completion request to Google Gemini API via standard OpenAI-compatible endpoint.
-    Automatically falls back to gemini-2.5-flash-lite on 404 or 503.
+    Sends chat completion request to Polza.ai (OpenAI-compatible) API.
+    Enforces daily budget ceiling (100 req/day) and hard token cap (2500 tokens).
     """
-    resolved_key = get_gemini_api_key(api_key)
+    # 1. Budget Guard
+    allowed, cur_cnt, guard_msg = check_and_increment_daily_usage(DAILY_REQUEST_LIMIT)
+    if not allowed:
+        return {
+            "success": False,
+            "content": "",
+            "error": guard_msg,
+        }
+
+    # 2. Resolve Key
+    resolved_key = get_polza_api_key(api_key)
     if not resolved_key:
         return {
             "success": False,
             "content": "",
-            "error": "GEMINI_API_KEY не найден. Добавьте его в файл .env (GEMINI_API_KEY=...) или укажите в поле ввода в настройках.",
+            "error": "❌ POLZA_AI_KEY не найден в файле `.env` или `st.secrets`. Добавьте ключ для работы ChemoAgent.",
         }
 
-    target_model = _sanitize_gemini_model(model)
+    target_model = model or DEFAULT_MODEL
     headers = {
         "Authorization": f"Bearer {resolved_key}",
         "Content-Type": "application/json",
     }
+    clamped_tokens = min(int(max_tokens or DEFAULT_MAX_TOKENS), MAX_TOKEN_CAP)
     payload = {
         "model": target_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": clamped_tokens,
     }
 
     try:
-        response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=timeout)
-        if response.status_code in (404, 503) and target_model != "gemini-2.5-flash-lite":
-            logger.warning("Gemini model %s returned HTTP %d, falling back to gemini-2.5-flash-lite", target_model, response.status_code)
-            payload["model"] = "gemini-2.5-flash-lite"
-            response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=timeout)
-
+        response = requests.post(POLZA_API_URL, headers=headers, json=payload, timeout=timeout)
         if response.status_code == 200:
             data = response.json()
             choice = data.get("choices", [{}])[0]
@@ -666,56 +310,65 @@ def call_gemini_chat(
             return {
                 "success": True,
                 "content": reply_text,
-                "model": data.get("model", payload["model"]),
+                "model": data.get("model", target_model),
                 "usage": data.get("usage", {}),
                 "error": None,
             }
         else:
-            err_msg = format_gemini_error(response.status_code, response.text)
-            logger.error("Gemini API error: HTTP %d", response.status_code)
+            err_msg = format_polza_error(response.status_code, response.text)
+            logger.error("Polza.ai API error: HTTP %d", response.status_code)
             return {
                 "success": False,
                 "content": "",
                 "error": err_msg,
             }
     except Exception as exc:
-        logger.exception("Failed to connect to Gemini API: %s", exc)
+        logger.exception("Failed to connect to Polza.ai API: %s", exc)
         return {
             "success": False,
             "content": "",
-            "error": f"Ошибка соединения с Gemini API: {str(exc)}",
+            "error": f"Ошибка соединения с Polza.ai API: {str(exc)}",
         }
 
 
-def stream_gemini_chat(
+def stream_polza_chat(
     messages: List[Dict[str, str]],
     api_key: Optional[str] = None,
-    model: str = DEFAULT_GEMINI_MODEL,
+    model: str = DEFAULT_MODEL,
     temperature: float = 0.2,
-    max_tokens: int = 2048,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: float = 60.0,
 ) -> Generator[str, None, None]:
     """
-    Streams response tokens from Google Gemini API in real-time with resilient connection handling.
-    Automatically falls back to gemini-2.5-flash-lite on 404 or 503 temporary demand spikes.
+    Streams response tokens from Polza.ai in real-time.
+    Enforces daily budget ceiling (100 req/day) and hard token cap (2500 tokens).
+    Smoothly filters out raw reasoning chunks and yields clean scientific content.
     """
-    resolved_key = get_gemini_api_key(api_key)
-    if not resolved_key:
-        yield "❌ **Ошибка:** GEMINI_API_KEY не найден. Добавьте его в файл `.env` (`GEMINI_API_KEY=...`) или введите в настройках."
+    # 1. Budget Guard
+    allowed, cur_cnt, guard_msg = check_and_increment_daily_usage(DAILY_REQUEST_LIMIT)
+    if not allowed:
+        yield guard_msg
         return
 
-    target_model = _sanitize_gemini_model(model)
+    # 2. Resolve Key
+    resolved_key = get_polza_api_key(api_key)
+    if not resolved_key:
+        yield "❌ **Ошибка:** `POLZA_AI_KEY` не найден в файле `.env` или `st.secrets`."
+        return
+
+    target_model = model or DEFAULT_MODEL
     headers = {
         "Authorization": f"Bearer {resolved_key}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
         "Cache-Control": "no-cache",
     }
+    clamped_tokens = min(int(max_tokens or DEFAULT_MAX_TOKENS), MAX_TOKEN_CAP)
     payload = {
         "model": target_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": clamped_tokens,
         "stream": True,
     }
 
@@ -723,169 +376,101 @@ def stream_gemini_chat(
     yielded_any = False
     finish_reason = None
     try:
-        response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
-        if response.status_code in (404, 503) and target_model != "gemini-2.5-flash-lite":
-            logger.warning("Gemini stream model %s returned HTTP %d, falling back to gemini-2.5-flash-lite", target_model, response.status_code)
-            payload["model"] = "gemini-2.5-flash-lite"
-            response = requests.post(GEMINI_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
-
+        response = requests.post(POLZA_API_URL, headers=headers, json=payload, timeout=(10.0, 90.0), stream=True)
         if response.status_code != 200:
-            yield format_gemini_error(response.status_code, response.text)
+            yield format_polza_error(response.status_code, response.text)
             return
 
-        try:
-            response.encoding = "utf-8"
-        except Exception:
-            pass
-
-        for line in response.iter_lines():
+        for line in response.iter_lines(decode_unicode=False):
             if not line:
                 continue
-            line_str = line.decode("utf-8", errors="replace") if isinstance(line, (bytes, bytearray)) else str(line)
-            if line_str.startswith("data: "):
-                data_part = line_str[6:].strip()
-                if data_part == "[DONE]":
+            if line.startswith(b"data: "):
+                data_part = line[6:].strip()
+                if data_part == b"[DONE]":
                     break
                 try:
-                    chunk_json = json.loads(data_part)
+                    chunk_json = json.loads(data_part.decode("utf-8"))
                 except Exception:
                     continue
 
                 if "error" in chunk_json:
                     err_text = chunk_json.get("error", {}).get("message", str(chunk_json["error"]))
-                    yield f"\n\n{format_gemini_error(429 if 'quota' in err_text.lower() else 500, json.dumps(chunk_json))}"
+                    yield f"\n\n{format_polza_error(429 if 'rate' in err_text.lower() else 500, json.dumps(chunk_json))}"
                     return
 
                 c0 = chunk_json.get("choices", [{}])[0]
                 if c0.get("finish_reason"):
                     finish_reason = c0.get("finish_reason")
                 delta = c0.get("delta", {})
-                token = delta.get("content", "")
+                token = delta.get("content")
                 if token:
                     yield repair_mojibake(token)
                     yielded_any = True
 
         if finish_reason == "length":
-            yield "\n\n*(Ответ был ограничен лимитом токенов модели. Вы можете написать: «Продолжи»)*"
+            yield "\n\n*(Ответ был ограничен защитным лимитом токенов модели)*"
     except Exception as exc:
         err_str = str(exc)
-        logger.warning("Gemini stream ended with exception: %s", err_str)
-        if yielded_any and any(k in err_str.lower() for k in ["eof", "incompleteread", "connection broken", "chunked"]):
-            if finish_reason != "length":
-                yield "\n\n*(Генерация завершена сервером)*"
+        logger.warning("Polza stream ended with exception: %s", err_str)
+        if yielded_any and any(k in err_str.lower() for k in ["eof", "incompleteread", "connection broken"]):
+            yield "\n\n*(Генерация завершена)*"
         else:
-            yield f"\n\n❌ **Ошибка сети Gemini:** {err_str}"
+            yield f"\n\n❌ **Ошибка сети Polza.ai:** {err_str}"
     finally:
         if response is not None:
             try:
                 response.close()
             except Exception:
                 pass
-
-
-def resolve_provider(provider: str = "auto", model: Optional[str] = None, api_key: Optional[str] = None) -> str:
-    """
-    Resolves the target AI provider ('gemini' or 'groq') based on explicit request,
-    model name prefix, or available credentials.
-    """
-    prov = (provider or "auto").strip().lower()
-    if prov in ("gemini", "google", "google-gemini", "google gemini"):
-        return "gemini"
-    if prov in ("groq", "lpu", "groq lpu"):
-        return "groq"
-
-    # Inspect model name
-    m = (model or "").lower().strip()
-    if any(k in m for k in ["gemini", "gemma"]):
-        return "gemini"
-    if any(k in m for k in ["qwen", "gpt-oss", "groq", "llama", "mixtral"]):
-        return "groq"
-
-    # Inspect key credentials availability
-    has_gem = bool(get_gemini_api_key(api_key if "gemini" in prov else None))
-    has_groq = bool(get_groq_api_key(api_key if "groq" in prov else None))
-
-    if has_gem and not has_groq:
-        return "gemini"
-    if has_groq and not has_gem:
-        return "groq"
-    if has_gem:
-        return "gemini"
-    return "groq"
 
 
 def call_chat(
     messages: List[Dict[str, str]],
-    provider: str = "auto",
+    provider: str = "polza",
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     temperature: float = 0.2,
     max_tokens: Optional[int] = None,
-    timeout: float = 30.0,
+    timeout: float = 40.0,
 ) -> Dict[str, Any]:
-    """
-    Unified AI chat completion dispatcher supporting Google Gemini and Groq LPU.
-    """
-    prov = resolve_provider(provider, model, api_key)
-    if prov == "gemini":
-        target_model = model or DEFAULT_GEMINI_MODEL
-        tokens = max_tokens or 2048
-        return call_gemini_chat(
-            messages=messages,
-            api_key=api_key,
-            model=target_model,
-            temperature=temperature,
-            max_tokens=tokens,
-            timeout=timeout,
-        )
-    else:
-        target_model = model or DEFAULT_MODEL
-        tokens = max_tokens or DEFAULT_MAX_TOKENS
-        return call_groq_chat(
-            messages=messages,
-            api_key=api_key,
-            model=target_model,
-            temperature=temperature,
-            max_tokens=tokens,
-            timeout=timeout,
-        )
+    """Unified AI chat completion dispatcher routing directly to Polza.ai."""
+    return call_polza_chat(
+        messages=messages,
+        api_key=api_key,
+        model=model or DEFAULT_MODEL,
+        temperature=temperature,
+        max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
+        timeout=timeout,
+    )
 
 
 def stream_chat(
     messages: List[Dict[str, str]],
-    provider: str = "auto",
+    provider: str = "polza",
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     temperature: float = 0.2,
     max_tokens: Optional[int] = None,
     timeout: float = 60.0,
 ) -> Generator[str, None, None]:
-    """
-    Unified real-time streaming dispatcher supporting Google Gemini and Groq LPU.
-    """
-    prov = resolve_provider(provider, model, api_key)
-    if prov == "gemini":
-        target_model = model or DEFAULT_GEMINI_MODEL
-        tokens = max_tokens or 2048
-        yield from stream_gemini_chat(
-            messages=messages,
-            api_key=api_key,
-            model=target_model,
-            temperature=temperature,
-            max_tokens=tokens,
-            timeout=timeout,
-        )
-    else:
-        target_model = model or DEFAULT_MODEL
-        tokens = max_tokens or DEFAULT_MAX_TOKENS
-        yield from stream_groq_chat(
-            messages=messages,
-            api_key=api_key,
-            model=target_model,
-            temperature=temperature,
-            max_tokens=tokens,
-            timeout=timeout,
-        )
+    """Unified real-time streaming dispatcher routing directly to Polza.ai."""
+    yield from stream_polza_chat(
+        messages=messages,
+        api_key=api_key,
+        model=model or DEFAULT_MODEL,
+        temperature=temperature,
+        max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
+        timeout=timeout,
+    )
+
+
+# Backward compatibility aliases
+get_groq_api_key = get_polza_api_key
+get_gemini_api_key = get_polza_api_key
+resolve_provider = lambda *args, **kwargs: "polza"
+format_groq_error = format_polza_error
+format_gemini_error = format_polza_error
+
 
 
 def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], lang: str = "ru") -> str:
