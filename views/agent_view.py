@@ -151,18 +151,18 @@ def render_chemo_agent_sidebar(T: Dict[str, Any], lang: str = "ru"):
         # Header with status indicator
         col_t, col_s = st.columns([1.8, 1.4])
         with col_t:
-            st.markdown("**🤖 ChemoAgent**")
+            st.markdown("**🤖 Chemo Agent**")
         with col_s:
             if not has_key:
                 st.markdown('<span style="color:#94a3b8; font-size:12px; font-weight:700;">⚪ No Key</span>', unsafe_allow_html=True)
             elif is_exhausted:
                 st.markdown(f'<span style="color:#f43f5e; font-size:12px; font-weight:700;" title="Лимит исчерпан">🔴 {used_count}/{limit}</span>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<span style="color:#10b981; font-size:12px; font-weight:700;" title="Встроенный DeepSeek">🟢 {used_count}/{limit}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="color:#10b981; font-size:12px; font-weight:700;" title="Встроенный AI">🟢 {used_count}/{limit}</span>', unsafe_allow_html=True)
 
-        st.caption("DeepSeek v4.1 Flash • Встроенный ИИ" if lang == "ru" else "DeepSeek v4.1 Flash • Built-in AI")
+        st.caption("Встроенный ИИ" if lang == "ru" else "Built-in AI")
 
-        btn_label = "💬 Открыть AI-Копилот" if lang == "ru" else "💬 Open AI Copilot"
+        btn_label = "💬 Открыть Chemo Agent" if lang == "ru" else "💬 Open Chemo Agent"
         if hasattr(st, "dialog"):
             if st.button(btn_label, key="btn_open_agent_dialog", use_container_width=True):
                 _show_agent_dialog(T, lang)
@@ -170,11 +170,11 @@ def render_chemo_agent_sidebar(T: Dict[str, Any], lang: str = "ru"):
             with st.expander(btn_label, expanded=False):
                 _render_agent_content(T, lang, is_dialog=False)
     except Exception as exc:
-        st.caption(f"🤖 ChemoAgent: {exc}")
+        st.caption(f"🤖 Chemo Agent: {exc}")
 
 
 if hasattr(st, "dialog"):
-    @st.dialog("🤖 ChemoAgent — AI-копилот ChemoSuite", width="large")
+    @st.dialog("🤖 Chemo Agent", width="large")
     def _show_agent_dialog(T: Dict[str, Any], lang: str = "ru"):
         _render_agent_content(T, lang, is_dialog=True)
 else:
@@ -187,18 +187,18 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
     # 1. State initialization
     if "chemo_agent_messages" not in st.session_state:
         greeting = (
-            "Здравствуйте! Я **ChemoAgent** — ваш специализированный научный ассистент по масс-спектрометрии "
+            "Здравствуйте! Я **Chemo Agent** — ваш специализированный научный ассистент по масс-спектрометрии "
             "ультравысокого разрешения (FT-ICR MS), флуоресценции (EEM-PARAFAC), ЯМР, ИК-спектроскопии и хемометрике.\n\n"
-            "Работаю на базе флагманской модели **DeepSeek v4.1 Flash** через встроенный серверный API. Сервис готов к работе для всех исследователей!\n\n"
+            "Работаю через встроенный серверный API. Сервис готов к работе для всех исследователей!\n\n"
             "Я могу помочь:\n"
             "- Проанализировать активный образец и выявить маркеры шлам-лигнина или ненарушенного РОВ.\n"
             "- Интерпретировать молекулярные индексы ($H/C$, $O/C$, $AI_{\\text{mod}}$, $NOSC$, VK-20).\n"
             "- Оценить векторные потоки реакций TMDS (+CH2, +O, -CO2, +SO3).\n"
             "- Сформулировать выводы для научной публикации или паспорта образца."
             if lang == "ru"
-            else "Hello! I am **ChemoAgent** — your domain-specialized AI scientific assistant for ultrahigh-resolution "
+            else "Hello! I am **Chemo Agent** — your domain-specialized AI scientific assistant for ultrahigh-resolution "
             "mass spectrometry (FT-ICR MS), fluorescence (EEM-PARAFAC), NMR, FTIR, and chemometrics.\n\n"
-            "Powered by **DeepSeek v4.1 Flash** via built-in server API. Ready out-of-the-box for all researchers!\n\n"
+            "Powered by built-in server API. Ready out-of-the-box for all researchers!\n\n"
             "I can interpret molecular descriptors, identify contamination markers (e.g. pulp mill lignin vs. natural NOM), "
             "and assist in geochemical classification."
         )
@@ -218,10 +218,10 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         if active_key:
             st.markdown(
                 '<div style="background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; padding: 6px 12px; border-radius: 4px; font-size: 13px;">'
-                '🟢 <b>Встроенный AI активен</b> — DeepSeek v4.1 Flash (Polza.ai)'
+                '🟢 <b>Chemo Agent активен</b> (встроенный сервис)'
                 '</div>' if lang == "ru" else
                 '<div style="background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; padding: 6px 12px; border-radius: 4px; font-size: 13px;">'
-                '🟢 <b>Built-in AI active</b> — DeepSeek v4.1 Flash (Polza.ai)'
+                '🟢 <b>Chemo Agent active</b> (built-in service)'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -299,7 +299,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     index=default_idx,
                     key="agent_spectrum_selector_mm",
                     label_visibility="collapsed",
-                    help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
+                    help="Выберите любой из загруженных спектров для передачи данных Chemo Agent" if lang == "ru" else "Select any loaded spectrum to pass data to Chemo Agent",
                 )
             with col_act2:
                 btn_cross_modal = st.button(
@@ -334,7 +334,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
                     index=default_idx,
                     key="agent_spectrum_selector_sm",
                     label_visibility="collapsed",
-                    help="Выберите любой из загруженных спектров для передачи данных ChemoAgent" if lang == "ru" else "Select any loaded spectrum to pass data to ChemoAgent",
+                    help="Выберите любой из загруженных спектров для передачи данных Chemo Agent" if lang == "ru" else "Select any loaded spectrum to pass data to Chemo Agent",
                 )
             with col_act2:
                 btn_analyze_sample = st.button(
@@ -485,7 +485,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
             with st.chat_message("assistant", avatar="🤖"):
                 loader_ph = st.empty()
-                loader_msg = "ChemoAgent выполняет синтез данных..." if btn_cross_modal else ("ChemoAgent формулирует ответ..." if lang == "ru" else "ChemoAgent generating response...")
+                loader_msg = "Chemo Agent выполняет синтез данных..." if btn_cross_modal else ("Chemo Agent формулирует ответ..." if lang == "ru" else "Chemo Agent generating response...")
                 loader_ph.markdown(
                     f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
                     unsafe_allow_html=True,
@@ -514,7 +514,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
     # 6. Interactive Chat Input
     user_prompt = st.chat_input(
-        "Спросите ChemoAgent о формулах, индексах или реакциях..." if lang == "ru" else "Ask ChemoAgent about formulas, indices, or reactions...",
+        "Спросите Chemo Agent о формулах, индексах или реакциях..." if lang == "ru" else "Ask Chemo Agent about formulas, indices, or reactions...",
         key="agent_user_chat_input",
     )
     if user_prompt:
@@ -540,7 +540,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
                 with st.chat_message("assistant", avatar="🤖"):
                     loader_ph = st.empty()
-                    loader_msg = "ChemoAgent формулирует ответ..." if lang == "ru" else "ChemoAgent generating response..."
+                    loader_msg = "Chemo Agent формулирует ответ..." if lang == "ru" else "Chemo Agent generating response..."
                     loader_ph.markdown(
                         f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
                         unsafe_allow_html=True,
@@ -580,14 +580,14 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
     is_exhausted = used_count >= limit
     cache_key = f"ai_summary_{sample_name}"
 
-    st.markdown("### 🤖 Экспертное AI-заключение (ChemoAgent)" if lang == "ru" else "### 🤖 AI Expert Interpretation (ChemoAgent)")
+    st.markdown("### 🤖 Chemo Agent" if lang == "ru" else "### 🤖 Chemo Agent")
     
     col_info, col_btn = st.columns([3.0, 1.2])
     with col_info:
         st.caption(
-            f"Глубокая биогеохимическая интерпретация на базе нейросети DeepSeek v4.1 Flash (Polza.ai): генезис пробы, степень ароматической конденсации, техногенные маркеры. (Использовано сегодня: {used_count}/{limit})"
+            f"Глубокая биогеохимическая интерпретация Chemo Agent: генезис пробы, степень ароматической конденсации, техногенные маркеры. (Использовано сегодня: {used_count}/{limit})"
             if lang == "ru"
-            else f"In-depth biogeochemical reasoning powered by DeepSeek v4.1 Flash (Polza.ai): origin, aromatic condensation, contamination markers. (Daily usage: {used_count}/{limit})"
+            else f"In-depth biogeochemical reasoning powered by Chemo Agent: origin, aromatic condensation, contamination markers. (Daily usage: {used_count}/{limit})"
         )
     with col_btn:
         run_btn = st.button(
@@ -617,7 +617,7 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
             {"role": "user", "content": prompt},
         ]
         loader_ph = st.empty()
-        loader_msg = "ChemoAgent анализирует спектральные дескрипторы..." if lang == "ru" else "Analyzing spectral descriptors..."
+        loader_msg = "Chemo Agent анализирует спектральные дескрипторы..." if lang == "ru" else "Analyzing spectral descriptors..."
         loader_ph.markdown(
             f'<div class="chemo-loader-badge"><span class="chemo-loader-icon"></span><span>{loader_msg}</span></div>',
             unsafe_allow_html=True,

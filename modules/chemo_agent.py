@@ -38,7 +38,7 @@ def _get_today_str() -> str:
     return datetime.date.today().isoformat()
 
 
-def get_daily_usage() -> Dict[str, Any]:
+def get_daily_usage(max_limit: int = DAILY_REQUEST_LIMIT) -> Dict[str, Any]:
     """
     Returns current daily usage statistics:
     {'date': 'YYYY-MM-DD', 'count': int, 'limit': int, 'remaining': int}
@@ -47,8 +47,8 @@ def get_daily_usage() -> Dict[str, Any]:
     data = {
         "date": today,
         "count": 0,
-        "limit": DAILY_REQUEST_LIMIT,
-        "remaining": DAILY_REQUEST_LIMIT,
+        "limit": max_limit,
+        "remaining": max_limit,
     }
     if os.path.exists(USAGE_FILE):
         try:
@@ -57,7 +57,7 @@ def get_daily_usage() -> Dict[str, Any]:
                 if saved.get("date") == today:
                     cnt = int(saved.get("count", 0))
                     data["count"] = cnt
-                    data["remaining"] = max(0, DAILY_REQUEST_LIMIT - cnt)
+                    data["remaining"] = max(0, max_limit - cnt)
         except Exception:
             pass
     return data
@@ -134,7 +134,7 @@ def get_available_models(api_key: Optional[str] = None) -> List[str]:
 
 
 
-CHEMO_SYSTEM_PROMPT = r"""Ты — ChemoAgent, ведущий мировой эксперт в области аналитической химии, экологической масс-спектрометрии ультравысокого разрешения (FT-ICR MS / Orbitrap), оптической спектроскопии (EEM-PARAFAC, ATR-FTIR), ЯМР (13C / 1H NMR), термодеструкции (Py-GC-MS, TGA) и хемометрики (OPLS-DA, sPLS-DA, Multi-Block PLS).
+CHEMO_SYSTEM_PROMPT = r"""Ты — Chemo Agent, ведущий мировой эксперт в области аналитической химии, экологической масс-спектрометрии ультравысокого разрешения (FT-ICR MS / Orbitrap), оптической спектроскопии (EEM-PARAFAC, ATR-FTIR), ЯМР (13C / 1H NMR), термодеструкции (Py-GC-MS, TGA) и хемометрики (OPLS-DA, sPLS-DA, Multi-Block PLS).
 
 Твоя миссия — интерпретировать спектральные и хемометрические данные исследования природного растворенного органического вещества (РОВ / NOM), гуминовых веществ и техногенных загрязнений (в частности, отходов Байкальского ЦБК / сульфатного шлам-лигнина в бассейне оз. Байкал).
 
@@ -285,7 +285,7 @@ def call_polza_chat(
         return {
             "success": False,
             "content": "",
-            "error": "❌ POLZA_AI_KEY не найден в файле `.env` или `st.secrets`. Добавьте ключ для работы ChemoAgent.",
+            "error": "❌ POLZA_AI_KEY не найден в файле `.env` или `st.secrets`. Добавьте ключ для работы Chemo Agent.",
         }
 
     target_model = model or DEFAULT_MODEL

@@ -1943,11 +1943,11 @@ with st.sidebar:
         # Sanitize any stale deprecated model in active browser session
         _stale_m = st.session_state.get("agent_model_select")
         if _stale_m and any(bad in str(_stale_m).lower() for bad in ["llama", "mixtral", "gemma", "versatile", "instant"]):
-            st.session_state["agent_model_select"] = "qwen/qwen3.8-27b"
+            st.session_state["agent_model_select"] = "deepseek/deepseek-v4.1-flash-1017"
 
         views.agent_view.render_chemo_agent_sidebar(T, lang)
     except Exception as _e_agent:
-        st.caption(f"🤖 ChemoAgent: {_e_agent}")
+        st.caption(f"🤖 Chemo Agent: {_e_agent}")
 
 # ==============================================================================
 # NORDIC PRO HEADER & TELEMETRY STRIP (LIVE MULTIMODAL TELEMETRY)
@@ -2018,13 +2018,13 @@ if _has_ml:
 else:
     _chips.append('<span class="telemetry-chip">🧬 ML Ready</span>')
 
-# 10. AI Copilot
+# 10. Chemo Agent
 try:
     import modules.chemo_agent as chemo_agent
-    if chemo_agent.get_groq_api_key(st.session_state.get("groq_api_key")):
-        _chips.append('<span class="telemetry-chip active-agent"><span class="status-dot"></span>🤖 Groq LPU</span>')
+    if chemo_agent.get_polza_api_key(st.session_state.get("polza_api_key")):
+        _chips.append('<span class="telemetry-chip active-agent"><span class="status-dot"></span>🤖 Chemo Agent</span>')
     else:
-        _chips.append('<span class="telemetry-chip">🤖 AI Copilot</span>')
+        _chips.append('<span class="telemetry-chip">🤖 Chemo Agent</span>')
 except Exception:
     pass
 
