@@ -641,6 +641,21 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
         elem_items = ", ".join(f"{k}: {v}" for k, v in sample_data["elemental"].items())
         lines.append(f"⚗️ **CHNS-O:** {elem_items}")
 
+    # IRMS Stable Isotopes
+    if "irms" in sample_data and sample_data["irms"]:
+        irms_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["irms"].items())[:6])
+        lines.append(f"🎯 **IRMS (Изотопы):** {irms_items}")
+
+    # IC (Ion Chromatography)
+    if "ic" in sample_data and sample_data["ic"]:
+        ic_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["ic"].items())[:6])
+        lines.append(f"💧 **IC (Ионная хроматография):** {ic_items}")
+
+    # Raman Spectroscopy
+    if "raman" in sample_data and sample_data["raman"]:
+        raman_items = ", ".join(f"{k}: {v}" for k, v in list(sample_data["raman"].items())[:5])
+        lines.append(f"💎 **Raman (D/G полосы):** {raman_items}")
+
     lines.append("")
     if lang == "ru":
         lines.append("**Задача:** Дай краткое экспертное заключение строго в 2–3 абзаца (до 250 слов): вероятный генезис (природное РОВ / торф / шлам-лигнин / сток), степень окисления/ароматизации и ключевые маркеры трансформации. Обязательно закончи вывод кратким резюме.")
@@ -666,7 +681,8 @@ def _normalize_sample_id(s: str) -> str:
         "_ftir", "-ftir", "_atr", "-atr",
         "_sec", "-sec", "_gpc", "-gpc",
         "_thermal", "-thermal", "_pygcms", "-pygcms", "_py-gcms", "-py-gcms", "_tga", "-tga",
-        "_elem", "-elem", "_chns", "-chns", "_chnso", "-chnso"
+        "_elem", "-elem", "_chns", "-chns", "_chnso", "-chnso",
+        "_irms", "-irms", "_ic", "-ic", "_ion", "-ion", "_raman", "-raman"
     ]:
         base = base.replace(tag, "")
     base = re.sub(r'[\s_\-]+', '_', base).strip('_')
@@ -738,18 +754,24 @@ def harvest_multimodal_descriptors(
     sec_samples: Optional[Any] = None,
     thermal_samples: Optional[Any] = None,
     elemental_samples: Optional[Any] = None,
+    irms_samples: Optional[Any] = None,
+    ic_samples: Optional[Any] = None,
+    raman_samples: Optional[Any] = None,
     eem_ml: Optional[pd.DataFrame] = None,
     nmr_ml: Optional[pd.DataFrame] = None,
     ftir_ml: Optional[pd.DataFrame] = None,
     sec_ml: Optional[pd.DataFrame] = None,
     thermal_ml: Optional[pd.DataFrame] = None,
+    irms_ml: Optional[pd.DataFrame] = None,
+    ic_ml: Optional[pd.DataFrame] = None,
+    raman_ml: Optional[pd.DataFrame] = None,
     eem_db: Optional[Dict[str, Any]] = None,
     nmr_db: Optional[Dict[str, Any]] = None,
     ftir_db: Optional[Dict[str, Any]] = None,
     elemental_db: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Harvests and unifies multi-omics analytical descriptors across all 7 ChemoSuite studios
+    Harvests and unifies multi-omics analytical descriptors across all 11 ChemoSuite studios
     for a chosen sample name.
     """
     result: Dict[str, Any] = {
@@ -761,6 +783,9 @@ def harvest_multimodal_descriptors(
         "sec": None,
         "thermal": None,
         "elemental": None,
+        "irms": None,
+        "ic": None,
+        "raman": None,
         "active_modalities": [],
     }
 
@@ -954,6 +979,57 @@ def harvest_multimodal_descriptors(
             result["elemental"] = elem_data
             result["active_modalities"].append("elemental")
 
+    # 8. IRMS Stable Isotopes
+    irms_obj = match_sample_in_container(sample_name, irms_samples) or match_sample_in_container(sample_name, irms_ml)
+    if irms_obj is not None:
+        irms_data: Dict[str, Any] = {}
+        if isinstance(irms_obj, dict):
+            for k in ["d13C", "d15N", "d34S", "d2H", "d18O", "d_excess", "kraft_lignin_prob"]:
+                if k in irms_obj and pd.notnull(irms_obj[k]):
+                    irms_data[k] = round(float(irms_obj[k]), 2)
+        elif hasattr(irms_obj, "d13C"):
+            for k in ["d13C", "d15N", "d34S", "d2H", "d18O", "deuterium_excess", "kraft_lignin_prob"]:
+                v = getattr(irms_obj, k, None)
+                if v is not None and pd.notnull(v):
+                    irms_data[k] = round(float(v), 2)
+        if irms_data:
+            result["irms"] = irms_data
+            result["active_modalities"].append("irms")
+
+    # 9. IC (Ion Chromatography)
+    ic_obj = match_sample_in_container(sample_name, ic_samples) or match_sample_in_container(sample_name, ic_ml)
+    if ic_obj is not None:
+        ic_data: Dict[str, Any] = {}
+        if isinstance(ic_obj, dict):
+            for k in ["so4_mg_l", "cl_mg_l", "so4_cl_ratio", "total_lmwoa", "charge_balance_err_pct", "kraft_effluent_indicator", "acetate_mg_l", "oxalate_mg_l"]:
+                if k in ic_obj and pd.notnull(ic_obj[k]):
+                    ic_data[k] = round(float(ic_obj[k]), 2)
+        elif hasattr(ic_obj, "so4_2minus"):
+            for k, attr in [("so4_mg_l", "so4_2minus"), ("cl_mg_l", "cl_minus"), ("so4_cl_ratio", "so4_to_cl_ratio"), ("total_lmwoa", "total_lmwoa_mg_l"), ("cbe_pct", "charge_balance_error_pct"), ("kraft_effluent_indicator", "kraft_effluent_indicator")]:
+                v = getattr(ic_obj, attr, None)
+                if v is not None and pd.notnull(v):
+                    ic_data[k] = round(float(v), 2)
+        if ic_data:
+            result["ic"] = ic_data
+            result["active_modalities"].append("ic")
+
+    # 10. Raman Spectroscopy
+    raman_obj = match_sample_in_container(sample_name, raman_samples) or match_sample_in_container(sample_name, raman_ml)
+    if raman_obj is not None:
+        raman_data: Dict[str, Any] = {}
+        if isinstance(raman_obj, dict):
+            for k in ["id_ig_ratio", "ad_ag_ratio", "la_crystallite_nm", "fwhm_g", "carbon_order_index"]:
+                if k in raman_obj and pd.notnull(raman_obj[k]):
+                    raman_data[k] = round(float(raman_obj[k]), 2)
+        elif hasattr(raman_obj, "id_ig_ratio"):
+            for k in ["id_ig_ratio", "ad_ag_ratio", "la_crystallite_nm", "fwhm_g", "carbon_order_index"]:
+                v = getattr(raman_obj, k, None)
+                if v is not None and pd.notnull(v):
+                    raman_data[k] = round(float(v), 2)
+        if raman_data:
+            result["raman"] = raman_data
+            result["active_modalities"].append("raman")
+
     return result
 
 
@@ -970,6 +1046,9 @@ def compute_cross_modal_insights(multimodal_data: Dict[str, Any]) -> List[Dict[s
     sec = multimodal_data.get("sec") or {}
     thermal = multimodal_data.get("thermal") or {}
     elemental = multimodal_data.get("elemental") or {}
+    irms = multimodal_data.get("irms") or {}
+    ic = multimodal_data.get("ic") or {}
+    raman = multimodal_data.get("raman") or {}
 
     # 1. Aromaticity & Condensation Coherence
     ai = fticr.get("ai_mod")
@@ -1019,12 +1098,26 @@ def compute_cross_modal_insights(multimodal_data: Dict[str, Any]) -> List[Dict[s
         lignin_flags.append(f"Py-GC/MS гваяцилы ({thermal['py_guaiacols']:.1f}%)")
     if elemental.get("s_pct") and elemental["s_pct"] > 0.7:
         lignin_flags.append(f"Элементная сера S = {elemental['s_pct']:.2f}%")
+    if irms.get("d34S") and irms["d34S"] >= 4.0:
+        lignin_flags.append(f"тяжелая изотопная сера IRMS δ³⁴S = {irms['d34S']:.2f}‰")
+    if ic.get("so4_cl_ratio") and ic["so4_cl_ratio"] >= 4.0:
+        lignin_flags.append(f"избыток сульфата IC SO₄/Cl = {ic['so4_cl_ratio']:.1f}")
 
     if len(lignin_flags) >= 2:
         insights.append({
             "category": "Техногенный след / Шлам-лигнин",
             "status": "🚨 Обнаружен устойчивый маркерный кластер лигнина/сульфонатов",
             "detail": "Кросс-модальное совпадение: " + "; ".join(lignin_flags) + ". Высокая вероятность техногенного вклада сульфатного лигнина.",
+        })
+
+    # 4. Raman Carbonaceous Condensation
+    if raman.get("id_ig_ratio") and raman.get("la_crystallite_nm"):
+        id_ig = raman["id_ig_ratio"]
+        la = raman["la_crystallite_nm"]
+        insights.append({
+            "category": "Рамановская конденсированность",
+            "status": f"💎 D/G отношение: {id_ig:.2f} (L_a = {la:.1f} нм)",
+            "detail": f"Спектроскопия Raman фиксирует размер графеноподобных кластеров $L_a = {la:.1f}$ нм при $I_D/I_G = {id_ig:.2f}$, что указывает на {'высококонденсированный углеродный скелет (пирогенный чар / шлам)' if id_ig >= 0.9 else 'рыхлую полиароматическую сетку природного гумуса'}.",
         })
 
     # 4. Fresh Biogenic / Microbial Organic Matter

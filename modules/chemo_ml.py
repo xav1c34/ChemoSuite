@@ -24,7 +24,13 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
             mapping[c] = "UV-Vis"
         elif c.startswith("VK_") or any(k in c_low for k in ["mn", "mw", "dbe", "ai", "nosc", "cho_", "chon_", "chos_", "chons_"]):
             mapping[c] = "FT-ICR MS"
-        elif c.startswith("FTIR_") or any(k in c_low for k in ["ftir", "raman", "wavenumber", "branching_idx", "lignin_idx", "gs_ratio", "polysaccharide_idx", "phenolic_idx"]):
+        elif c.startswith("Raman_") or any(k in c_low for k in ["raman", "id_ig", "ad_ag", "la_crystallite", "d_band", "g_band", "carbon_order"]):
+            mapping[c] = "Raman"
+        elif c.startswith("IRMS_") or any(k in c_low for k in ["d13c", "d15n", "d34s", "d2h", "d18o", "d_excess", "kraft_lignin_prob"]):
+            mapping[c] = "IRMS"
+        elif c.startswith("IC_") or any(k in c_low for k in ["so4_cl", "acetate", "formate", "oxalate", "cbe", "charge_balance", "ionic_strength", "kraft_effluent"]):
+            mapping[c] = "IC"
+        elif c.startswith("FTIR_") or any(k in c_low for k in ["ftir", "wavenumber", "branching_idx", "lignin_idx", "gs_ratio", "polysaccharide_idx", "phenolic_idx"]):
             mapping[c] = "FTIR"
         elif c.startswith("NMR_") or any(k in c_low for k in ["nmr", "cp_mas", "c_aliph", "c_o_alkyl", "c_aromatic", "c_carboxyl", "c_carbonyl", "fa_aromaticity", "hb_hi"]):
             mapping[c] = "NMR"

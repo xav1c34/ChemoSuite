@@ -676,6 +676,36 @@ T = {
         "elem_sync_success": "Дескрипторы CHNS-O ({n} образцов) успешно переданы в Модуль 3!",
         "elem_dl_csv": "📥 Скачать дескрипторы CHNS-O (CSV)",
         "elem_dl_excel": "📊 Экспорт в Excel (.xlsx)",
+        # Модуль 9: Изотопная масс-спектрометрия (IRMS)
+        "mod9_name": "🎯 Изотопная масс-спектрометрия (IRMS)",
+        "irms_title": "🎯 Изотопная масс-спектрометрия (IRMS: δ¹³C, δ¹⁵N, δ³⁴S)",
+        "irms_subtitle": "Прецизионный анализ стабильных изотопов (δ13C, δ15N, δ34S, δ2H, δ18O), модели смешения источников и трассировка шлам-лигнина",
+        "irms_sidebar_hdr": "📁 Данные IRMS",
+        "irms_src_label": "Источник данных IRMS:",
+        "irms_src_upload": "Загрузить таблицу (CSV/TSV)",
+        "irms_src_synth": "Байкальский бенчмарк (БЦБК / Пелагиаль)",
+        "irms_up_label": "Загрузите таблицу изотопов (.csv, .tsv, .txt):",
+        "irms_active_sample": "Активный образец:",
+        # Модуль 10: Ионная хроматография (IC)
+        "mod10_name": "💧 Ионная хроматография (IC: Анионы & Кислоты)",
+        "ic_title": "💧 Ионная хроматография (IC: Анионы & LMWOA)",
+        "ic_subtitle": "Количественное определение минеральных анионов (SO₄²⁻, Cl⁻, NO₃⁻), низкомолекулярных органических кислот (LMWOA), катионов и баланса зарядов",
+        "ic_sidebar_hdr": "📁 Данные IC",
+        "ic_src_label": "Источник данных IC:",
+        "ic_src_upload": "Загрузить таблицу (CSV/TSV)",
+        "ic_src_synth": "Байкальский бенчмарк (БЦБК / Пелагиаль)",
+        "ic_up_label": "Загрузите таблицу ионов (.csv, .tsv, .txt):",
+        "ic_active_sample": "Активный образец:",
+        # Модуль 11: Рамановская спектроскопия (Raman)
+        "mod11_name": "💎 Рамановская спектроскопия (Raman: D/G)",
+        "raman_title": "💎 Рамановская спектроскопия (Raman: D/G полосы)",
+        "raman_subtitle": "Деконволюция углеродных D- и G-полос, отношение I_D/I_G, размер ароматических кластеров L_a и степень упорядоченности",
+        "raman_sidebar_hdr": "📁 Данные Raman",
+        "raman_src_label": "Источник данных Raman:",
+        "raman_src_upload": "Загрузить спектр (CSV/TXT)",
+        "raman_src_synth": "Бенчмарк (Шлам-гидроуголь / Сажа / Гуматы)",
+        "raman_up_label": "Загрузите спектры Raman (.csv, .txt):",
+        "raman_active_sample": "Активный спектр:",
         # Модуль 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Интеграция данных и PLS-DA",
         "ml_subtitle": "Мультимодальная дискриминантная модель: FT-ICR MS (ячейки Ван-Кревелена) + EEM-PARAFAC (флуорофоры и индексы)",
@@ -1360,6 +1390,36 @@ T = {
         "elem_sync_success": "CHNS-O descriptors ({n} samples) successfully synced to Module 3!",
         "elem_dl_csv": "📥 Download CHNS-O Descriptors (CSV)",
         "elem_dl_excel": "📊 Export to Excel (.xlsx)",
+        # Module 9: Isotope Ratio Mass Spectrometry (IRMS)
+        "mod9_name": "🎯 Isotope Ratio Mass Spectrometry (IRMS)",
+        "irms_title": "🎯 Isotope Ratio Mass Spectrometry (IRMS: δ¹³C, δ¹⁵N, δ³⁴S)",
+        "irms_subtitle": "High-precision stable isotope ratios (δ13C, δ15N, δ34S, δ2H, δ18O), mixing models and Kraft sludge tracing",
+        "irms_sidebar_hdr": "📁 IRMS Data Manager",
+        "irms_src_label": "Isotopic Data Source:",
+        "irms_src_upload": "Upload Table (CSV/TSV)",
+        "irms_src_synth": "Baikal Benchmark (BPPM Sludge / Pelagic)",
+        "irms_up_label": "Upload isotope ratio table (.csv, .tsv, .txt):",
+        "irms_active_sample": "Active Sample:",
+        # Module 10: Ion Chromatography (IC)
+        "mod10_name": "💧 Ion Chromatography (IC: Anions & Acids)",
+        "ic_title": "💧 Ion Chromatography (IC: Anions & LMWOA)",
+        "ic_subtitle": "Quantification of major mineral anions (SO₄²⁻, Cl⁻, NO₃⁻), low-molecular-weight organic acids (LMWOA), cations and charge balance",
+        "ic_sidebar_hdr": "📁 IC Data Manager",
+        "ic_src_label": "IC Data Source:",
+        "ic_src_upload": "Upload Table (CSV/TSV)",
+        "ic_src_synth": "Baikal Benchmark (BPPM Sludge / Pelagic)",
+        "ic_up_label": "Upload ion chromatography table (.csv, .tsv, .txt):",
+        "ic_active_sample": "Active Sample:",
+        # Module 11: Raman Spectroscopy
+        "mod11_name": "💎 Raman Spectroscopy (D/G Bands)",
+        "raman_title": "💎 Raman Spectroscopy (D/G Bands & Carbon Order)",
+        "raman_subtitle": "Deconvolution of carbonaceous D & G bands, I_D/I_G ratio, aromatic cluster size L_a, and graphitization",
+        "raman_sidebar_hdr": "📁 Raman Data Manager",
+        "raman_src_label": "Raman Data Source:",
+        "raman_src_upload": "Upload Spectrum (CSV/TXT)",
+        "raman_src_synth": "Benchmark (Sludge Hydrochar / Soot / Humics)",
+        "raman_up_label": "Upload Raman spectra (.csv, .txt):",
+        "raman_active_sample": "Active Spectrum:",
         # Module 3: ChemoSuite ML
         "ml_title": "🧬 ChemoSuite ML: Data Fusion & PLS-DA",
         "ml_subtitle": "Multimodal Discriminant Model: FT-ICR MS (Van Krevelen grid) + EEM-PARAFAC (fluorophores & indices)",
@@ -1850,28 +1910,60 @@ with st.sidebar:
 
     st.markdown(T[lang]["nav_title"])
 
-    # Логическая группировка 8 аналитических модулей
+    # Логическая группировка 11 аналитических модулей
     module_catalog = [
         {"cat": T[lang]["nav_cat_ms"], "key": T[lang]["mod1_name"]},
+        {"cat": T[lang]["nav_cat_ms"], "key": T[lang]["mod9_name"]},
         {"cat": T[lang]["nav_cat_optics"], "key": T[lang]["mod2_name"]},
         {"cat": T[lang]["nav_cat_optics"], "key": T[lang]["mod4_name"]},
+        {"cat": T[lang]["nav_cat_optics"], "key": T[lang]["mod11_name"]},
         {"cat": T[lang]["nav_cat_resonance"], "key": T[lang]["mod5_name"]},
         {"cat": T[lang]["nav_cat_resonance"], "key": T[lang]["mod6_name"]},
         {"cat": T[lang]["nav_cat_chrom"], "key": T[lang]["mod7_name"]},
+        {"cat": T[lang]["nav_cat_chrom"], "key": T[lang]["mod10_name"]},
         {"cat": T[lang]["nav_cat_chrom"], "key": T[lang]["mod8_name"]},
         {"cat": T[lang]["nav_cat_ml"], "key": T[lang]["mod3_name"]},
     ]
 
     all_module_keys = [
         T[lang]["mod1_name"],
+        T[lang]["mod9_name"],
         T[lang]["mod2_name"],
         T[lang]["mod4_name"],
+        T[lang]["mod11_name"],
         T[lang]["mod5_name"],
         T[lang]["mod6_name"],
         T[lang]["mod7_name"],
+        T[lang]["mod10_name"],
         T[lang]["mod8_name"],
         T[lang]["mod3_name"],
     ]
+
+    cat_badges = {
+        T[lang]["mod1_name"]: "🔬 МС: ",
+        T[lang]["mod9_name"]: "🎯 МС: ",
+        T[lang]["mod2_name"]: "💡 Оптика: ",
+        T[lang]["mod4_name"]: "🔍 Оптика: ",
+        T[lang]["mod11_name"]: "💎 Оптика: ",
+        T[lang]["mod5_name"]: "🧲 ЯМР: ",
+        T[lang]["mod6_name"]: "🔥 Термика: ",
+        T[lang]["mod7_name"]: "📏 Хром: ",
+        T[lang]["mod10_name"]: "💧 Хром: ",
+        T[lang]["mod8_name"]: "⚗️ Элемент: ",
+        T[lang]["mod3_name"]: "🧬 ML: ",
+    } if lang == "ru" else {
+        T[lang]["mod1_name"]: "🔬 MS: ",
+        T[lang]["mod9_name"]: "🎯 MS: ",
+        T[lang]["mod2_name"]: "💡 Optics: ",
+        T[lang]["mod4_name"]: "🔍 Optics: ",
+        T[lang]["mod11_name"]: "💎 Optics: ",
+        T[lang]["mod5_name"]: "🧲 NMR: ",
+        T[lang]["mod6_name"]: "🔥 Thermal: ",
+        T[lang]["mod7_name"]: "📏 Chrom: ",
+        T[lang]["mod10_name"]: "💧 Chrom: ",
+        T[lang]["mod8_name"]: "⚗️ Bulk: ",
+        T[lang]["mod3_name"]: "🧬 ML: ",
+    }
 
     if "selected_module_idx" not in st.session_state:
         st.session_state["selected_module_idx"] = 0
@@ -1883,20 +1975,33 @@ with st.sidebar:
     if "nav_module_selection" not in st.session_state or st.session_state["nav_module_selection"] not in all_module_keys:
         st.session_state["nav_module_selection"] = all_module_keys[safe_idx]
 
-    def _on_module_radio_changed():
+    def _on_module_select_changed():
         val = st.session_state.get("nav_module_selection")
         if val in all_module_keys:
             st.session_state["selected_module_idx"] = all_module_keys.index(val)
 
-    active_module = st.radio(
+    active_module = st.selectbox(
         T[lang]["nav_module_label"],
         all_module_keys,
+        index=safe_idx,
         key="nav_module_selection",
-        on_change=_on_module_radio_changed,
-        format_func=lambda m: m,
-        label_visibility="collapsed",
+        on_change=_on_module_select_changed,
+        format_func=lambda m: f"{cat_badges.get(m, '')}{m}",
     )
     st.session_state["selected_module_idx"] = all_module_keys.index(active_module)
+
+    # Удобные кнопки быстрой навигации между студиями
+    col_nav_prev, col_nav_next = st.columns(2)
+    with col_nav_prev:
+        if st.button("◀️ " + ("Назад" if lang == "ru" else "Prev"), use_container_width=True, disabled=(safe_idx == 0), key="btn_nav_prev_studio"):
+            st.session_state["selected_module_idx"] = safe_idx - 1
+            st.session_state["nav_module_selection"] = all_module_keys[safe_idx - 1]
+            st.rerun()
+    with col_nav_next:
+        if st.button(("Вперед" if lang == "ru" else "Next") + " ▶️", use_container_width=True, disabled=(safe_idx == len(all_module_keys) - 1), key="btn_nav_next_studio"):
+            st.session_state["selected_module_idx"] = safe_idx + 1
+            st.session_state["nav_module_selection"] = all_module_keys[safe_idx + 1]
+            st.rerun()
 
     st.markdown("---")
 
@@ -1960,9 +2065,12 @@ _has_nmr = st.session_state.get("nmr_ml_descriptors") is not None
 _has_therm = st.session_state.get("thermal_ml_descriptors") is not None
 _has_sec = st.session_state.get("sec_ml_descriptors") is not None
 _has_elem = st.session_state.get("elemental_ml_descriptors") is not None
+_has_irms = st.session_state.get("irms_ml_descriptors") is not None
+_has_ic = st.session_state.get("ic_ml_descriptors") is not None
+_has_raman = st.session_state.get("raman_ml_descriptors") is not None
 _has_ml = st.session_state.get("fused_data") is not None
 
-# Подготовка телеметрических чипов (8 аналитических блоков)
+# Подготовка телеметрических чипов (11 аналитических блоков)
 _chips = []
 # 1. MS
 if _n_ms > 0:
@@ -1970,55 +2078,73 @@ if _n_ms > 0:
 else:
     _chips.append('<span class="telemetry-chip">🔬 MS (0)</span>')
 
-# 2. EEM
+# 2. IRMS
+if _has_irms:
+    _chips.append('<span class="telemetry-chip active-irms"><span class="status-dot"></span>🎯 IRMS</span>')
+else:
+    _chips.append('<span class="telemetry-chip">🎯 IRMS</span>')
+
+# 3. EEM
 if _has_eem:
     _chips.append('<span class="telemetry-chip active-eem"><span class="status-dot"></span>💡 EEM</span>')
 else:
     _chips.append('<span class="telemetry-chip">💡 EEM</span>')
 
-# 3. UV-Vis
+# 4. UV-Vis
 if _has_uv:
     _chips.append('<span class="telemetry-chip active-eem"><span class="status-dot"></span>🌈 UV-Vis</span>')
 else:
     _chips.append('<span class="telemetry-chip">🌈 UV-Vis</span>')
 
-# 4. FTIR
+# 5. FTIR
 if _has_ftir:
     _chips.append('<span class="telemetry-chip active-ftir"><span class="status-dot"></span>🔍 FTIR</span>')
 else:
     _chips.append('<span class="telemetry-chip">🔍 FTIR</span>')
 
-# 5. NMR
+# 6. Raman
+if _has_raman:
+    _chips.append('<span class="telemetry-chip active-raman"><span class="status-dot"></span>💎 Raman</span>')
+else:
+    _chips.append('<span class="telemetry-chip">💎 Raman</span>')
+
+# 7. NMR
 if _has_nmr:
     _chips.append('<span class="telemetry-chip active-nmr"><span class="status-dot"></span>🧲 NMR</span>')
 else:
     _chips.append('<span class="telemetry-chip">🧲 NMR</span>')
 
-# 6. Thermal
+# 8. Thermal
 if _has_therm:
     _chips.append('<span class="telemetry-chip active-thermal"><span class="status-dot"></span>🔥 Thermal</span>')
 else:
     _chips.append('<span class="telemetry-chip">🔥 Thermal</span>')
 
-# 7. SEC
+# 9. SEC
 if _has_sec:
     _chips.append('<span class="telemetry-chip active-sec"><span class="status-dot"></span>📏 SEC/GPC</span>')
 else:
     _chips.append('<span class="telemetry-chip">📏 SEC/GPC</span>')
 
-# 8. CHNS-O
+# 10. IC
+if _has_ic:
+    _chips.append('<span class="telemetry-chip active-ic"><span class="status-dot"></span>💧 IC</span>')
+else:
+    _chips.append('<span class="telemetry-chip">💧 IC</span>')
+
+# 11. CHNS-O
 if _has_elem:
     _chips.append('<span class="telemetry-chip active-elem"><span class="status-dot"></span>⚗️ CHNS-O</span>')
 else:
     _chips.append('<span class="telemetry-chip">⚗️ CHNS-O</span>')
 
-# 9. ML Fusion
+# 12. ML Fusion
 if _has_ml:
     _chips.append('<span class="telemetry-chip active-ml"><span class="status-dot"></span>🧬 ML Fused</span>')
 else:
     _chips.append('<span class="telemetry-chip">🧬 ML Ready</span>')
 
-# 10. Chemo Agent
+# 13. Chemo Agent
 try:
     import modules.chemo_agent as chemo_agent
     if chemo_agent.get_polza_api_key(st.session_state.get("polza_api_key")):
@@ -2056,9 +2182,6 @@ st.markdown(platform_hdr_html, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# МОДУЛЬ 1: NOM-SPECTRA FT-ICR MS STUDIO
-# ==============================================================================
-# ==============================================================================
 # MODULAR STUDIO DISPATCHER (ChemoSuite Pro Views)
 # ==============================================================================
 import views
@@ -2079,3 +2202,9 @@ elif active_module == T[lang]["mod7_name"]:
     views.render_sec_studio(T, lang)
 elif active_module == T[lang]["mod8_name"]:
     views.render_elemental_studio(T, lang)
+elif active_module == T[lang]["mod9_name"]:
+    views.render_irms_studio(T, lang)
+elif active_module == T[lang]["mod10_name"]:
+    views.render_ic_studio(T, lang)
+elif active_module == T[lang]["mod11_name"]:
+    views.render_raman_studio(T, lang)

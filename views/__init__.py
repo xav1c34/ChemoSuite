@@ -9,6 +9,9 @@ from views.ftir_view import render_ftir_studio
 from views.chemo_ml_view import render_chemo_ml_studio
 from views.eem_view import render_eem_studio
 from views.fticr_view import render_fticr_studio
+from views.irms_view import render_irms_studio
+from views.ic_view import render_ic_studio
+from views.raman_view import render_raman_studio
 from views.agent_view import (
     render_chemo_agent_sidebar,
     render_sample_ai_card,
@@ -26,6 +29,9 @@ __all__ = [
     "render_chemo_ml_studio",
     "render_eem_studio",
     "render_fticr_studio",
+    "render_irms_studio",
+    "render_ic_studio",
+    "render_raman_studio",
     "render_chemo_agent_sidebar",
     "render_sample_ai_card",
     "save_polza_api_key_to_env",

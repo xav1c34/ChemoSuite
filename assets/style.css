@@ -312,6 +312,27 @@ code, pre, .mono-val, [data-testid="stMarkdownContainer"] code {
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
 }
 
+.telemetry-chip.active-irms {
+  background: var(--nl-accent-amber-bg);
+  color: var(--nl-accent-amber);
+  border-color: var(--nl-accent-amber-border);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+}
+
+.telemetry-chip.active-ic {
+  background: var(--nl-accent-cyan-bg);
+  color: var(--nl-accent-cyan);
+  border-color: var(--nl-accent-cyan-border);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
+}
+
+.telemetry-chip.active-raman {
+  background: var(--nl-accent-violet-bg);
+  color: var(--nl-accent-violet);
+  border-color: var(--nl-accent-violet-border);
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.2);
+}
+
 .telemetry-chip.active-ml {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
   color: var(--nl-brand-blue);

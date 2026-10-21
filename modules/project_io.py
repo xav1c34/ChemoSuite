@@ -143,6 +143,10 @@ def save_chemo_project(
         nmr_df = session_data.get("nmr_ml_descriptors", None)
         thermal_df = session_data.get("thermal_ml_descriptors", None)
         sec_df = session_data.get("sec_ml_descriptors", None)
+        elem_df = session_data.get("elemental_ml_descriptors", None)
+        irms_df = session_data.get("irms_ml_descriptors", None)
+        ic_df = session_data.get("ic_ml_descriptors", None)
+        raman_df = session_data.get("raman_ml_descriptors", None)
         pls_res = session_data.get("pls_results", None)
         perm_res = session_data.get("perm_results", None)
 
@@ -162,6 +166,10 @@ def save_chemo_project(
                 "has_nmr": nmr_df is not None and not nmr_df.empty,
                 "has_thermal": thermal_df is not None and not thermal_df.empty,
                 "has_sec": sec_df is not None and not sec_df.empty,
+                "has_elemental": elem_df is not None and not elem_df.empty,
+                "has_irms": irms_df is not None and not irms_df.empty,
+                "has_ic": ic_df is not None and not ic_df.empty,
+                "has_raman": raman_df is not None and not raman_df.empty,
                 "has_fused": fused_df is not None and not fused_df.empty,
                 "fused_source": session_data.get("fused_source", "Unknown"),
                 "has_trained_model": pls_res is not None,
@@ -234,6 +242,18 @@ def save_chemo_project(
         elem_df = session_data.get("elemental_ml_descriptors", None)
         if isinstance(elem_df, pd.DataFrame) and not elem_df.empty:
             zf.writestr("descriptors/elemental_ml_descriptors.csv", elem_df.to_csv(index=False))
+
+        irms_df = session_data.get("irms_ml_descriptors", None)
+        if isinstance(irms_df, pd.DataFrame) and not irms_df.empty:
+            zf.writestr("descriptors/irms_ml_descriptors.csv", irms_df.to_csv(index=False))
+
+        ic_df = session_data.get("ic_ml_descriptors", None)
+        if isinstance(ic_df, pd.DataFrame) and not ic_df.empty:
+            zf.writestr("descriptors/ic_ml_descriptors.csv", ic_df.to_csv(index=False))
+
+        raman_df = session_data.get("raman_ml_descriptors", None)
+        if isinstance(raman_df, pd.DataFrame) and not raman_df.empty:
+            zf.writestr("descriptors/raman_ml_descriptors.csv", raman_df.to_csv(index=False))
 
         # 4. Мультимодальная матрица слияния данных (Data Fusion)
         if isinstance(fused_df, pd.DataFrame) and not fused_df.empty:
@@ -429,6 +449,15 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
 
             if "descriptors/elemental_ml_descriptors.csv" in names:
                 restored["elemental_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/elemental_ml_descriptors.csv")))
+
+            if "descriptors/irms_ml_descriptors.csv" in names:
+                restored["irms_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/irms_ml_descriptors.csv")))
+
+            if "descriptors/ic_ml_descriptors.csv" in names:
+                restored["ic_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/ic_ml_descriptors.csv")))
+
+            if "descriptors/raman_ml_descriptors.csv" in names:
+                restored["raman_ml_descriptors"] = pd.read_csv(io.BytesIO(zf.read("descriptors/raman_ml_descriptors.csv")))
 
             # 3. Fused Data
             if "fusion/fused_data.csv" in names:
