@@ -212,7 +212,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
             {"role": "assistant", "content": greeting}
         ]
 
-    # 2. Status Banner, Daily Quota Counter, and Admin Config
+    # 2. Daily Quota Counter and Status
     provider_code, active_key, selected_model, temperature, *extra = _get_active_ai_config()
     usage = chemo_agent.get_daily_usage(100)
     used_count = usage["count"]
@@ -224,15 +224,15 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
         if active_key:
             st.markdown(
                 '<div style="background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; padding: 6px 12px; border-radius: 4px; font-size: 13px;">'
-                '🟢 <b>Chemo Agent активен</b> (встроенный сервис)'
+                '🟢 <b>Chemo Agent активен</b>'
                 '</div>' if lang == "ru" else
                 '<div style="background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; padding: 6px 12px; border-radius: 4px; font-size: 13px;">'
-                '🟢 <b>Chemo Agent active</b> (built-in service)'
+                '🟢 <b>Chemo Agent active</b>'
                 '</div>',
                 unsafe_allow_html=True,
             )
         else:
-            st.error("⚠️ POLZA_AI_KEY не настроен на сервере (.env). Укажите ключ в настройках ниже." if lang == "ru" else "⚠️ POLZA_AI_KEY is not configured in server .env.")
+            st.error("⚠️ Сервис ИИ временно недоступен. Обратитесь к администратору платформы." if lang == "ru" else "⚠️ AI service is currently unavailable. Please contact the platform administrator.")
     with col_stat2:
         badge_color = "#f43f5e" if is_exhausted else ("#f59e0b" if used_count > 80 else "#10b981")
         st.markdown(
@@ -247,32 +247,10 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
 
     if is_exhausted:
         st.error(
-            "⚠️ Достигнут суточный лимит в 100 запросов для защиты бюджета. Лимит автоматически сбросится в 00:00 UTC."
+            "⚠️ Достигнут суточный лимит запросов. Лимит автоматически сбросится в 00:00 UTC."
             if lang == "ru" else
-            "⚠️ Daily budget limit of 100 queries reached. Quota will automatically reset at 00:00 UTC."
+            "⚠️ Daily query quota reached. Quota will automatically reset at 00:00 UTC."
         )
-
-    with st.expander("⚙️ Параметры генерации & API (для администратора)" if lang == "ru" else "⚙️ Generation Parameters & Admin API Key", expanded=False):
-        col_cfg1, col_cfg2 = st.columns([2.0, 1.0])
-        with col_cfg1:
-            key_input = st.text_input(
-                "POLZA_AI_KEY (override / обновить):",
-                value=st.session_state.get("polza_api_key", ""),
-                type="password",
-                help="Встроенный ключ уже подгружается из .env. Введите сюда только если хотите переопределить ключ.",
-                key="agent_polza_key_input_field",
-            )
-        with col_cfg2:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("💾 Сохранить в .env" if lang == "ru" else "💾 Save to .env", key="btn_save_polza_key_env", use_container_width=True):
-                if key_input.strip():
-                    st.session_state["polza_api_key"] = key_input.strip()
-                    if save_polza_api_key_to_env(key_input.strip()):
-                        st.success("Ключ Polza.ai сохранен в .env!" if lang == "ru" else "Polza.ai Key saved to .env!")
-                        st.rerun()
-                else:
-                    st.warning("Введите ключ перед сохранением." if lang == "ru" else "Enter key before saving.")
-        temperature = st.slider("Temperature:", 0.0, 1.0, 0.2, 0.05, key="agent_temp_slider", help="0.1–0.3 для строгой науки")
 
     # 3. Spectrum Selection & Quick Action: Load Selected Sample into Agent Context
     spectra_db = st.session_state.get("spectra_db", {})
@@ -525,9 +503,9 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
     )
     if user_prompt:
         if not active_key:
-            st.error("⚠️ POLZA_AI_KEY не настроен на сервере (.env). Укажите ключ в настройках выше!" if lang == "ru" else "⚠️ POLZA_AI_KEY is not configured in server .env!")
+            st.error("⚠️ Сервис ИИ временно недоступен. Обратитесь к администратору платформы." if lang == "ru" else "⚠️ AI service is currently unavailable. Please contact the platform administrator.")
         elif is_exhausted:
-            st.error("⚠️ Достигнут суточный лимит в 100 запросов для защиты бюджета. Лимит автоматически сбросится в 00:00 UTC." if lang == "ru" else "⚠️ Daily budget limit of 100 queries reached. Quota will automatically reset at 00:00 UTC.")
+            st.error("⚠️ Достигнут суточный лимит запросов. Лимит автоматически сбросится в 00:00 UTC." if lang == "ru" else "⚠️ Daily query quota reached. Quota will automatically reset at 00:00 UTC.")
         elif not _check_debounce_allowed():
             st.warning("Пожалуйста, подождите 2 секунды перед следующим запросом." if lang == "ru" else "Please wait 2 seconds between queries.")
         else:
@@ -614,7 +592,7 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
             return
 
         if not active_key:
-            st.warning("POLZA_AI_KEY не найден в .env. Настройте ключ для генерации заключения." if lang == "ru" else "POLZA_AI_KEY not found in .env.")
+            st.warning("Сервис ИИ временно недоступен. Обратитесь к администратору платформы." if lang == "ru" else "AI service is currently unavailable. Please contact the platform administrator.")
             return
 
         prompt = chemo_agent.build_sample_analysis_prompt(sample_name, sample_data, lang=lang)
