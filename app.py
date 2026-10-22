@@ -1990,18 +1990,7 @@ with st.sidebar:
     )
     st.session_state["selected_module_idx"] = all_module_keys.index(active_module)
 
-    # Удобные кнопки быстрой навигации между студиями
-    col_nav_prev, col_nav_next = st.columns(2)
-    with col_nav_prev:
-        if st.button("◀️ " + ("Назад" if lang == "ru" else "Prev"), use_container_width=True, disabled=(safe_idx == 0), key="btn_nav_prev_studio"):
-            st.session_state["selected_module_idx"] = safe_idx - 1
-            st.session_state["nav_module_selection"] = all_module_keys[safe_idx - 1]
-            st.rerun()
-    with col_nav_next:
-        if st.button(("Вперед" if lang == "ru" else "Next") + " ▶️", use_container_width=True, disabled=(safe_idx == len(all_module_keys) - 1), key="btn_nav_next_studio"):
-            st.session_state["selected_module_idx"] = safe_idx + 1
-            st.session_state["nav_module_selection"] = all_module_keys[safe_idx + 1]
-            st.rerun()
+
 
     st.markdown("---")
 
