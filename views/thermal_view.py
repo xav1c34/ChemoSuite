@@ -17,6 +17,23 @@ try:
 except ImportError:
     thermal_core = None
 
+try:
+    from modules.report_generator import sanitize_excel_df
+except ImportError:  # pragma: no cover
+    def sanitize_excel_df(df):
+        return df
+
+
+def _fmt(val, spec=".2f", suffix="", na="n/a"):
+    """Formats a number; NaN/None -> 'n/a' (never a fabricated 0)."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return na
+    if not np.isfinite(v):
+        return na
+    return f"{v:{spec}}{suffix}"
+
 
 def render_thermal_studio(T: dict, lang: str):
     """Render Module 6: Analytical Pyrolysis (Py-GC-MS) & Thermogravimetry (TGA/DTG) Studio."""
@@ -273,12 +290,14 @@ Decomposition is separated into 4 kinetic temperature zones:
                                 f"<b>{p_name}</b><br>"
                                 f"Класс: {p_cls} ({p_monomer})<br>"
                                 f"RT: {p_rt:.2f} мин | Площадь: {p_area_pct:.2f}%<br>"
-                                f"Формула: {p_formula} (MW {p_mw:.1f})"
+                                f"Формула: {p_formula} (MW {_fmt(p_mw, '.1f')})<br>"
+                                f"Идентификация: {getattr(p, 'id_basis', '') or '—'}; RT-оценка: {_fmt(getattr(p, 'rt_match_score', np.nan), '.2f')}"
                                 if lang == "ru" else
                                 f"<b>{p_name}</b><br>"
                                 f"Class: {p_cls} ({p_monomer})<br>"
                                 f"RT: {p_rt:.2f} min | Area: {p_area_pct:.2f}%<br>"
-                                f"Formula: {p_formula} (MW {p_mw:.1f})"
+                                f"Formula: {p_formula} (MW {_fmt(p_mw, '.1f')})<br>"
+                                f"ID basis: {getattr(p, 'id_basis', '') or '—'}; RT match score: {_fmt(getattr(p, 'rt_match_score', np.nan), '.2f')}"
                             )
                         ))
 
@@ -362,9 +381,10 @@ Decomposition is separated into 4 kinetic temperature zones:
                             if c_pct <= 0.0 and total_peak_area > 0:
                                 c_pct = (getattr(p, "area", getattr(p, "peak_area", 0.0)) / total_peak_area) * 100.0
                             c_monomer = getattr(p, "monomer_type", c_class)
-                            c_mw = getattr(p, "mw", 0.0)
+                            c_mw = getattr(p, "mw", np.nan)
                             c_formula = getattr(p, "formula", "") or "—"
                             c_cas = getattr(p, "cas", "") or "—"
+                            c_score = getattr(p, "rt_match_score", np.nan)
                             peaks_table.append({
                                 "RT (min)": round(c_rt, 2),
                                 "Compound": c_name,
@@ -372,11 +392,22 @@ Decomposition is separated into 4 kinetic temperature zones:
                                 "Monomer": c_monomer,
                                 "Area (%)": round(c_pct, 2),
                                 "Formula": c_formula,
-                                "MW": round(float(c_mw), 1) if c_mw > 0 else np.nan,
+                                "MW": round(float(c_mw), 1) if (c_mw is not None and np.isfinite(c_mw) and c_mw > 0) else np.nan,
                                 "CAS": c_cas,
+                                "ID basis": getattr(p, "id_basis", "") or "—",
+                                "RT_match_score": round(float(c_score), 3) if (c_score is not None and np.isfinite(c_score)) else np.nan,
                             })
                         df_p_tbl = pd.DataFrame(peaks_table)
                         st_df(df_p_tbl)
+                        st.caption(
+                            "RT_match_score = 1 − |ΔRT|/окно: оценка по времени удерживания относительно встроенной библиотеки, "
+                            "а не спектральное сходство масс-спектров (MS-библиотека не используется). "
+                            "Пики с ID basis = name классифицированы по названию из вашей таблицы."
+                            if lang == "ru" else
+                            "RT_match_score = 1 − |ΔRT|/window: a retention-time score against the built-in library, "
+                            "not a mass-spectral similarity (no MS library search is performed). "
+                            "Peaks with ID basis = name were classified from the compound name in your table."
+                        )
                         st.download_button(
                             label=T[lang]["thermal_peaks_dl_btn"],
                             data=df_p_tbl.to_csv(index=False).encode("utf-8"),
@@ -428,10 +459,14 @@ Decomposition is separated into 4 kinetic temperature zones:
                                       annotation_text="Zone I: Moisture" if lang == "en" else "Зона I: Влага (<150°C)", annotation_position="top left")
                     fig_tga.add_vrect(x0=150, x1=350, fillcolor="#F1C40F", opacity=0.12, layer="below", line_width=0,
                                       annotation_text="Zone II: Aliphatic" if lang == "en" else "Зона II: Алифатика (150–350°C)", annotation_position="top left")
-                    fig_tga.add_vrect(x0=350, x1=600, fillcolor="#E74C3C", opacity=0.10, layer="below", line_width=0,
-                                      annotation_text="Zone III: Lignin Core" if lang == "en" else "Зона III: Ядро лигнина (350–600°C)", annotation_position="top left")
-                    fig_tga.add_vrect(x0=600, x1=800, fillcolor="#95A5A6", opacity=0.12, layer="below", line_width=0,
-                                      annotation_text="Zone IV: Char" if lang == "en" else "Зона IV: Кокс (>600°C)", annotation_position="top left")
+                    t_final_v = tga_data.indices.get("TGA_T_final_degC", np.nan)
+                    t_final_plot = float(t_final_v) if (t_final_v is not None and np.isfinite(t_final_v)) else 800.0
+                    fig_tga.add_vrect(x0=350, x1=550, fillcolor="#E74C3C", opacity=0.10, layer="below", line_width=0,
+                                      annotation_text="Zone III: Aromatic / lignin (350–550°C)" if lang == "en" else "Зона III: Ароматика / лигнин (350–550°C)", annotation_position="top left")
+                    if t_final_plot > 550:
+                        fig_tga.add_vrect(x0=550, x1=t_final_plot, fillcolor="#95A5A6", opacity=0.12, layer="below", line_width=0,
+                                          annotation_text=(f"Zone IV: residue at {t_final_plot:.0f}°C" if lang == "en" else f"Зона IV: остаток при {t_final_plot:.0f}°C"),
+                                          annotation_position="top left")
 
                 fig_tga.update_xaxes(title_text="Temperature (°C)" if lang == "en" else "Температура (°C)")
                 fig_tga.update_yaxes(title_text="TGA Mass Loss (%)" if lang == "en" else "Масса образца TGA (%)", secondary_y=False)
@@ -441,17 +476,18 @@ Decomposition is separated into 4 kinetic temperature zones:
 
                 # Метрики зон деструкции
                 st.markdown("##### " + ("Кинетические зоны термодеструкции" if lang == "ru" else "Thermal Decomposition Kinetic Zones"))
+                t_fin_lbl = _fmt(tga_data.indices.get("TGA_T_final_degC"), ".0f", "°C", na="T_final")
                 col_zm1, col_zm2, col_zm3, col_zm4 = st.columns(4)
-                col_zm1.metric("Зона I (<150°C)" if lang == "ru" else "Zone I (<150°C)", f"{tga_data.indices.get('TGA_Zone_I_pct', 0.0):.1f}%", help="Влага и десорбция")
-                col_zm2.metric("Зона II (150–350°C)" if lang == "ru" else "Zone II (150-350°C)", f"{tga_data.indices.get('TGA_Zone_II_pct', 0.0):.1f}%", help="Гемицеллюлозы и алифатика")
-                col_zm3.metric("Зона III (350–600°C)" if lang == "ru" else "Zone III (350-600°C)", f"{tga_data.indices.get('TGA_Zone_III_pct', 0.0):.1f}%", help="Ароматический каркас лигнина")
-                col_zm4.metric("Зона IV (>600°C)" if lang == "ru" else "Zone IV (>600°C)", f"{tga_data.indices.get('TGA_Zone_IV_pct', 0.0):.1f}%", help="Кокс и минеральный остаток")
+                col_zm1.metric("Зона I (<150°C)" if lang == "ru" else "Zone I (<150°C)", _fmt(tga_data.indices.get('TGA_Zone_I_pct'), ".1f", "%"), help="Потеря массы: влага и десорбция" if lang == "ru" else "Mass loss: moisture and desorption")
+                col_zm2.metric("Зона II (150–350°C)" if lang == "ru" else "Zone II (150–350°C)", _fmt(tga_data.indices.get('TGA_Zone_II_pct'), ".1f", "%"), help="Потеря массы: гемицеллюлозы и алифатика" if lang == "ru" else "Mass loss: hemicelluloses and aliphatics")
+                col_zm3.metric("Зона III (350–550°C)" if lang == "ru" else "Zone III (350–550°C)", _fmt(tga_data.indices.get('TGA_Zone_III_pct'), ".1f", "%"), help="Потеря массы: ароматический каркас лигнина" if lang == "ru" else "Mass loss: aromatic / lignin framework")
+                col_zm4.metric(f"Зона IV: остаток при {t_fin_lbl}" if lang == "ru" else f"Zone IV: residue at {t_fin_lbl}", _fmt(tga_data.indices.get('TGA_Zone_IV_pct'), ".1f", "%"), help="Масса, оставшаяся при конечной температуре опыта (кокс + зола), — не потеря массы" if lang == "ru" else "Mass remaining at the final temperature of the run (char + ash) — not a mass loss")
 
                 col_tm1, col_tm2, col_tm3, col_tm4 = st.columns(4)
-                col_tm1.metric(T[lang]["thermal_kpi_ti"], f"{tga_data.indices.get('TGA_Thermal_Index_TI', 0.0):.2f}", help="Δm(III) / Δm(II)")
-                col_tm2.metric(T[lang]["thermal_kpi_t50"], f"{tga_data.indices.get('TGA_T50_degC', 0.0):.1f} °C", help="Температура 50% убыли массы")
-                col_tm3.metric("T_max (DTG)", f"{tga_data.indices.get('DTG_Tmax_degC', 0.0):.1f} °C", help="Пик максимальной скорости деструкции")
-                col_tm4.metric(T[lang]["thermal_kpi_residue"], f"{tga_data.indices.get('TGA_Residue_800C_pct', 0.0):.1f}%", help="Неразложившийся остаток при 800°C")
+                col_tm1.metric(T[lang]["thermal_kpi_ti"], _fmt(tga_data.indices.get('TGA_Thermal_Index_TI'), ".2f"), help="Δm(III) / Δm(II)")
+                col_tm2.metric(T[lang]["thermal_kpi_t50"], _fmt(tga_data.indices.get('TGA_T50_degC'), ".1f", " °C"), help="Температура 50% убыли сухой массы (интерполяция; n/a, если не достигнута)" if lang == "ru" else "Temperature of 50% dry-mass loss (interpolated; n/a if not reached)")
+                col_tm3.metric("T_max (DTG)", _fmt(tga_data.indices.get('DTG_Tmax_degC'), ".1f", " °C"), help="Пик максимальной скорости деструкции" if lang == "ru" else "Peak of the maximum decomposition rate")
+                col_tm4.metric(T[lang]["thermal_kpi_residue"], _fmt(tga_data.indices.get('TGA_Residue_800C_pct'), ".1f", "%"), help="Остаток при 800°C (n/a, если опыт закончен ниже 800°C)" if lang == "ru" else "Residue at 800°C (n/a if the run ended below 800°C)")
 
         # ----------------------------------------------------------------------
         # ТАБ 3: Хемометрические индексы (S/G, L/C, TI)
@@ -460,19 +496,22 @@ Decomposition is separated into 4 kinetic temperature zones:
             st.write(f"#### {T[lang]['thermal_tab3_title']}")
 
             col_k1, col_k2, col_k3, col_k4, col_k5, col_k6 = st.columns(6)
-            sg_val = active_sample.py_gcms.indices.get("Py_S_G_ratio", 0.0) if has_py else 0.0
-            hg_val = active_sample.py_gcms.indices.get("Py_H_G_ratio", 0.0) if has_py else 0.0
-            lc_val = active_sample.py_gcms.indices.get("Py_L_C_ratio", 0.0) if has_py else 0.0
-            ox_val = (active_sample.py_gcms.indices.get("Py_Acid_Aldehyde_G", active_sample.py_gcms.indices.get("Py_Ac_Al_G", 0.0))) if has_py else 0.0
-            ti_val = (active_sample.tga.indices.get("TGA_Thermal_Index_TI", active_sample.tga.indices.get("TGA_Thermostability_Index", 0.0))) if has_tga else 0.0
-            t50_val = (active_sample.tga.indices.get("TGA_T50_degC", active_sample.tga.indices.get("TGA_T_50pct", 0.0))) if has_tga else 0.0
+            sg_val = active_sample.py_gcms.indices.get("Py_S_G_ratio", np.nan) if has_py else np.nan
+            hg_val = active_sample.py_gcms.indices.get("Py_H_G_ratio", np.nan) if has_py else np.nan
+            lc_val = active_sample.py_gcms.indices.get("Py_L_C_ratio", np.nan) if has_py else np.nan
+            ox_val = (active_sample.py_gcms.indices.get("Py_Ac_Al_G", active_sample.py_gcms.indices.get("Py_Acid_Aldehyde_G", np.nan))) if has_py else np.nan
+            ti_val = (active_sample.tga.indices.get("TGA_Thermal_Index_TI", active_sample.tga.indices.get("TGA_Thermostability_Index", np.nan))) if has_tga else np.nan
+            t50_val = (active_sample.tga.indices.get("TGA_T50_degC", active_sample.tga.indices.get("TGA_T_50pct", np.nan))) if has_tga else np.nan
 
-            col_k1.metric("S/G Ratio", f"{sg_val:.3f}" if has_py else "—")
-            col_k2.metric("H/G Ratio", f"{hg_val:.3f}" if has_py else "—")
-            col_k3.metric("L/C Ratio", f"{lc_val:.2f}" if has_py else "—")
-            col_k4.metric("(Ac/Al)_G", f"{ox_val:.2f}" if has_py else "—")
-            col_k5.metric("TI (TGA)", f"{ti_val:.2f}" if has_tga else "—")
-            col_k6.metric("T_50% (TGA)", f"{t50_val:.1f} °C" if has_tga else "—")
+            col_k1.metric("S/G Ratio", _fmt(sg_val, ".3f") if has_py else "—")
+            col_k2.metric("H/G Ratio", _fmt(hg_val, ".3f") if has_py else "—")
+            col_k3.metric("L/C Ratio", _fmt(lc_val, ".2f") if has_py else "—")
+            col_k4.metric("(Ac/Al)_G", _fmt(ox_val, ".2f") if has_py else "—",
+                          help=("Ванилиновая кислота (или метилванилат) / ванилин; n/a, если кислота или альдегид не обнаружены"
+                                if lang == "ru" else
+                                "Vanillic acid (or methyl vanillate) / vanillin; n/a if either is not detected"))
+            col_k5.metric("TI (TGA)", _fmt(ti_val, ".2f") if has_tga else "—")
+            col_k6.metric("T_50% (TGA)", _fmt(t50_val, ".1f", " °C") if has_tga else "—")
 
             st.markdown("---")
             st.write("##### " + ("Сводная таблица термических дескрипторов по всем пробам сессии" if lang == "ru" else "Summary Table of Thermal Descriptors Across All Samples"))
@@ -486,7 +525,9 @@ Decomposition is separated into 4 kinetic temperature zones:
 
                 vals_sample = []
                 vals_mean = []
-                for m in radar_metrics:
+                radar_labels_all = list(labels)
+                labels = []
+                for m, m_label in zip(radar_metrics, radar_labels_all):
                     m_lookup = m
                     if m not in df_thermal_desc.columns:
                         if m == "Py_Ac_Al_G" and "Py_Acid_Aldehyde_G" in df_thermal_desc.columns:
@@ -498,39 +539,48 @@ Decomposition is separated into 4 kinetic temperature zones:
                     col_vals = df_thermal_desc[m_lookup] if m_lookup in df_thermal_desc.columns else pd.Series([0.0])
                     v_min, v_max = col_vals.min(), col_vals.max()
                     denom = (v_max - v_min) if (v_max - v_min) > 1e-6 else 1.0
-                    val_from_sample = (
-                        active_sample.py_gcms.indices.get(m, active_sample.py_gcms.indices.get(m_lookup, 0.0))
-                        if active_sample.py_gcms else
-                        active_sample.tga.indices.get(m, active_sample.tga.indices.get(m_lookup, 0.0))
-                    )
+                    # Ищем метрику в индексах обоих блоков (Py-GC-MS и TGA), без подстановки 0.0
+                    merged_idx = {}
+                    if active_sample.tga is not None:
+                        merged_idx.update(active_sample.tga.indices)
+                    if active_sample.py_gcms is not None:
+                        merged_idx.update(active_sample.py_gcms.indices)
+                    val_from_sample = merged_idx.get(m, merged_idx.get(m_lookup, np.nan))
+                    if (val_from_sample is None or not np.isfinite(val_from_sample)
+                            or not np.isfinite(v_min) or not np.isfinite(v_max)):
+                        continue  # не рисуем метрику, которую нельзя вычислить (никаких подставных нулей)
                     v_s = (val_from_sample - v_min) / denom
                     v_m = (col_vals.mean() - v_min) / denom
                     vals_sample.append(float(np.clip(v_s, 0.0, 1.0)))
                     vals_mean.append(float(np.clip(v_m, 0.0, 1.0)))
+                    labels.append(m_label)
+                if len(labels) < 3:
+                    st.caption("Недостаточно вычислимых метрик для радар-диаграммы." if lang == "ru" else "Not enough computable metrics for the radar chart.")
 
-                fig_radar = go.Figure()
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=vals_sample + [vals_sample[0]],
-                    theta=labels + [labels[0]],
-                    fill='toself',
-                    name=active_s_id,
-                    line_color="#c0392b"
-                ))
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=vals_mean + [vals_mean[0]],
-                    theta=labels + [labels[0]],
-                    fill='toself',
-                    name="Mean (All Samples)" if lang == "en" else "Среднее (Все пробы)",
-                    line_color="#2980b9",
-                    opacity=0.5
-                ))
-                fig_radar.update_layout(
-                    polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
-                    showlegend=True,
-                    height=420,
-                    margin=dict(l=40, r=40, t=30, b=30)
-                )
-                st_plotly(fig_radar)
+                if len(labels) >= 3:
+                    fig_radar = go.Figure()
+                    fig_radar.add_trace(go.Scatterpolar(
+                        r=vals_sample + [vals_sample[0]],
+                        theta=labels + [labels[0]],
+                        fill='toself',
+                        name=active_s_id,
+                        line_color="#c0392b"
+                    ))
+                    fig_radar.add_trace(go.Scatterpolar(
+                        r=vals_mean + [vals_mean[0]],
+                        theta=labels + [labels[0]],
+                        fill='toself',
+                        name="Mean (All Samples)" if lang == "en" else "Среднее (Все пробы)",
+                        line_color="#2980b9",
+                        opacity=0.5
+                    ))
+                    fig_radar.update_layout(
+                        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+                        showlegend=True,
+                        height=420,
+                        margin=dict(l=40, r=40, t=30, b=30)
+                    )
+                    st_plotly(fig_radar)
 
         # ----------------------------------------------------------------------
         # ТАБ 4: Мультимодальная интеграция и экспорт
@@ -577,7 +627,7 @@ Decomposition is separated into 4 kinetic temperature zones:
             with c_d2:
                 excel_th_buf = io.BytesIO()
                 with pd.ExcelWriter(excel_th_buf, engine="openpyxl") as writer:
-                    df_thermal_desc.to_excel(writer, index=False, sheet_name="Thermal_Descriptors")
+                    sanitize_excel_df(df_thermal_desc).to_excel(writer, index=False, sheet_name="Thermal_Descriptors")
                 st.download_button(
                     label=T[lang]["thermal_dl_excel"],
                     data=excel_th_buf.getvalue(),

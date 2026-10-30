@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import scipy.integrate
+import scipy.ndimage
 import scipy.signal
 
 
@@ -346,12 +348,14 @@ class PyGCMSPeak:
     chemical_class: str  # "H_Lignin", "G_Lignin", "S_Lignin", "Carbohydrate", "Nitrogen_Protein", "Aliphatic_Lipid", "Unclassified"
     cas: Optional[str] = None
     formula: Optional[str] = None
-    similarity: float = 1.0
+    similarity: float = float("nan")      # псевдоним rt_match_score (НЕ спектральное сходство)
     mw: float = 0.0
     area_pct: float = 0.0
     monomer_type: str = ""
     name_en: str = ""
     name_ru: str = ""
+    rt_match_score: float = float("nan")  # 1 − |ΔRT|/window; NaN, если пик идентифицирован по названию
+    id_basis: str = ""                    # "name" | "retention_time" | "synthetic_library" | "none"
 
     def __post_init__(self):
         if not self.name_en:
@@ -360,6 +364,13 @@ class PyGCMSPeak:
             self.name_ru = self.compound_name
         if not self.monomer_type:
             self.monomer_type = self.chemical_class
+        # Синхронизация устаревшего поля similarity с rt_match_score
+        sim_ok = self.similarity is not None and np.isfinite(self.similarity)
+        rt_ok = self.rt_match_score is not None and np.isfinite(self.rt_match_score)
+        if rt_ok and not sim_ok:
+            self.similarity = float(self.rt_match_score)
+        elif sim_ok and not rt_ok:
+            self.rt_match_score = float(self.similarity)
 
     @property
     def rt(self) -> float:
@@ -435,6 +446,110 @@ class ThermalSample:
 # 1. ПАРСИНГ ФАЙЛОВ Py-GC-MS
 # ==============================================================================
 
+# Упорядоченная таблица правил классификации продуктов пиролиза по названию.
+# Порядок важен: S (2,6-диметокси) проверяется раньше G (2-метокси), G раньше H (фенолы),
+# затем углеводы и азотсодержащие соединения. Так «2,6-диметоксифенол» не попадает в H,
+# «ацетованилон» не считается ванилином, «сиреневая кислота» — S, а не H.
+PYROLYSIS_CLASS_RULES: List[Tuple[str, Tuple[str, ...]]] = [
+    ("S_Lignin", (
+        "syring", "сиринг", "сирен", "2,6-dimethoxy", "2,6-диметокси", "3,5-dimethoxy", "3,5-диметокси",
+        "3,4,5-trimethoxy", "3,4,5-триметокси", "trimethoxybenz", "триметоксибенз", "sinapyl", "синапов",
+        "sinapic", "синапин",
+    )),
+    ("G_Lignin", (
+        "guaiac", "гваяк", "гуаяк", "vanill", "ванил", "creosol", "креозол", "eugenol", "эвгенол", "эугенол",
+        "coniferyl", "конифер", "ferulic", "ферулов", "2-methoxyphenol", "2-метоксифенол", "apocynin", "апоцинин",
+        "3,4-dimethoxy", "3,4-диметокси", "methoxy-4-", "метокси-4-",
+    )),
+    ("H_Lignin", (
+        "phenol", "фенол", "cresol", "крезол", "coumar", "кумар", "4-hydroxybenz", "4-гидроксибенз",
+        "hydroxyphenyl", "гидроксифенил", "4-methoxystyrene", "4-метоксистирол",
+    )),
+    ("Carbohydrate", (
+        "furan", "фуран", "furfur", "фурфур", "levoglucos", "левоглюкоз", "anhydro", "ангидро", "pyran", "пиран",
+        "maltol", "мальтол", "cyclopenten", "циклопентен", "hydroxyacetaldehyde", "гидроксиацетальдегид",
+        "glucopyranose", "глюкопираноз", "sugar", "сахар",
+    )),
+    ("Nitrogen_Protein", (
+        "indol", "индол", "pyridin", "пиридин", "pyrrol", "пиррол", "pyrazin", "пиразин", "nitrile", "нитрил",
+        "amide", "амид", "diketopiperazine", "дикетопиперазин", "skatole", "скатол", "imidazol", "имидазол",
+        "piperidin", "пиперидин", "quinolin", "хинолин",
+    )),
+    ("Aliphatic_Lipid", (
+        "alkane", "alkene", "алкан", "алкен", "fatty acid", "жирная кислота", "palmit", "пальмит", "stear", "стеарин",
+        "hexadecan", "octadecan", "гексадекан", "октадекан", "n-alk", "н-алк",
+    )),
+]
+
+# Карбонильные мономеры лигнина для (Ac/Al) и Ketone/Al. Кислота (и её метиловый эфир/
+# TMAH-производное) проверяется раньше кетона, кетон — раньше альдегида.
+_LIGNIN_CARBONYL_RULES: List[Tuple[str, Tuple[str, ...]]] = [
+    ("G_acid", ("vanillic acid", "methyl vanillate", "vanillate", "ванилиновая кислота", "ванилиновой кислоты",
+                "метилванилат", "метил ванилат", "3,4-dimethoxybenzoic", "3,4-dimethoxybenzoate",
+                "3,4-диметоксибензойн", "3,4-диметоксибензоат")),
+    ("S_acid", ("syringic acid", "methyl syringate", "syringate", "сиреневая кислота", "сиреневой кислоты",
+                "сиринговая кислота", "метилсирингат", "метил сирингат", "3,4,5-trimethoxybenzoic",
+                "3,4,5-trimethoxybenzoate", "3,4,5-триметоксибензойн", "3,4,5-триметоксибензоат")),
+    ("G_ketone", ("acetovanillone", "apocynin", "ацетованилон", "апоцинин", "acetoguaiacone",
+                  "3,4-dimethoxyacetophenone", "3,4-диметоксиацетофенон")),
+    ("S_ketone", ("acetosyringone", "ацетосирингон", "3,4,5-trimethoxyacetophenone", "3,4,5-триметоксиацетофенон")),
+    ("G_aldehyde", ("vanillin", "ванилин", "3,4-dimethoxybenzaldehyde", "3,4-диметоксибензальдегид")),
+    ("S_aldehyde", ("syringaldehyde", "сирингальдегид", "сиреневый альдегид", "3,4,5-trimethoxybenzaldehyde",
+                    "3,4,5-триметоксибензальдегид")),
+]
+_CARBONYL_EXCLUDE = ("homovanill", "гомованил", "isovanill", "изованил", "vanillyl alcohol", "ванилиловый спирт")
+
+
+def classify_pyrolysis_compound(name: str) -> str:
+    """
+    Классифицирует продукт пиролиза по названию (EN/RU) упорядоченной таблицей правил
+    PYROLYSIS_CLASS_RULES (S → G → H → углеводы → N-соединения → алифатика).
+    Возвращает "S_Lignin", "G_Lignin", "H_Lignin", "Carbohydrate", "Nitrogen_Protein",
+    "Aliphatic_Lipid" или "Unclassified".
+    """
+    low = str(name or "").lower().replace("ё", "е")
+    for cls, keys in PYROLYSIS_CLASS_RULES:
+        if any(k in low for k in keys):
+            return cls
+    return "Unclassified"
+
+
+def _identify_lignin_carbonyl(name: str) -> Optional[str]:
+    """'G_acid' | 'G_ketone' | 'G_aldehyde' | 'S_acid' | 'S_ketone' | 'S_aldehyde' | None."""
+    low = str(name or "").lower().replace("ё", "е")
+    if any(k in low for k in _CARBONYL_EXCLUDE):
+        return None
+    for tag, keys in _LIGNIN_CARBONYL_RULES:
+        if any(k in low for k in keys):
+            return tag
+    return None
+
+
+def _library_name_keys(ref: Dict[str, Any]) -> List[str]:
+    keys: List[str] = []
+    for nm in (ref.get("name_en", ""), ref.get("name_ru", "")):
+        low = str(nm).lower().replace("ё", "е").strip()
+        if not low:
+            continue
+        keys.append(low)
+        base = re.sub(r"\s*\(.*?\)\s*", " ", low).strip()
+        if base:
+            keys.append(base)
+        keys.extend(x.strip() for x in re.findall(r"\((.*?)\)", low) if x.strip())
+    return keys
+
+
+def lookup_library_by_name(name: str) -> Optional[Dict[str, Any]]:
+    """Точное (без учета регистра и скобочных синонимов) совпадение названия с библиотекой."""
+    low = str(name or "").lower().replace("ё", "е").strip()
+    if not low:
+        return None
+    for ref in PY_GCMS_REFERENCE_LIBRARY:
+        if low in _library_name_keys(ref):
+            return ref
+    return None
+
+
 def match_py_compound(
     rt: float,
     window: float = 0.6,
@@ -443,6 +558,10 @@ def match_py_compound(
     """
     Ищет соединение в эталонной библиотеке продуктов пиролиза по времени удерживания (RT).
     Возвращает наилучшее совпадение по минимальному отклонению |rt - ref_rt|.
+
+    ``RT_match_score`` = 1 − |ΔRT| / window (1 — точное совпадение RT, 0 — край окна).
+    Это оценка близости времени удерживания, а НЕ спектральное сходство масс-спектров;
+    ключ "similarity" сохранён как псевдоним для обратной совместимости.
     """
     best_match = None
     min_diff = float("inf")
@@ -454,7 +573,7 @@ def match_py_compound(
 
     if best_match is not None:
         name = best_match["name_ru"] if lang == "ru" else best_match["name_en"]
-        sim = max(0.5, 1.0 - (min_diff / window) * 0.5)
+        score = float(max(0.0, 1.0 - (min_diff / window))) if window > 0 else float(min_diff == 0.0)
         return {
             "name": name,
             "name_en": best_match["name_en"],
@@ -464,8 +583,16 @@ def match_py_compound(
             "cas": best_match["cas"],
             "formula": best_match["formula"],
             "mw": float(best_match.get("mw", 0.0)),
-            "similarity": float(sim),
+            "RT_match_score": score,
+            "similarity": score,
+            "rt_deviation_min": float(min_diff),
+            "match_basis": "retention_time",
         }
+    return _unmatched_compound(rt, lang)
+
+
+def _unmatched_compound(rt: float, lang: str = "en") -> Dict[str, Any]:
+    """Запись «неизвестное соединение» в формате match_py_compound."""
     return {
         "name": f"Unknown @ {rt:.2f} min" if lang == "en" else f"Неизвестный @ {rt:.2f} мин",
         "name_en": f"Unknown @ {rt:.2f} min",
@@ -474,9 +601,86 @@ def match_py_compound(
         "subclass": "Unclassified",
         "cas": None,
         "formula": None,
-        "mw": 0.0,
+        "mw": float("nan"),
+        "RT_match_score": 0.0,
         "similarity": 0.0,
+        "rt_deviation_min": float("nan"),
+        "match_basis": "none",
     }
+
+
+def _detect_tic_peaks(
+    rt: np.ndarray,
+    tic: np.ndarray,
+    snr_k: float = 3.0,
+    baseline_window_min: float = 2.0,
+) -> List[Tuple[float, float, float]]:
+    """
+    Пики хроматограммы TIC: (RT, площадь над базовой линией, высота над базовой линией).
+
+    Базовая линия — скользящая медиана в окне baseline_window_min (узкие пики на нее почти
+    не влияют); порог выделения — snr_k·σ шума (σ по MAD первых разностей). Прежний порог
+    «2 % от максимума» был ~1σ шума и превращал шумовые бугры в пики, а интегрирование без
+    вычета базовой линии давало каждому такому бугру площадь «пол × ширина окна».
+    Пик должен превышать базовую линию на snr_k·σ и по высоте, и по проминентности
+    (у шумовых максимумов проминентность относительно соседних минимумов часто 4–6σ).
+    Площадь — интеграл скорректированного сигнала в ±1.5·FWHM вокруг вершины.
+    """
+    rt = np.asarray(rt, dtype=float)
+    y = np.asarray(tic, dtype=float)
+    if len(y) < 10 or not np.all(np.isfinite(y)):
+        return []
+    step = float(np.median(np.diff(rt)))
+    if step <= 0:
+        return []
+    window = max(5, int(round(baseline_window_min / step)) | 1)
+    corrected = y - scipy.ndimage.median_filter(y, size=window, mode="nearest")
+    d = np.diff(corrected)
+    sigma = 1.4826 * float(np.median(np.abs(d - np.median(d)))) / math.sqrt(2.0)
+    threshold = max(snr_k * sigma, 1e-12)
+    peak_idx, _ = scipy.signal.find_peaks(corrected, height=threshold, prominence=threshold)
+    if len(peak_idx) == 0:
+        return []
+    fwhm = scipy.signal.peak_widths(corrected, peak_idx, rel_height=0.5)[0]
+    peaks = []
+    for i, width in zip(peak_idx, fwhm):
+        half = max(2, int(math.ceil(1.5 * width)))
+        lo, hi = max(0, i - half), min(len(y) - 1, i + half)
+        area = float(scipy.integrate.trapezoid(np.clip(corrected[lo:hi + 1], 0.0, None), rt[lo:hi + 1]))
+        peaks.append((float(rt[i]), area, float(corrected[i])))
+    return peaks
+
+
+def _enforce_unique_rt_matches(peaks: List["PyGCMSPeak"], lang: str = "en") -> None:
+    """
+    Одно соединение библиотеки — не более одного пика: остается пик с наименьшим |ΔRT|
+    (при равенстве — с большей площадью), остальные становятся «неизвестными». Иначе одно и то же
+    соединение (напр., сиреневый альдегид) засчитывалось по 3–4 соседним пикам в окне RT.
+    """
+    best: Dict[str, Tuple[Tuple[float, float], int]] = {}
+    for k, p in enumerate(peaks):
+        if p.id_basis != "retention_time":
+            continue
+        key = p.name_en
+        rank = (1.0 - float(p.rt_match_score), -float(p.area))
+        if key not in best or rank < best[key][0]:
+            best[key] = (rank, k)
+    keep = {k for _, k in best.values()}
+    for k, p in enumerate(peaks):
+        if p.id_basis != "retention_time" or k in keep:
+            continue
+        info = _unmatched_compound(p.retention_time, lang)
+        p.compound_name = info["name"]
+        p.name_en = info["name_en"]
+        p.name_ru = info["name_ru"]
+        p.chemical_class = info["class"]
+        p.monomer_type = info["subclass"]
+        p.cas = None
+        p.formula = None
+        p.mw = float("nan")
+        p.similarity = 0.0
+        p.rt_match_score = 0.0
+        p.id_basis = "none"
 
 
 def parse_py_gcms_file(
@@ -568,24 +772,7 @@ def parse_py_gcms_file(
         df_clean[int_col] = pd.to_numeric(df_clean[int_col], errors="coerce").fillna(0.0)
         tic_vals = df_clean[int_col].values.astype(float)
 
-        # Пик-пикер на хроматограмме
-        prominence = max(np.max(tic_vals) * 0.02, 1e-4) if len(tic_vals) > 0 else 1.0
-        peak_indices, props = scipy.signal.find_peaks(tic_vals, prominence=prominence, distance=max(1, int(len(tic_vals) / 300)))
-
-        for p_idx in peak_indices:
-            p_rt = float(rt_vals[p_idx])
-            p_height = float(tic_vals[p_idx])
-            # Оценка площади трапецией вокруг пика (± 5 точек)
-            left_i = max(0, p_idx - 5)
-            right_i = min(len(rt_vals) - 1, p_idx + 5)
-            if right_i > left_i:
-                try:
-                    p_area = float(scipy.integrate.trapezoid(tic_vals[left_i:right_i+1], rt_vals[left_i:right_i+1]))
-                except AttributeError:
-                    p_area = float(np.trapz(tic_vals[left_i:right_i+1], rt_vals[left_i:right_i+1]))
-            else:
-                p_area = p_height
-
+        for p_rt, p_area, p_height in _detect_tic_peaks(rt_vals, tic_vals):
             match_info = match_py_compound(p_rt, window=rt_window, lang=lang)
             peaks_list.append(PyGCMSPeak(
                 retention_time=round(p_rt, 3),
@@ -595,8 +782,10 @@ def parse_py_gcms_file(
                 chemical_class=match_info["class"],
                 cas=match_info["cas"],
                 formula=match_info["formula"],
-                similarity=match_info["similarity"],
-                mw=match_info.get("mw", 0.0),
+                similarity=match_info["RT_match_score"],
+                rt_match_score=match_info["RT_match_score"],
+                id_basis=match_info["match_basis"],
+                mw=match_info.get("mw", float("nan")),
                 monomer_type=match_info.get("subclass", match_info["class"]),
                 name_en=match_info.get("name_en", match_info["name"]),
                 name_ru=match_info.get("name_ru", match_info["name"]),
@@ -613,32 +802,23 @@ def parse_py_gcms_file(
             # Если название уже есть в файле, используем его
             c_name = str(row[name_col]).strip() if (name_col is not None and pd.notna(row[name_col])) else ""
             if c_name and c_name.lower() not in ["none", "nan", ""]:
-                # Пытаемся классифицировать известное имя
-                c_low = c_name.lower()
-                chem_class = "Unclassified"
-                if any(k in c_low for k in ["syring", "сиринг"]):
-                    chem_class = "S_Lignin"
-                elif any(k in c_low for k in ["guaiac", "гваяк", "vanil", "ванил", "creosol", "креозол", "eugenol", "эвгенол"]):
-                    chem_class = "G_Lignin"
-                elif any(k in c_low for k in ["phenol", "фенол", "cresol", "крезол"]):
-                    chem_class = "H_Lignin"
-                elif any(k in c_low for k in ["furan", "фуран", "levoglucos", "левоглюкоз"]):
-                    chem_class = "Carbohydrate"
-                elif any(k in c_low for k in ["indol", "индол", "pyridin", "пиридин", "pyrrol", "пиррол"]):
-                    chem_class = "Nitrogen_Protein"
-                
-                match_info = match_py_compound(p_rt, window=rt_window, lang=lang)
+                # Классификация по названию (упорядоченная таблица правил S → G → H → углеводы → N)
+                chem_class = classify_pyrolysis_compound(c_name)
+                # CAS/формула — только при совпадении НАЗВАНИЯ с библиотекой (не по близкому RT)
+                lib_ref = lookup_library_by_name(c_name)
                 peaks_list.append(PyGCMSPeak(
                     retention_time=round(p_rt, 3),
                     area=max(0.0, p_area),
                     height=max(0.0, p_height),
                     compound_name=c_name,
                     chemical_class=chem_class,
-                    cas=match_info.get("cas"),
-                    formula=match_info.get("formula"),
-                    similarity=1.0,
-                    mw=match_info.get("mw", 0.0),
-                    monomer_type=match_info.get("subclass", chem_class),
+                    cas=lib_ref.get("cas") if lib_ref else None,
+                    formula=lib_ref.get("formula") if lib_ref else None,
+                    similarity=float("nan"),
+                    rt_match_score=float("nan"),
+                    id_basis="name",
+                    mw=float(lib_ref.get("mw", float("nan"))) if lib_ref else float("nan"),
+                    monomer_type=(lib_ref.get("subclass", chem_class) if lib_ref else chem_class),
                     name_en=c_name,
                     name_ru=c_name,
                 ))
@@ -652,12 +832,16 @@ def parse_py_gcms_file(
                     chemical_class=match_info["class"],
                     cas=match_info["cas"],
                     formula=match_info["formula"],
-                    similarity=match_info["similarity"],
-                    mw=match_info.get("mw", 0.0),
+                    similarity=match_info["RT_match_score"],
+                    rt_match_score=match_info["RT_match_score"],
+                    id_basis=match_info["match_basis"],
+                    mw=match_info.get("mw", float("nan")),
                     monomer_type=match_info.get("subclass", match_info["class"]),
                     name_en=match_info.get("name_en", match_info["name"]),
                     name_ru=match_info.get("name_ru", match_info["name"]),
                 ))
+
+    _enforce_unique_rt_matches(peaks_list, lang)
 
     # Рассчитываем относительные площади (area_pct)
     tot_area = sum(p.area for p in peaks_list)
@@ -681,27 +865,43 @@ def parse_py_gcms_file(
 # 2. РАСЧЕТ ХЕМОМЕТРИЧЕСКИХ ИНДЕКСОВ Py-GC-MS
 # ==============================================================================
 
+PY_GCMS_INDEX_KEYS: Tuple[str, ...] = (
+    "Py_H_pct", "Py_G_pct", "Py_S_pct",
+    "Py_S_G_ratio", "Py_H_G_ratio", "Py_L_C_ratio",
+    "Py_Ac_Al_G", "Py_Ac_Al_S",
+    "Py_Ketone_Aldehyde_G", "Py_Ketone_Aldehyde_S",
+    "Py_Total_Lignin_pct", "Py_Carbohydrate_pct", "Py_Nitrogen_pct", "Py_Aromaticity_pct",
+    "Py_Acid_Aldehyde_G", "Py_Acid_Aldehyde_S",
+    "Py_Total_Lignin_Area_pct", "Py_Carbohydrate_Area_pct", "Py_Nitrogen_Area_pct", "Py_Aromaticity_Area_pct",
+)
+
+
+def _ratio(num: float, den: float, nd: int = 3) -> float:
+    """num/den, NaN if the denominator (or numerator) is absent — never a 1e-6 floor."""
+    if den is None or num is None or not np.isfinite(den) or not np.isfinite(num) or den <= 0:
+        return float("nan")
+    return round(float(num / den), nd)
+
+
 def calculate_py_gcms_indices(peaks: List[PyGCMSPeak]) -> Dict[str, float]:
     """
     Рассчитывает ключевые хемометрические параметры состава пиролизатов:
     - S/G, H/G отношения мономеров лигнина;
     - Доли мономеров H%, G%, S%;
     - Соотношение лигнин/углеводы (L/C);
-    - Окислительно-деградационные индексы (Ac/Al)_G, (Ac/Al)_S;
+    - Окислительно-деградационные индексы (Ac/Al)_G = ванилиновая кислота / ванилин и
+      (Ac/Al)_S = сиреневая кислота / сиреневый альдегид (Hedges & Ertel 1982, CuO;
+      для TMAH-термохемолиза — метиловые эфиры/метилированные производные, G6/G4 и S6/S4:
+      Challinor 1995; Clifford et al. 1995). Если кислота или альдегид не обнаружены — NaN.
+      Py_Acid_Aldehyde_G/S — псевдонимы (Ac/Al); отношение кетон/альдегид
+      (ацетованилон/ванилин, ацетосирингон/сирингальдегид) — Py_Ketone_Aldehyde_G/S;
     - Суммарную степень ароматичности продуктов пиролиза.
+    Отношения с нулевым знаменателем и пустой набор пиков дают NaN.
     """
     if not peaks:
-        return {
-            "Py_H_pct": 0.0, "Py_G_pct": 0.0, "Py_S_pct": 0.0,
-            "Py_S_G_ratio": 0.0, "Py_H_G_ratio": 0.0, "Py_L_C_ratio": 0.0,
-            "Py_Ac_Al_G": 0.0, "Py_Ac_Al_S": 0.0,
-            "Py_Total_Lignin_pct": 0.0, "Py_Carbohydrate_pct": 0.0,
-            "Py_Nitrogen_pct": 0.0, "Py_Aromaticity_pct": 0.0,
-        }
+        return {k: float("nan") for k in PY_GCMS_INDEX_KEYS}
 
-    total_area = sum(p.area for p in peaks)
-    if total_area <= 0:
-        total_area = 1.0
+    total_area = float(sum(p.area for p in peaks))
 
     area_h = sum(p.area for p in peaks if p.chemical_class == "H_Lignin")
     area_g = sum(p.area for p in peaks if p.chemical_class == "G_Lignin")
@@ -711,54 +911,64 @@ def calculate_py_gcms_indices(peaks: List[PyGCMSPeak]) -> Dict[str, float]:
     area_lignin = area_h + area_g + area_s
 
     # Пропорции внутри лигнина
-    denom_lignin = max(area_lignin, 1e-9)
-    h_pct = (area_h / denom_lignin) * 100.0
-    g_pct = (area_g / denom_lignin) * 100.0
-    s_pct = (area_s / denom_lignin) * 100.0
+    h_pct = _ratio(area_h * 100.0, area_lignin, 2)
+    g_pct = _ratio(area_g * 100.0, area_lignin, 2)
+    s_pct = _ratio(area_s * 100.0, area_lignin, 2)
 
-    # Отношения S/G и H/G
-    s_g_ratio = area_s / max(area_g, 1e-6)
-    h_g_ratio = area_h / max(area_g, 1e-6)
+    # Отношения S/G, H/G и Лигнин / Углеводы (L/C)
+    s_g_ratio = _ratio(area_s, area_g)
+    h_g_ratio = _ratio(area_h, area_g)
+    l_c_ratio = _ratio(area_lignin, area_carb)
 
-    # Отношение Лигнин / Углеводы (L/C)
-    l_c_ratio = area_lignin / max(area_carb, 1e-6)
+    # Карбонильные мономеры (кислота / кетон / альдегид) по названию соединения
+    carbonyl: Dict[str, float] = {}
+    for p in peaks:
+        tag = None
+        for nm in (p.compound_name, getattr(p, "name_en", ""), getattr(p, "name_ru", "")):
+            tag = _identify_lignin_carbonyl(nm)
+            if tag is not None:
+                break
+        if tag is not None:
+            carbonyl[tag] = carbonyl.get(tag, 0.0) + float(p.area)
 
-    # Карбонильные индексы кислота/кетон к альдегиду (Ac/Al)
-    # G-блок: Acetovanillone / Vanillin
-    area_vanillin = sum(p.area for p in peaks if "vanillin" in p.compound_name.lower() or "ванил" in p.compound_name.lower() and "acet" not in p.compound_name.lower())
-    area_acetovanillone = sum(p.area for p in peaks if "acetovanillone" in p.compound_name.lower() or "ацетованил" in p.compound_name.lower() or "apocynin" in p.compound_name.lower())
-    ac_al_g = area_acetovanillone / max(area_vanillin, 1e-6) if area_vanillin > 0 else (0.5 if area_acetovanillone > 0 else 0.0)
+    def _carb_ratio(num_tag: str, den_tag: str) -> float:
+        num, den = carbonyl.get(num_tag, 0.0), carbonyl.get(den_tag, 0.0)
+        if num <= 0 or den <= 0:
+            return float("nan")
+        return round(float(num / den), 3)
 
-    # S-блок: Acetosyringone / Syringaldehyde
-    area_syringaldehyde = sum(p.area for p in peaks if "syringaldehyde" in p.compound_name.lower() or "сирингальдегид" in p.compound_name.lower())
-    area_acetosyringone = sum(p.area for p in peaks if "acetosyringone" in p.compound_name.lower() or "ацетосиринг" in p.compound_name.lower())
-    ac_al_s = area_acetosyringone / max(area_syringaldehyde, 1e-6) if area_syringaldehyde > 0 else (0.5 if area_acetosyringone > 0 else 0.0)
+    ac_al_g = _carb_ratio("G_acid", "G_aldehyde")
+    ac_al_s = _carb_ratio("S_acid", "S_aldehyde")
+    ket_al_g = _carb_ratio("G_ketone", "G_aldehyde")
+    ket_al_s = _carb_ratio("S_ketone", "S_aldehyde")
 
     # Общие доли от всей смеси
-    total_lignin_pct = (area_lignin / total_area) * 100.0
-    carb_pct = (area_carb / total_area) * 100.0
-    n_pct = (area_n / total_area) * 100.0
-    aromatic_pct = ((area_lignin + area_n) / total_area) * 100.0
+    total_lignin_pct = _ratio(area_lignin * 100.0, total_area, 2)
+    carb_pct = _ratio(area_carb * 100.0, total_area, 2)
+    n_pct = _ratio(area_n * 100.0, total_area, 2)
+    aromatic_pct = _ratio((area_lignin + area_n) * 100.0, total_area, 2)
 
     return {
-        "Py_H_pct": round(float(h_pct), 2),
-        "Py_G_pct": round(float(g_pct), 2),
-        "Py_S_pct": round(float(s_pct), 2),
-        "Py_S_G_ratio": round(float(s_g_ratio), 3),
-        "Py_H_G_ratio": round(float(h_g_ratio), 3),
-        "Py_L_C_ratio": round(float(l_c_ratio), 3),
-        "Py_Ac_Al_G": round(float(ac_al_g), 3),
-        "Py_Ac_Al_S": round(float(ac_al_s), 3),
-        "Py_Total_Lignin_pct": round(float(total_lignin_pct), 2),
-        "Py_Carbohydrate_pct": round(float(carb_pct), 2),
-        "Py_Nitrogen_pct": round(float(n_pct), 2),
-        "Py_Aromaticity_pct": round(float(aromatic_pct), 2),
-        "Py_Acid_Aldehyde_G": round(float(ac_al_g), 3),
-        "Py_Acid_Aldehyde_S": round(float(ac_al_s), 3),
-        "Py_Total_Lignin_Area_pct": round(float(total_lignin_pct), 2),
-        "Py_Carbohydrate_Area_pct": round(float(carb_pct), 2),
-        "Py_Nitrogen_Area_pct": round(float(n_pct), 2),
-        "Py_Aromaticity_Area_pct": round(float(aromatic_pct), 2),
+        "Py_H_pct": h_pct,
+        "Py_G_pct": g_pct,
+        "Py_S_pct": s_pct,
+        "Py_S_G_ratio": s_g_ratio,
+        "Py_H_G_ratio": h_g_ratio,
+        "Py_L_C_ratio": l_c_ratio,
+        "Py_Ac_Al_G": ac_al_g,
+        "Py_Ac_Al_S": ac_al_s,
+        "Py_Ketone_Aldehyde_G": ket_al_g,
+        "Py_Ketone_Aldehyde_S": ket_al_s,
+        "Py_Total_Lignin_pct": total_lignin_pct,
+        "Py_Carbohydrate_pct": carb_pct,
+        "Py_Nitrogen_pct": n_pct,
+        "Py_Aromaticity_pct": aromatic_pct,
+        "Py_Acid_Aldehyde_G": ac_al_g,
+        "Py_Acid_Aldehyde_S": ac_al_s,
+        "Py_Total_Lignin_Area_pct": total_lignin_pct,
+        "Py_Carbohydrate_Area_pct": carb_pct,
+        "Py_Nitrogen_Area_pct": n_pct,
+        "Py_Aromaticity_Area_pct": aromatic_pct,
     }
 
 
@@ -857,16 +1067,16 @@ def parse_tga_file(
         if np.any(diffs <= 0):
             t_safe = np.maximum.accumulate(t_safe) + np.arange(len(t_safe)) * 1e-4
 
+    # Знак DTG сохраняется: отрицательные значения означают прирост массы (окисление,
+    # адсорбция, дрейф плавучести) и не обрезаются до нуля.
     dtg = np.zeros_like(m_pct)
     if len(m_pct) > 15:
         window = min(21, len(m_pct) if len(m_pct) % 2 != 0 else len(m_pct) - 1)
         if window >= 5:
             smooth_m = scipy.signal.savgol_filter(m_pct, window_length=window, polyorder=2)
             dtg = -np.gradient(smooth_m, t_safe)
-            dtg = np.clip(dtg, 0.0, None)  # DTG >= 0
     elif len(m_pct) > 1:
         dtg = -np.gradient(m_pct, t_safe)
-        dtg = np.clip(dtg, 0.0, None)
 
     # Расчет индексов термогравиметрии
     indices = calculate_tga_indices(t_vals, m_pct, dtg)
@@ -878,8 +1088,40 @@ def parse_tga_file(
         raw_mass_mg=m_vals if np.max(m_vals) != np.max(m_pct) else None,
         dtg=dtg,
         indices=indices,
-        metadata={"t_min": float(np.min(t_vals)), "t_max": float(np.max(t_vals))},
+        metadata={"t_min": float(np.min(t_vals)), "t_max": float(np.max(t_vals)), "t_final": float(np.max(t_vals))},
     )
+
+
+TGA_INDEX_KEYS: Tuple[str, ...] = (
+    "TGA_Moisture_Loss_pct", "TGA_Aliphatic_Loss_pct", "TGA_Aromatic_Loss_pct",
+    "TGA_Char_Yield_600C", "TGA_Char_Yield_800C", "TGA_Thermostability_Index",
+    "TGA_T_5pct", "TGA_T_10pct", "TGA_T_50pct",
+    "DTG_T_max1", "DTG_T_max2", "DTG_Max_Rate",
+    "TGA_Zone_I_pct", "TGA_Zone_II_pct", "TGA_Zone_III_pct", "TGA_Zone_IV_pct",
+    "TGA_Thermal_Index_TI", "TGA_T5_degC", "TGA_T10_degC", "TGA_T50_degC",
+    "TGA_Residue_800C_pct", "DTG_Tmax_degC",
+    "TGA_Residue_Final_pct", "TGA_T_final_degC",
+)
+
+
+def _interp_crossing_temperature(
+    temperature: np.ndarray, mass_pct: np.ndarray, target: float, t_from: float = 150.0
+) -> float:
+    """
+    Первая температура (T ≥ t_from), при которой масса опускается до ``target``,
+    с линейной интерполяцией между соседними точками. NaN, если уровень не достигнут.
+    """
+    if not np.isfinite(target):
+        return float("nan")
+    idx = np.where((temperature >= t_from) & (mass_pct <= target))[0]
+    if len(idx) == 0:
+        return float("nan")
+    i = int(idx[0])
+    if i == 0 or temperature[i - 1] < t_from or mass_pct[i - 1] == mass_pct[i]:
+        return float(temperature[i])
+    t0, t1 = float(temperature[i - 1]), float(temperature[i])
+    m0, m1 = float(mass_pct[i - 1]), float(mass_pct[i])
+    return float(t0 + (target - m0) * (t1 - t0) / (m1 - m0))
 
 
 def calculate_tga_indices(
@@ -889,117 +1131,109 @@ def calculate_tga_indices(
 ) -> Dict[str, float]:
     """
     Рассчитывает стандартные термогравиметрические параметры:
-    1. Потери массы по 4 температурным интервалам:
+    1. Потери массы по температурным интервалам:
        - Зона I (25–150 °C): влага и легколетучие соединения (Moisture loss);
        - Зона II (150–350 °C): термодеструкция алифатики/гемицеллюлозы/целлюлозы;
        - Зона III (350–550 °C): термодеструкция ароматического каркаса и лигнина;
-       - Остаточный коксовый остаток (Char yield at 600°C / 800°C).
+       - Зона IV (TGA_Zone_IV_pct = TGA_Residue_Final_pct): остаток при конечной
+         температуре опыта T_final (кокс + зола), а не «100 − сумма потерь».
+       Коксовый остаток при 600 / 800 °C — только если эти температуры достигнуты.
     2. Индекс термостабильности TI = Δm_arom / Δm_aliph.
-    3. Характеристические температуры T_5%, T_10%, T_50%.
-    4. Максимумы скорости деструкции DTG (T_max1, T_max2).
+    3. Характеристические температуры T_5%, T_10%, T_50% (на сухую массу m(150 °C)),
+       линейная интерполяция между точками; NaN, если уровень потери не достигнут.
+    4. Максимумы скорости деструкции DTG (T_max1, T_max2) в диапазоне 180–600 °C.
+    Величины, для которых данных нет (интервал не покрыт), возвращаются как NaN.
     """
-    if len(temperature) == 0 or len(mass_pct) == 0:
-        return {
-            "TGA_Moisture_Loss_pct": 0.0,
-            "TGA_Aliphatic_Loss_pct": 0.0,
-            "TGA_Aromatic_Loss_pct": 0.0,
-            "TGA_Char_Yield_600C": 0.0,
-            "TGA_Char_Yield_800C": 0.0,
-            "TGA_Thermostability_Index": 0.0,
-            "TGA_T_5pct": 0.0, "TGA_T_10pct": 0.0, "TGA_T_50pct": 0.0,
-            "DTG_T_max1": 0.0, "DTG_T_max2": 0.0, "DTG_Max_Rate": 0.0,
-            "TGA_Zone_I_pct": 0.0, "TGA_Zone_II_pct": 0.0, "TGA_Zone_III_pct": 0.0, "TGA_Zone_IV_pct": 0.0,
-            "TGA_Thermal_Index_TI": 0.0, "TGA_T5_degC": 0.0, "TGA_T10_degC": 0.0, "TGA_T50_degC": 0.0,
-            "TGA_Residue_800C_pct": 0.0, "DTG_Tmax_degC": 0.0,
-        }
+    temperature = np.asarray(temperature, dtype=float)
+    mass_pct = np.asarray(mass_pct, dtype=float)
+    nan = float("nan")
+    if len(temperature) == 0 or len(mass_pct) == 0 or len(temperature) != len(mass_pct):
+        return {k: nan for k in TGA_INDEX_KEYS}
+
+    t_lo, t_hi = float(np.min(temperature)), float(np.max(temperature))
+    tol = 0.5  # °C
 
     def get_mass_at_t(target_t: float) -> float:
-        idx = np.searchsorted(temperature, target_t)
-        if idx == 0: return float(mass_pct[0])
-        if idx >= len(temperature): return float(mass_pct[-1])
-        # линейная интерполяция
-        t0, t1 = temperature[idx-1], temperature[idx]
-        m0, m1 = mass_pct[idx-1], mass_pct[idx]
-        if t1 == t0: return float(m0)
-        return float(m0 + (m1 - m0) * (target_t - t0) / (t1 - t0))
+        """Линейная интерполяция; NaN вне измеренного диапазона температур."""
+        if target_t < t_lo - tol or target_t > t_hi + tol:
+            return nan
+        if t_hi - t_lo < 1e-9:
+            return float(mass_pct[0])
+        return float(np.interp(target_t, temperature, mass_pct))
 
-    m_start = get_mass_at_t(25.0)
+    # Начальная масса: первая точка, если опыт начат не выше 150 °C
+    m_start = float(np.interp(max(25.0, t_lo), temperature, mass_pct)) if t_lo <= 150.0 and t_hi > t_lo else nan
     m_150 = get_mass_at_t(150.0)
     m_350 = get_mass_at_t(350.0)
     m_550 = get_mass_at_t(550.0)
     m_600 = get_mass_at_t(600.0)
-    m_800 = get_mass_at_t(800.0) if np.max(temperature) >= 750.0 else float(mass_pct[-1])
+    m_800 = get_mass_at_t(800.0)
+    m_final = float(mass_pct[int(np.argmax(temperature))]) if t_hi > t_lo else nan
 
-    # Потери массы в интервалах
-    dm_moisture = max(0.0, m_start - m_150)
-    dm_aliph = max(0.0, m_150 - m_350)
-    dm_arom = max(0.0, m_350 - m_550)
+    # Потери массы в интервалах (знак сохраняется: отрицательное значение = прирост массы)
+    dm_moisture = m_start - m_150
+    dm_aliph = m_150 - m_350
+    dm_arom = m_350 - m_550
 
     # Индекс термостабильности TI = Δm_arom / Δm_aliph
-    ti = dm_arom / max(dm_aliph, 1e-4)
+    ti = float(dm_arom / dm_aliph) if (np.isfinite(dm_arom) and np.isfinite(dm_aliph) and dm_aliph > 1e-4) else nan
 
     # Характеристические температуры потери 5%, 10%, 50% от сухого образца (m_150)
     dry_base = m_150
-    t_5, t_10, t_50 = 0.0, 0.0, 0.0
+    t_5 = _interp_crossing_temperature(temperature, mass_pct, dry_base * 0.95)
+    t_10 = _interp_crossing_temperature(temperature, mass_pct, dry_base * 0.90)
+    t_50 = _interp_crossing_temperature(temperature, mass_pct, dry_base * 0.50)
 
-    target_95 = dry_base * 0.95
-    target_90 = dry_base * 0.90
-    target_50 = dry_base * 0.50
-
-    idx_5 = np.where(mass_pct <= target_95)[0]
-    t_5 = float(temperature[idx_5[0]]) if len(idx_5) > 0 else float(np.max(temperature))
-
-    idx_10 = np.where(mass_pct <= target_90)[0]
-    t_10 = float(temperature[idx_10[0]]) if len(idx_10) > 0 else float(np.max(temperature))
-
-    idx_50 = np.where(mass_pct <= target_50)[0]
-    t_50 = float(temperature[idx_50[0]]) if len(idx_50) > 0 else float(np.max(temperature))
-
-    # Максимумы DTG
-    t_max1, t_max2, max_rate = 0.0, 0.0, 0.0
+    # Максимумы DTG (без обрезки отрицательных значений)
+    t_max1, t_max2, max_rate = nan, nan, nan
     if dtg is not None and len(dtg) == len(temperature):
-        # Ищем главный максимум в диапазоне 200–600 °C
-        valid_mask = (temperature >= 180.0) & (temperature <= 600.0)
-        if np.any(valid_mask):
+        dtg = np.asarray(dtg, dtype=float)
+        valid_mask = (temperature >= 180.0) & (temperature <= 600.0) & np.isfinite(dtg)
+        if np.count_nonzero(valid_mask) >= 3:
             sub_t = temperature[valid_mask]
             sub_dtg = dtg[valid_mask]
-            peaks_i, _ = scipy.signal.find_peaks(sub_dtg, prominence=np.max(sub_dtg)*0.15)
-            if len(peaks_i) > 0:
-                # Сортируем пики по высоте DTG
-                sorted_p = sorted(peaks_i, key=lambda pi: sub_dtg[pi], reverse=True)
-                t_max1 = float(sub_t[sorted_p[0]])
-                max_rate = float(sub_dtg[sorted_p[0]])
-                if len(sorted_p) > 1:
-                    t_max2 = float(sub_t[sorted_p[1]])
-            else:
-                max_idx = np.argmax(sub_dtg)
-                t_max1 = float(sub_t[max_idx])
-                max_rate = float(sub_dtg[max_idx])
+            top = float(np.max(sub_dtg))
+            if top > 0:
+                peaks_i, _ = scipy.signal.find_peaks(sub_dtg, prominence=top * 0.15)
+                if len(peaks_i) > 0:
+                    sorted_p = sorted(peaks_i, key=lambda pi: sub_dtg[pi], reverse=True)
+                    t_max1 = float(sub_t[sorted_p[0]])
+                    max_rate = float(sub_dtg[sorted_p[0]])
+                    if len(sorted_p) > 1:
+                        t_max2 = float(sub_t[sorted_p[1]])
+                else:
+                    max_idx = int(np.argmax(sub_dtg))
+                    t_max1 = float(sub_t[max_idx])
+                    max_rate = float(sub_dtg[max_idx])
 
-    dm_char = max(0.0, 100.0 - (float(dm_moisture) + float(dm_aliph) + float(dm_arom)))
+    def _r(v: float, nd: int) -> float:
+        return round(float(v), nd) if np.isfinite(v) else nan
+
     return {
-        "TGA_Moisture_Loss_pct": round(float(dm_moisture), 2),
-        "TGA_Aliphatic_Loss_pct": round(float(dm_aliph), 2),
-        "TGA_Aromatic_Loss_pct": round(float(dm_arom), 2),
-        "TGA_Char_Yield_600C": round(float(m_600), 2),
-        "TGA_Char_Yield_800C": round(float(m_800), 2),
-        "TGA_Thermostability_Index": round(float(ti), 3),
-        "TGA_T_5pct": round(float(t_5), 1),
-        "TGA_T_10pct": round(float(t_10), 1),
-        "TGA_T_50pct": round(float(t_50), 1),
-        "DTG_T_max1": round(float(t_max1), 1),
-        "DTG_T_max2": round(float(t_max2), 1),
-        "DTG_Max_Rate": round(float(max_rate), 4),
-        "TGA_Zone_I_pct": round(float(dm_moisture), 2),
-        "TGA_Zone_II_pct": round(float(dm_aliph), 2),
-        "TGA_Zone_III_pct": round(float(dm_arom), 2),
-        "TGA_Zone_IV_pct": round(float(dm_char), 2),
-        "TGA_Thermal_Index_TI": round(float(ti), 3),
-        "TGA_T5_degC": round(float(t_5), 1),
-        "TGA_T10_degC": round(float(t_10), 1),
-        "TGA_T50_degC": round(float(t_50), 1),
-        "TGA_Residue_800C_pct": round(float(m_800), 2),
-        "DTG_Tmax_degC": round(float(t_max1), 1),
+        "TGA_Moisture_Loss_pct": _r(dm_moisture, 2),
+        "TGA_Aliphatic_Loss_pct": _r(dm_aliph, 2),
+        "TGA_Aromatic_Loss_pct": _r(dm_arom, 2),
+        "TGA_Char_Yield_600C": _r(m_600, 2),
+        "TGA_Char_Yield_800C": _r(m_800, 2),
+        "TGA_Thermostability_Index": _r(ti, 3),
+        "TGA_T_5pct": _r(t_5, 1),
+        "TGA_T_10pct": _r(t_10, 1),
+        "TGA_T_50pct": _r(t_50, 1),
+        "DTG_T_max1": _r(t_max1, 1),
+        "DTG_T_max2": _r(t_max2, 1),
+        "DTG_Max_Rate": _r(max_rate, 4),
+        "TGA_Zone_I_pct": _r(dm_moisture, 2),
+        "TGA_Zone_II_pct": _r(dm_aliph, 2),
+        "TGA_Zone_III_pct": _r(dm_arom, 2),
+        "TGA_Zone_IV_pct": _r(m_final, 2),
+        "TGA_Thermal_Index_TI": _r(ti, 3),
+        "TGA_T5_degC": _r(t_5, 1),
+        "TGA_T10_degC": _r(t_10, 1),
+        "TGA_T50_degC": _r(t_50, 1),
+        "TGA_Residue_800C_pct": _r(m_800, 2),
+        "DTG_Tmax_degC": _r(t_max1, 1),
+        "TGA_Residue_Final_pct": _r(m_final, 2),
+        "TGA_T_final_degC": _r(t_hi, 1) if t_hi > t_lo else nan,
     }
 
 
@@ -1078,7 +1312,6 @@ def generate_synthetic_thermal_dataset(
         m_tga_nom = np.clip(m_tga_nom, char_rem - 2.0, 100.0)
 
         dtg_nom = -np.gradient(m_tga_nom, t_grid)
-        dtg_nom = np.clip(dtg_nom, 0.0, None)
         tga_indices_nom = calculate_tga_indices(t_grid, m_tga_nom, dtg_nom)
 
         tga_obj_nom = TGASample(
@@ -1122,7 +1355,8 @@ def generate_synthetic_thermal_dataset(
                 chemical_class=ref["class"],
                 cas=ref["cas"],
                 formula=ref["formula"],
-                similarity=round(float(rng.uniform(0.92, 0.99)), 3),
+                rt_match_score=1.0,          # пик помещён точно на RT библиотеки
+                id_basis="synthetic_library",
                 mw=float(ref.get("mw", 0.0)),
                 monomer_type=ref.get("subclass", ref["class"]),
                 name_en=ref["name_en"],
@@ -1168,7 +1402,6 @@ def generate_synthetic_thermal_dataset(
         m_tga_lignin = np.clip(m_tga_lignin, char_rem_l - 2.0, 100.0)
 
         dtg_lignin = -np.gradient(m_tga_lignin, t_grid)
-        dtg_lignin = np.clip(dtg_lignin, 0.0, None)
         tga_indices_lignin = calculate_tga_indices(t_grid, m_tga_lignin, dtg_lignin)
 
         tga_obj_lignin = TGASample(
@@ -1210,7 +1443,8 @@ def generate_synthetic_thermal_dataset(
                 chemical_class=ref["class"],
                 cas=ref["cas"],
                 formula=ref["formula"],
-                similarity=round(float(rng.uniform(0.94, 0.99)), 3),
+                rt_match_score=1.0,
+                id_basis="synthetic_library",
                 mw=float(ref.get("mw", 0.0)),
                 monomer_type=ref.get("subclass", ref["class"]),
                 name_en=ref["name_en"],

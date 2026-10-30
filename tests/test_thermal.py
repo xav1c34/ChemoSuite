@@ -82,8 +82,11 @@ def test_parse_py_gcms_peak_table():
 
     # S/G = 750 / (1500 + 300 + 150) = 750 / 1950 ≈ 0.385
     assert 0.30 <= idx["Py_S_G_ratio"] <= 0.45
-    # (Ac/Al)_G = 150 / 300 = 0.50
-    assert abs(idx["Py_Ac_Al_G"] - 0.50) < 0.05
+    # Ketone/Aldehyde_G = acetovanillone / vanillin = 150 / 300 = 0.50
+    assert abs(idx["Py_Ketone_Aldehyde_G"] - 0.50) < 0.05
+    # (Ac/Al)_G = vanillic acid / vanillin (Hedges & Ertel 1982): no acid in the table -> NaN, not 0.5
+    assert np.isnan(idx["Py_Ac_Al_G"])
+    assert np.isnan(idx["Py_Acid_Aldehyde_G"])
     # Lignin/Carbohydrate ratio > 0
     assert idx["Py_L_C_ratio"] > 1.0
 
@@ -102,7 +105,8 @@ def test_tga_dtg_parsing_and_indices():
     sample = thermal_core.parse_tga_file(csv_bytes, sample_id="Test_TGA")
     assert sample.sample_id == "Test_TGA"
     assert len(sample.dtg) == len(t_grid)
-    assert np.all(sample.dtg >= 0.0)
+    # DTG is not clipped at zero (mass gain must stay visible); it must be finite
+    assert np.all(np.isfinite(sample.dtg))
 
     idx = sample.indices
     # Проверяем потери массы по зонам
@@ -227,12 +231,12 @@ def test_adversarial_thermal_degraded_inputs():
     empty_py = thermal_core.parse_py_gcms_file("", sample_id="Empty_Py")
     assert empty_py.sample_id == "Empty_Py"
     assert len(empty_py.peaks) == 0
-    assert empty_py.indices["Py_S_G_ratio"] == 0.0
+    assert np.isnan(empty_py.indices["Py_S_G_ratio"])
 
     empty_tga = thermal_core.parse_tga_file("", sample_id="Empty_TGA")
     assert empty_tga.sample_id == "Empty_TGA"
     assert len(empty_tga.temperature) == 0
-    assert empty_tga.indices["TGA_Thermostability_Index"] == 0.0
+    assert np.isnan(empty_tga.indices["TGA_Thermostability_Index"])
 
     # 2. Текст без числовых данных
     corrupt_txt = "Header only\nSome comments\nNo numbers here\n"
@@ -245,7 +249,8 @@ def test_adversarial_thermal_degraded_inputs():
     # 3. Изотермические данные (одинаковая температура)
     iso_csv = "Temperature,Weight\n200.0,100.0\n200.0,99.0\n200.0,98.0\n"
     iso_tga = thermal_core.parse_tga_file(iso_csv)
-    assert iso_tga.indices["TGA_Thermostability_Index"] >= 0.0
+    # No temperature programme -> zones cannot be computed -> NaN (no fabricated 0)
+    assert np.isnan(iso_tga.indices["TGA_Thermostability_Index"])
 
 
 def test_py_gcms_peak_attributes_and_ui_compatibility():
