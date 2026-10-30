@@ -75,6 +75,342 @@ except ImportError:
     STRUCTURE_ELUCIDATION_AVAILABLE = False
 
 
+def _is_finite(v) -> bool:
+    try:
+        return v is not None and bool(np.isfinite(float(v)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _fmt_pct(v, nd: int = 1) -> str:
+    """Форматирует метрику в %; неопределенные значения (None/NaN) -> '—', а не правдоподобное число."""
+    return f"{float(v):.{nd}f}%" if _is_finite(v) else "—"
+
+
+def _split_feature_blocks(X_input: pd.DataFrame) -> "dict":
+    """Разбиение матрицы признаков на аналитические блоки (chemo_ml.classify_feature_blocks)."""
+    X_num = X_input.apply(pd.to_numeric, errors="coerce")
+    X_num = X_num.loc[:, X_num.notna().any(axis=0)]  # полностью нечисловые колонки не используются
+    block_map = chemo_ml.classify_feature_blocks(list(X_num.columns))
+    blocks = {}
+    for col in X_num.columns:
+        blocks.setdefault(block_map.get(col, "Other"), []).append(col)
+    return {b: X_num[cols] for b, cols in blocks.items() if cols}
+
+
+def _label_metrics(y_true, y_pred, classes) -> dict:
+    """Confusion matrix, accuracy, balanced accuracy, sensitivity/specificity (positive = classes[1])."""
+    from sklearn.metrics import confusion_matrix as _cm
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    cm = _cm(y_true, y_pred, labels=list(classes))
+    acc = float(np.mean(y_true == y_pred) * 100.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        recalls = np.diag(cm) / cm.sum(axis=1)
+    bal_acc = float(np.nanmean(recalls) * 100.0) if np.any(np.isfinite(recalls)) else float("nan")
+    if len(classes) == 2:
+        tn, fp, fn, tp = cm.ravel()
+        sens = float(tp / (tp + fn) * 100.0) if (tp + fn) > 0 else float("nan")
+        spec = float(tn / (tn + fp) * 100.0) if (tn + fp) > 0 else float("nan")
+    else:
+        sens = spec = bal_acc
+    return {"cm": cm, "acc": acc, "bal_acc": bal_acc, "sens": sens, "spec": spec}
+
+
+def _fit_multiblock_model(kind: str, X_input: pd.DataFrame, y_input, n_lvs: int, use_block_scale: bool) -> dict:
+    """
+    Обучение MB-PLS-DA ('mbpls') или SO-PLS ('sopls') по реальному API multiblock_chemometrics.
+    Все метрики берутся из обученной модели: R2X/R2Y — обучение, Q2 — K-fold CV,
+    Accuracy — обучение, Accuracy_CV — по CV-прогнозам. Неопределенные величины — NaN.
+    """
+    if multiblock_chemometrics is None:
+        raise RuntimeError("modules.multiblock_chemometrics is not available")
+    y_arr = np.asarray(y_input)
+    blocks = _split_feature_blocks(X_input)
+    if not blocks:
+        raise ValueError("Нет числовых признаков для мультиблочной модели / No numeric features for a multi-block model.")
+    block_names = list(blocks.keys())
+    notes = []
+    n_samples = len(y_arr)
+
+    if kind == "mbpls":
+        model = multiblock_chemometrics.MultiBlockPLSDA(
+            n_components=n_lvs, scale_blocks=use_block_scale, autoscale=True
+        ).fit(blocks, y_arr)
+        if len(block_names) == 1:
+            notes.append(f"Only one analytical block detected ({block_names[0]}): MB-PLS reduces to ordinary PLS-DA.")
+        scores = model.super_scores_
+        y_fit = model.y_fitted_
+        y_cv = model.y_cv_pred_
+        r2x = 100.0 * model.r2x_
+        r2y = 100.0 * model.r2y_
+        q2 = 100.0 * model.q2_
+        vip_rows = [
+            {"Descriptor": feat, "VIP": round(float(v), 3), "Block": b}
+            for b in block_names for feat, v in zip(model.block_features[b], model.b_vip_[b])
+        ]
+        block_contribs = {b: round(100.0 * model.block_importance_[b], 1)
+                          for b in block_names if _is_finite(model.block_importance_.get(b))}
+        summary_df = model.get_summary_dataframe()
+        axis_labels = ("Super-score t1", "Super-score t2")
+        model_type = "Multi-Block PLS-DA"
+        extra = {"Block_R2X": {b: 100.0 * v for b, v in model.block_r2x_.items()}}
+        cv_scheme = f"{min(model.cv_folds, n_samples)}-fold"
+    elif kind == "sopls":
+        if len(block_names) < 2:
+            raise ValueError(
+                f"SO-PLS требует ≥ 2 аналитических блоков, обнаружен {len(block_names)} ({', '.join(block_names)}). / "
+                f"SO-PLS needs at least 2 analytical blocks."
+            )
+        model = multiblock_chemometrics.SequentialOrthogonalizedPLS(
+            n_components_per_block={b: int(n_lvs) for b in block_names},
+            autoscale=True, scale_blocks=use_block_scale,
+        ).fit(blocks, y_arr, block_order=block_names)
+        score_parts = [model.block_scores[b] for b in block_names if model.block_scores[b].shape[1] > 0]
+        scores = np.hstack(score_parts) if score_parts else np.zeros((n_samples, 0))
+        comp_labels = [f"{b} t{i + 1}" for b in block_names for i in range(model.n_components_used_[b])]
+        axis_labels = (comp_labels[0] if comp_labels else "t1", comp_labels[1] if len(comp_labels) > 1 else "t2")
+        y_fit = model.y_fitted_
+        y_cv = model.y_cv_pred_
+        r2x = float("nan")  # для SO-PLS единый R2X не определен (блоки ортогонализуются последовательно)
+        r2y = 100.0 * model.r2y_
+        q2 = 100.0 * model.q2_
+        vip_rows = [
+            {"Descriptor": feat, "VIP": round(float(v), 3), "Block": b}
+            for b in block_names for feat, v in zip(model.block_features[b], model.vip_[b])
+        ]
+        tot_inc = sum(v for v in model.r2_incremental.values() if _is_finite(v))
+        block_contribs = ({b: round(100.0 * model.r2_incremental[b] / tot_inc, 1) for b in block_names}
+                          if tot_inc > 1e-12 else {})
+        summary_df = model.get_summary_dataframe()
+        model_type = "Sequential & Orthogonalized PLS"
+        extra = {
+            "Incremental_R2Y": {b: 100.0 * v for b, v in model.r2_incremental.items()},
+            "Cumulative_R2Y": {b: 100.0 * v for b, v in model.r2_cumulative.items()},
+            "Cumulative_Q2": {b: 100.0 * v for b, v in model.q2_cumulative.items()},
+            "Block_Order": block_names,
+        }
+        cv_scheme = f"{min(model.cv_folds, n_samples)}-fold"
+    else:
+        raise ValueError(f"Unknown multi-block model kind: {kind}")
+
+    classes = model.classes_
+    y_pred_cls = classes[np.argmax(y_fit, axis=1)]
+    m_train = _label_metrics(y_arr, y_pred_cls, classes)
+    if y_cv is not None and not np.any(np.isnan(y_cv)):
+        m_cv = _label_metrics(y_arr, classes[np.argmax(y_cv, axis=1)], classes)
+    else:
+        m_cv = {"cm": None, "acc": float("nan"), "bal_acc": float("nan")}
+
+    t1 = scores[:, 0] if scores.shape[1] > 0 else np.zeros(n_samples)
+    t2 = scores[:, 1] if scores.shape[1] > 1 else np.zeros(n_samples)
+    ell_x, ell_y = chemo_ml.compute_hotelling_ellipse(t1, t2)
+    vip_df = pd.DataFrame(vip_rows, columns=["Descriptor", "VIP", "Block"]).sort_values(
+        "VIP", ascending=False).reset_index(drop=True)
+
+    res = {
+        "model_type": model_type,
+        "scores_t1": t1, "t1": t1, "scores_t2": t2, "t2": t2,
+        "ell_x": ell_x, "ell_y": ell_y, "ellipse_x": ell_x, "ellipse_y": ell_y,
+        "axis_labels": axis_labels,
+        "R2X": r2x, "R2Y": r2y, "Q2": q2,
+        "Accuracy": m_train["acc"], "Balanced_Accuracy": m_train["bal_acc"],
+        "Sensitivity": m_train["sens"], "Specificity": m_train["spec"],
+        "Confusion_Matrix": m_train["cm"],
+        "Accuracy_CV": m_cv["acc"], "Balanced_Accuracy_CV": m_cv["bal_acc"],
+        "Confusion_Matrix_CV": m_cv["cm"], "CV_Scheme": cv_scheme,
+        "Block_Contributions": block_contribs,
+        "Block_Summary_df": summary_df,
+        "VIP_df": vip_df, "vip_df": vip_df,
+        "y_pred": y_fit, "y_cv_pred": y_cv,
+        "classes": classes, "is_multiclass": len(classes) > 2,
+        "feature_names": [f for b in block_names for f in model.block_features[b]],
+        "Warnings": list(model.warnings_) + notes,
+    }
+    res.update(extra)
+    return res
+
+
+# Полосы FTIR -> флаги MultiModalConstraints (1 = полоса наблюдается, -1 = не учитывать)
+_ELUCID_FTIR_OPTIONS = {
+    "1510 (Guaiacyl G-ring)": "ftir_aromatic_c_c",
+    "1600 (Aromatic C=C)": "ftir_aromatic_c_c",
+    "1720 (C=O carbonyl)": "ftir_carbonyl",
+    "3400 (Phenolic OH)": "ftir_phenol_oh",
+    "1030 (C-O ether / methoxy)": "ftir_ether_c_o",
+}
+
+
+def _build_elucidation_constraints(
+    formula: str,
+    ftir_selected,
+    exact_mass=None,
+    mass_tol_ppm: float = 2.0,
+    nmr_pct=None,
+    target_h_c=None,
+    target_o_c=None,
+    target_nosc=None,
+):
+    """
+    Сборка MultiModalConstraints по реальному API structure_elucidation.
+    nmr_pct: dict {aliphatic, o_alkyl, aromatic, carboxyl} в % (0-100) или None —
+    модуль сравнивает доли углерода (0-1), поэтому значения делятся на 100.
+    Невыбранные полосы FTIR = -1 (не учитываются), а не 0 («отсутствует»).
+    """
+    flags = {k: -1 for k in set(_ELUCID_FTIR_OPTIONS.values())}
+    for opt in ftir_selected or []:
+        key = _ELUCID_FTIR_OPTIONS.get(opt)
+        if key:
+            flags[key] = 1
+    kwargs = dict(
+        formula=str(formula).strip(),
+        exact_mass=float(exact_mass) if _is_finite(exact_mass) and float(exact_mass) > 0 else 0.0,
+        mass_tol_ppm=float(mass_tol_ppm) if _is_finite(mass_tol_ppm) and float(mass_tol_ppm) > 0 else 2.0,
+        target_h_c=float(target_h_c) if _is_finite(target_h_c) else None,
+        target_o_c=float(target_o_c) if _is_finite(target_o_c) else None,
+        target_nosc=float(target_nosc) if _is_finite(target_nosc) else None,
+        **flags,
+    )
+    if nmr_pct:
+        kwargs.update(
+            nmr_aliphatic_pct=float(nmr_pct.get("aliphatic", 0.0)) / 100.0,
+            nmr_o_alkyl_pct=float(nmr_pct.get("o_alkyl", 0.0)) / 100.0,
+            nmr_aromatic_pct=float(nmr_pct.get("aromatic", 0.0)) / 100.0,
+            nmr_carboxyl_pct=float(nmr_pct.get("carboxyl", 0.0)) / 100.0,
+        )
+    return structure_elucidation.MultiModalConstraints(**kwargs)
+
+
+def _elucidation_rows(candidates) -> list:
+    """Табличное представление List[CandidateStructure]; NaN-оценки -> '—'."""
+    rows = []
+    for rank, c in enumerate(candidates, start=1):
+        breakdown = getattr(c, "score_breakdown", {}) or {}
+        row = {
+            "Rank": rank,
+            "Compound": getattr(c, "name", ""),
+            "CID": getattr(c, "cid", None),
+            "Formula": getattr(c, "formula", ""),
+            "Exact mass": round(float(c.exact_mass), 5) if _is_finite(getattr(c, "exact_mass", None)) else None,
+            "MMCS Score": _fmt_pct(getattr(c, "concordance_score", None)),
+        }
+        for k, v in breakdown.items():
+            row[k] = _fmt_pct(v, 0)
+        row["SMILES"] = getattr(c, "smiles", "")
+        row["Source"] = getattr(c, "source", "")
+        warns = getattr(c, "warnings", None) or []
+        row["Warnings"] = "; ".join(str(w) for w in warns)
+        rows.append(row)
+    return rows
+
+
+def _render_structure_elucidation(lang: str):
+    """Поиск изомеров в PubChem по формуле и ранжирование по MMCS — только по кнопке."""
+    c_el1, c_el2 = st.columns([1.5, 2.5])
+    with c_el1:
+        target_formula = st.text_input(
+            "Брутто-формула (FT-ICR MS):" if lang == "ru" else "Target Formula (FT-ICR MS):",
+            value="C9H10O3", key="elucid_formula",
+        )
+        exact_mass = st.number_input(
+            "Точная нейтральная масса, Да (необязательно):" if lang == "ru" else "Exact neutral mass, Da (optional):",
+            min_value=0.0, value=None, step=0.0001, format="%.5f", key="elucid_exact_mass",
+        )
+        mass_tol = st.number_input(
+            "Допуск по массе, ppm:" if lang == "ru" else "Mass tolerance, ppm:",
+            min_value=0.1, max_value=50.0, value=2.0, step=0.1, key="elucid_mass_tol",
+        )
+        ftir_sel = st.multiselect(
+            "Детектированные полосы FTIR (см⁻¹):" if lang == "ru" else "Observed FTIR Bands (cm⁻¹):",
+            options=list(_ELUCID_FTIR_OPTIONS.keys()),
+            default=["1510 (Guaiacyl G-ring)", "1600 (Aromatic C=C)", "1720 (C=O carbonyl)"],
+            key="elucid_ftir_bands",
+            help=("Невыбранные полосы не учитываются (не считаются отсутствующими)." if lang == "ru"
+                  else "Unselected bands are ignored (not treated as absent)."),
+        )
+        use_nmr = st.checkbox(
+            "Задать распределение углерода 13C-NMR" if lang == "ru" else "Set 13C-NMR carbon distribution",
+            value=False, key="elucid_use_nmr",
+        )
+        nmr_pct = None
+        if use_nmr:
+            nmr_pct = {
+                "aliphatic": st.slider("C-алифатический 0-50 ppm (%)" if lang == "ru" else "Aliphatic C 0-50 ppm (%)", 0.0, 100.0, 20.0, 1.0, key="elucid_nmr_aliph"),
+                "o_alkyl": st.slider("O-алкил 50-110 ppm (%)" if lang == "ru" else "O-alkyl C 50-110 ppm (%)", 0.0, 100.0, 10.0, 1.0, key="elucid_nmr_oalkyl"),
+                "aromatic": st.slider("Ароматический 110-165 ppm (%)" if lang == "ru" else "Aromatic C 110-165 ppm (%)", 0.0, 100.0, 60.0, 1.0, key="elucid_nmr_arom"),
+                "carboxyl": st.slider("Карбоксил 165-220 ppm (%)" if lang == "ru" else "Carboxyl C 165-220 ppm (%)", 0.0, 100.0, 10.0, 1.0, key="elucid_nmr_carb"),
+            }
+            nmr_sum = sum(nmr_pct.values())
+            if abs(nmr_sum - 100.0) > 1.0:
+                st.caption(
+                    f"⚠️ Сумма долей углерода = {nmr_sum:.0f}% (ожидается 100%)." if lang == "ru"
+                    else f"⚠️ Carbon fractions sum to {nmr_sum:.0f}% (expected 100%)."
+                )
+        target_h_c = st.number_input("Целевое H/C (CHNS-O, необязательно):" if lang == "ru" else "Target H/C (CHNS-O, optional):",
+                                     min_value=0.0, max_value=4.0, value=None, step=0.01, key="elucid_target_hc")
+        target_o_c = st.number_input("Целевое O/C (CHNS-O, необязательно):" if lang == "ru" else "Target O/C (CHNS-O, optional):",
+                                     min_value=0.0, max_value=3.0, value=None, step=0.01, key="elucid_target_oc")
+        run_elucid_btn = st.button("🚀 " + ("Ранжировать изомеры по MMCS" if lang == "ru" else "Rank Isomers via MMCS"),
+                                   type="primary", key="btn_run_elucid")
+
+    if run_elucid_btn:
+        if not str(target_formula).strip():
+            st.warning("Укажите брутто-формулу." if lang == "ru" else "Please enter a molecular formula.")
+        else:
+            try:
+                with st.spinner("Поиск изомеров в PubChem..." if lang == "ru" else "Searching PubChem isomers..."):
+                    constraints = _build_elucidation_constraints(
+                        target_formula, ftir_sel, exact_mass=exact_mass, mass_tol_ppm=mass_tol,
+                        nmr_pct=nmr_pct, target_h_c=target_h_c, target_o_c=target_o_c,
+                    )
+                    ranked = structure_elucidation.elucidate_candidates(constraints, custom_candidates=None, max_results=15)
+                st.session_state["elucid_results"] = {
+                    "formula": constraints.formula,
+                    "rows": _elucidation_rows(ranked),
+                    "status": getattr(ranked, "status", "ok" if ranked else "no_candidates"),
+                    "message": getattr(ranked, "message", None),
+                    "error": None,
+                }
+            except Exception as exc:
+                st.session_state["elucid_results"] = {
+                    "formula": str(target_formula), "rows": [], "status": "error", "message": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+
+    with c_el2:
+        saved = st.session_state.get("elucid_results")
+        if saved is None:
+            st.info(
+                "Задайте ограничения и нажмите кнопку: изомеры будут получены из PubChem по брутто-формуле и ранжированы по MMCS."
+                if lang == "ru" else
+                "Set the constraints and press the button: isomers are retrieved from PubChem by formula and ranked by MMCS."
+            )
+        elif saved.get("error"):
+            st.error(
+                f"⚠️ Ошибка расшифровки структуры для {saved.get('formula')}: {saved['error']}" if lang == "ru"
+                else f"⚠️ Structure elucidation failed for {saved.get('formula')}: {saved['error']}"
+            )
+        elif not saved.get("rows"):
+            msg = saved.get("message") or (
+                "Кандидаты не найдены." if lang == "ru" else "No candidate structures found."
+            )
+            st.info(f"ℹ️ {saved.get('formula')}: {msg}")
+        else:
+            st.caption(
+                f"Кандидаты для {saved.get('formula')} (PubChem), ранжированы по MMCS; '—' — компонент не оценивался."
+                if lang == "ru" else
+                f"Candidates for {saved.get('formula')} (PubChem), ranked by MMCS; '—' = component not scored."
+            )
+            st.dataframe(pd.DataFrame(saved["rows"]), use_container_width=True, hide_index=True)
+            best = saved["rows"][0]
+            if best.get("MMCS Score") not in (None, "—"):
+                st.success(
+                    (f"🏆 **Топ-1 структурный кандидат:** `{best['Compound']}` (MMCS = **{best['MMCS Score']}**)")
+                    if lang == "ru" else
+                    (f"🏆 **Top-1 structural candidate:** `{best['Compound']}` (MMCS = **{best['MMCS Score']}**)")
+                )
+
+
 def render_chemo_ml_studio(T: dict, lang: str):
     """Render Module 3: Multimodal Data Fusion & Advanced Chemometrics Studio."""
     st.title(T[lang]["ml_title"])
@@ -545,8 +881,9 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             strat_code = "mid_level" if strategy_choice == T[lang]["ml_strat_mid"] else "low_level"
         with col_p2:
             if is_opls:
-                max_ortho = max(1, min(3, len(edited_df) - 2))
-                n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=1, max_value=max(1, max_ortho), value=1, key="opls_ortho_slider") if max_ortho > 1 else 1
+                max_ortho = max(0, min(3, len(edited_df) - 2))
+                # 0 ортогональных компонент допустимо (OPLS == 1-компонентный PLS-DA)
+                n_ortho = st.slider(T[lang]["ml_ortho_slider"], min_value=0, max_value=max(1, max_ortho), value=min(1, max_ortho), key="opls_ortho_slider")
                 use_perm = False
             elif is_spls:
                 n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="spls_lvs_slider") if max_allowed_lvs > 2 else 2
@@ -556,6 +893,13 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                 use_perm = False
             elif is_mbpls or is_sopls:
                 n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="mb_pls_lvs_slider") if max_allowed_lvs > 2 else 2
+                st.caption(
+                    ("Мультиблочная модель использует блоки напрямую (стратегия слияния не применяется). "
+                     + ("SO-PLS: число LV задается для каждого блока; порядок блоков = порядок колонок." if is_sopls else ""))
+                    if lang == "ru" else
+                    ("Multi-block models use the blocks directly (fusion strategy is not applied). "
+                     + ("SO-PLS: LVs are per block; block order = column order." if is_sopls else ""))
+                )
                 use_perm = False
             else:
                 n_lvs = st.slider(T[lang]["ml_lvs_slider"], min_value=2, max_value=max_allowed_lvs, value=2, key="pls_lvs_slider") if max_allowed_lvs > 2 else 2
@@ -585,60 +929,10 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             else:
                 try:
                     with st.spinner(T[lang]["ml_spinner"]):
-                        if is_mbpls and MULTIBLOCK_AVAILABLE:
-                            block_map = chemo_ml._detect_block_mapping(list(feat_cols)) if hasattr(chemo_ml, "_detect_block_mapping") else {}
-                            blocks_dict = {}
-                            for col in feat_cols:
-                                b_name = block_map.get(col, "Other")
-                                if b_name not in blocks_dict:
-                                    blocks_dict[b_name] = []
-                                blocks_dict[b_name].append(col)
-                            X_blocks = [X_input[cols].values for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            block_names = [b_name for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            y_numeric = np.array([int(c) if str(c).isdigit() else idx for idx, c in enumerate(y_input)])
-                            mb_model = multiblock_chemometrics.MultiBlockPLSDA(n_components=n_lvs, block_scale=use_block_scale)
-                            mb_model.fit(X_blocks, y_numeric, block_names=block_names)
-                            bvips = mb_model.compute_block_vips()
-                            r2x_tot = float(np.sum(mb_model.block_r2x_)) * 100.0 if mb_model.block_r2x_ else 75.0
-                            res = {
-                                "model_type": "Multi-Block PLS-DA",
-                                "scores_t1": mb_model.super_scores_[:, 0],
-                                "scores_t2": mb_model.super_scores_[:, 1] if n_lvs > 1 else np.zeros(len(y_input)),
-                                "R2X": r2x_tot,
-                                "R2Y": 85.0,
-                                "Q2": 68.0,
-                                "Accuracy": 92.0,
-                                "Block_Contributions": {b: float(mb_model.block_weights_.get(b, 1.0)) for b in block_names},
-                                "VIP_df": pd.DataFrame([{"Descriptor": f"{b}_LV1", "Block": b, "VIP": float(bvips.get(b, 1.0))} for b in block_names]).sort_values("VIP", ascending=False),
-                            }
-                            st.session_state["pls_results"] = res
-                            st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
-                            st.session_state["pls_y_input"] = y_input
-                            st.session_state["perm_results"] = None
-                        elif is_sopls and MULTIBLOCK_AVAILABLE:
-                            block_map = chemo_ml._detect_block_mapping(list(feat_cols)) if hasattr(chemo_ml, "_detect_block_mapping") else {}
-                            blocks_dict = {}
-                            for col in feat_cols:
-                                b_name = block_map.get(col, "Other")
-                                if b_name not in blocks_dict:
-                                    blocks_dict[b_name] = []
-                                blocks_dict[b_name].append(col)
-                            X_blocks = [X_input[cols].values for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            block_names = [b_name for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            y_numeric = np.array([int(c) if str(c).isdigit() else idx for idx, c in enumerate(y_input)])
-                            so_model = multiblock_chemometrics.SequentialOrthogonalizedPLS(n_components_per_block=[2] * len(X_blocks))
-                            so_model.fit(X_blocks, y_numeric, block_names=block_names)
-                            res = {
-                                "model_type": "Sequential & Orthogonalized PLS",
-                                "scores_t1": X_blocks[0][:, 0],
-                                "scores_t2": X_blocks[0][:, 1] if X_blocks[0].shape[1] > 1 else np.zeros(len(y_input)),
-                                "R2X": float(so_model.cumulative_r2y_[-1] * 100.0) if so_model.cumulative_r2y_ else 80.0,
-                                "R2Y": float(so_model.cumulative_r2y_[-1] * 100.0) if so_model.cumulative_r2y_ else 85.0,
-                                "Q2": 72.0,
-                                "Accuracy": 90.0,
-                                "Block_Contributions": {b: float(so_model.incremental_r2y_.get(b, 0.2)) * 100.0 for b in block_names},
-                                "VIP_df": pd.DataFrame([{"Descriptor": f"{b}_Incremental_R2", "Block": b, "VIP": float(so_model.incremental_r2y_.get(b, 0.2)) * 5.0} for b in block_names]),
-                            }
+                        if (is_mbpls or is_sopls) and MULTIBLOCK_AVAILABLE:
+                            res = _fit_multiblock_model(
+                                "mbpls" if is_mbpls else "sopls", X_input, y_input, n_lvs, use_block_scale
+                            )
                             st.session_state["pls_results"] = res
                             st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
                             st.session_state["pls_y_input"] = y_input
@@ -667,7 +961,16 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 st.session_state["perm_results"] = None
 
                 except ValueError as val_err:
+                    st.session_state["pls_results"] = None
                     st.error(T[lang]["ml_warn_input"].format(err=val_err))
+                except Exception as fit_err:
+                    # Любой сбой обучения показываем пользователю, а не скрываем
+                    st.session_state["pls_results"] = None
+                    st.error(
+                        (f"⚠️ Ошибка обучения модели ({type(fit_err).__name__}): {fit_err}")
+                        if lang == "ru" else
+                        (f"⚠️ Model fitting failed ({type(fit_err).__name__}): {fit_err}")
+                    )
 
         # Вывод результатов
         res = st.session_state.get("pls_results", None)
@@ -693,16 +996,38 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             st.markdown("---")
             st.subheader(f"{T[lang]['ml_sec3_title']} ({curr_model_type})")
 
+            for w_msg in res.get("Warnings", []) or []:
+                st.warning(f"⚠️ {w_msg}")
+
             m1, m2, m3, m4 = st.columns(4)
             if is_model_opls:
-                m1.metric(f"{T[lang]['ml_m_r2x_pred']} / {T[lang]['ml_m_r2x_ortho']}", f"{res.get('R2X_pred', 0.0):.1f}% / {res.get('R2X_ortho', 0.0):.1f}%")
+                m1.metric(f"{T[lang]['ml_m_r2x_pred']} / {T[lang]['ml_m_r2x_ortho']}", f"{_fmt_pct(res.get('R2X_pred'))} / {_fmt_pct(res.get('R2X_ortho'))}")
             else:
-                m1.metric(T[lang]["ml_m_r2x"], f"{res.get('R2X', 0.0):.1f}%")
-            m2.metric(T[lang]["ml_m_r2y"], f"{res.get('R2Y', 0.0):.1f}%")
-            q2_val = res.get("Q2", 0.0)
-            m3.metric(T[lang]["ml_m_q2"], f"{q2_val:.1f}%", delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"])
-            acc_val = res.get("Balanced_Accuracy", res.get("Accuracy", 0.0))
-            m4.metric(T[lang]["ml_m_acc"], f"{acc_val:.1f}%")
+                m1.metric(
+                    T[lang]["ml_m_r2x"], _fmt_pct(res.get("R2X")),
+                    help=None if _is_finite(res.get("R2X")) else (
+                        "Для данной модели единый R²X не определен." if lang == "ru" else "A single R²X is not defined for this model."
+                    ),
+                )
+            m2.metric(T[lang]["ml_m_r2y"], _fmt_pct(res.get("R2Y")))
+            q2_val = res.get("Q2")
+            q2_help = (f"Схема кросс-валидации: {res.get('CV_Scheme', '—')}" if lang == "ru"
+                       else f"Cross-validation scheme: {res.get('CV_Scheme', '—')}")
+            if _is_finite(q2_val):
+                m3.metric(T[lang]["ml_m_q2"], _fmt_pct(q2_val), delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"], help=q2_help)
+            else:
+                m3.metric(T[lang]["ml_m_q2"], "—", delta=("Q² не вычислен" if lang == "ru" else "Q² not computed"), delta_color="off", help=q2_help)
+            acc_cv = res.get("Balanced_Accuracy_CV", res.get("Accuracy_CV"))
+            acc_train = res.get("Balanced_Accuracy", res.get("Accuracy"))
+            if _is_finite(acc_cv):
+                m4.metric(
+                    f"{T[lang]['ml_m_acc']} (CV)", _fmt_pct(acc_cv),
+                    help=(f"По прогнозам кросс-валидации ({res.get('CV_Scheme', 'CV')}). На обучающей выборке: {_fmt_pct(acc_train)}"
+                          if lang == "ru" else
+                          f"From cross-validated predictions ({res.get('CV_Scheme', 'CV')}). Training (resubstitution): {_fmt_pct(acc_train)}"),
+                )
+            else:
+                m4.metric(f"{T[lang]['ml_m_acc']} ({'обучение' if lang == 'ru' else 'training'})", _fmt_pct(acc_train))
 
             tab_names = [T[lang]["ml_tab_scores"], T[lang]["ml_tab_vips"]]
             if is_model_opls:
@@ -789,8 +1114,9 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             line=dict(dash="dot", color="#7f7f7f", width=1.5),
                             name=T[lang]["ml_hotelling_name"], hoverinfo="skip",
                         ))
-                    axis_x_lbl = "t_pred (Predictive LV1)" if is_model_opls else "LV1"
-                    axis_y_lbl = "t_ortho (Orthogonal LV1)" if is_model_opls else "LV2"
+                    custom_axes = res.get("axis_labels")
+                    axis_x_lbl = "t_pred (Predictive LV1)" if is_model_opls else (custom_axes[0] if custom_axes else "LV1")
+                    axis_y_lbl = "t_ortho (Orthogonal LV1)" if is_model_opls else (custom_axes[1] if custom_axes else "LV2")
                     for c_name in unique_cls:
                         mask = [str(y) == str(c_name) for y in y_curr]
                         s_sub = [s for s, m in zip(sample_ids_curr, mask) if m]
@@ -823,7 +1149,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                         st.markdown("---")
                         st.write(f"#### {T[lang]['ml_pubchem_title']}")
                         st.caption(T[lang]["ml_pubchem_caption"])
-                        sparse_df = res.get("Biomarkers_df", pd.DataFrame())
+                        sparse_df = res.get("Sparse_Loadings_df", res.get("Biomarkers_df", pd.DataFrame()))
                         target_bm = sparse_df[sparse_df["Is_Selected"]].copy() if (curr_model_type == "Sparse PLS-DA (sPLS-DA)" and not sparse_df.empty and "Is_Selected" in sparse_df.columns) else (vip_df.head(20).copy() if not vip_df.empty else pd.DataFrame())
                         if not target_bm.empty:
                             if st.button(T[lang]["ml_pubchem_btn"], key="btn_annot_biomarkers_pubchem"):
@@ -882,25 +1208,33 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             with tab_ml3:
                 c_v1, c_v2 = st.columns(2)
                 with c_v1:
-                    cm_mat = res.get("Confusion_Matrix", np.zeros((2, 2)))
                     cls_labels = [str(c) for c in res.get("classes", unique_cls)]
+                    cm_cv = res.get("Confusion_Matrix_CV")
+                    show_cv_cm = cm_cv is not None
+                    cm_mat = cm_cv if show_cv_cm else res.get("Confusion_Matrix", np.zeros((2, 2)))
+                    st.caption(
+                        (f"Матрица ошибок по прогнозам кросс-валидации ({res.get('CV_Scheme', 'CV')})" if show_cv_cm else "Матрица ошибок на обучающей выборке")
+                        if lang == "ru" else
+                        (f"Confusion matrix from cross-validated predictions ({res.get('CV_Scheme', 'CV')})" if show_cv_cm else "Training (resubstitution) confusion matrix")
+                    )
                     fig_cm = px.imshow(cm_mat, text_auto=True, x=cls_labels, y=cls_labels, color_continuous_scale="Blues")
                     st_plotly(fig_cm)
 
+                    train_lbl = "обучение" if lang == "ru" else "training"
                     if not res.get("is_multiclass", False):
                         st.markdown(
                             f"""
-                            * **{T[lang]['ml_sens_label']}** `{res.get('Sensitivity', 0.0):.1f}%`
-                            * **{T[lang]['ml_spec_label']}** `{res.get('Specificity', 0.0):.1f}%`
-                            * **{T[lang]['ml_bal_acc_label']}** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
+                            * **{T[lang]['ml_sens_label']}** `{_fmt_pct(res.get('Sensitivity'))}` ({train_lbl})
+                            * **{T[lang]['ml_spec_label']}** `{_fmt_pct(res.get('Specificity'))}` ({train_lbl})
+                            * **{T[lang]['ml_bal_acc_label']}** `{_fmt_pct(res.get('Balanced_Accuracy'))}` ({train_lbl}) / `{_fmt_pct(res.get('Balanced_Accuracy_CV'))}` (CV)
                             """
                         )
                     else:
                         st.markdown(
                             f"""
                             * **{T[lang]['ml_mode_multiclass'].format(n=len(cls_labels))}**
-                            * **{T[lang]['ml_bal_acc_label']}** `{res.get('Balanced_Accuracy', 0.0):.1f}%`
-                            * **{T[lang]['ml_acc_label']}** `{res.get('Accuracy', 0.0):.1f}%`
+                            * **{T[lang]['ml_bal_acc_label']}** `{_fmt_pct(res.get('Balanced_Accuracy'))}` ({train_lbl}) / `{_fmt_pct(res.get('Balanced_Accuracy_CV'))}` (CV)
+                            * **{T[lang]['ml_acc_label']}** `{_fmt_pct(res.get('Accuracy'))}` ({train_lbl}) / `{_fmt_pct(res.get('Accuracy_CV'))}` (CV)
                             """
                         )
 
@@ -909,9 +1243,14 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                         fig_perm = go.Figure(data=[go.Histogram(x=perm_res["perm_q2"], marker_color="#8da9c4")])
                         fig_perm.add_vline(x=perm_res["q2_orig"], line_dash="dash", line_color="#d62728")
                         st_plotly(fig_perm)
-                        st.write(f"Empirical p-value = **{perm_res['p_val_q2']:.4f}**")
+                        p_perm = perm_res.get("p_val_q2")
+                        st.write(f"Empirical p-value = **{p_perm:.4f}**" if _is_finite(p_perm) else "Empirical p-value = **—**")
                     else:
-                        st.info("Validation metrics calculated via internal Cross-Validation.")
+                        st.info(
+                            (f"Q² рассчитан кросс-валидацией ({res.get('CV_Scheme', 'CV')}); предобработка обучается внутри каждого фолда."
+                             if lang == "ru" else
+                             f"Q² computed by cross-validation ({res.get('CV_Scheme', 'CV')}); preprocessing is fitted inside each fold.")
+                        )
 
             with tab_ml4:
                 block_contribs = res.get("Block_Contributions", {})
@@ -919,6 +1258,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     fig_donut = go.Figure(data=[go.Pie(labels=list(block_contribs.keys()), values=list(block_contribs.values()), hole=0.45)])
                     fig_donut.update_layout(height=420)
                     st_plotly(fig_donut)
+                else:
+                    st.info("Вклад блоков не определен для данной модели." if lang == "ru" else "Block contributions are not defined for this model.")
+                block_summary = res.get("Block_Summary_df")
+                if isinstance(block_summary, pd.DataFrame) and not block_summary.empty:
+                    st.write("#### " + ("Сводка по аналитическим блокам" if lang == "ru" else "Analytical block summary"))
+                    st_df(block_summary)
 
             with tab_crosscorr:
                 st.write(f"### {T[lang]['ml_crosscorr_title']}")
@@ -997,9 +1342,14 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                             if not feats_a or not feats_b:
                                 st.warning(T[lang]["ml_crosscorr_no_data"])
                             else:
-                                mat_a = edited_df[feats_a].values
-                                mat_b = edited_df[feats_b].values
+                                mat_a = edited_df[feats_a].apply(pd.to_numeric, errors="coerce").values.astype(float)
+                                mat_b = edited_df[feats_b].apply(pd.to_numeric, errors="coerce").values.astype(float)
                                 phi_2d = cross_correlation.compute_heterospectral_2d_correlation(mat_a, mat_b, scale=True)
+                                st.caption(
+                                    "Нормированный синхронный спектр = коэффициенты корреляции Пирсона r между дескрипторами блоков."
+                                    if lang == "ru" else
+                                    "Normalised synchronous spectrum = Pearson correlation r between block descriptors."
+                                )
 
                                 fig_2d = px.imshow(
                                     phi_2d,
@@ -1018,6 +1368,46 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 )
                                 st_plotly(fig_2d)
 
+                                show_async = st.checkbox(
+                                    "Показать асинхронный спектр Нода (порядок строк = порядок возмущения)"
+                                    if lang == "ru" else
+                                    "Show Noda asynchronous spectrum (row order = perturbation order)",
+                                    value=False,
+                                    key="chk_2dcos_async",
+                                )
+                                if show_async:
+                                    st.caption(
+                                        "Асинхронный спектр Ψ = Yₐᵀ N Y_b /(m−1) (N — матрица Гильберта–Нода) имеет смысл только если "
+                                        "образцы упорядочены по внешнему возмущению (время, температура, расстояние от источника). "
+                                        "Переменные автошкалированы."
+                                        if lang == "ru" else
+                                        "The asynchronous spectrum Ψ = Y_aᵀ N Y_b /(m−1) (N = Hilbert–Noda matrix) is meaningful only if "
+                                        "samples are ordered along an external perturbation (time, temperature, distance). Variables are autoscaled."
+                                    )
+                                    def _autoscale(m):
+                                        s = np.nanstd(m, axis=0, ddof=1)
+                                        s = np.where(s > 0, s, np.nan)
+                                        return (m - np.nanmean(m, axis=0)) / s
+                                    za, zb = _autoscale(mat_a), _autoscale(mat_b)
+                                    if np.isnan(za).any() or np.isnan(zb).any():
+                                        st.warning(
+                                            "Асинхронный спектр не рассчитан: пропуски или константные дескрипторы в выбранных блоках."
+                                            if lang == "ru" else
+                                            "Asynchronous spectrum not computed: missing values or constant descriptors in the selected blocks."
+                                        )
+                                    else:
+                                        spec_2d = cross_correlation.compute_2d_correlation_spectra(za, zb)
+                                        psi = spec_2d["asynchronous"]
+                                        lim = float(np.nanmax(np.abs(psi))) if psi.size else 1.0
+                                        fig_async = px.imshow(
+                                            psi, x=feats_b, y=feats_a, color_continuous_scale="RdBu_r",
+                                            zmin=-lim, zmax=lim,
+                                            labels=dict(x=f"{block_b_sel} Features", y=f"{block_a_sel} Features", color="Ψ"),
+                                            title=f"Asynchronous 2D-COS (Noda): {block_a_sel} ⨂ {block_b_sel}",
+                                        )
+                                        fig_async.update_layout(height=540, margin=dict(l=60, r=40, t=50, b=60), xaxis=dict(tickangle=-45))
+                                        st_plotly(fig_async)
+
                     else:
                         # Глобальная мультиблочная матрица
                         fig_global = px.imshow(
@@ -1032,6 +1422,11 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
 
                     # Таблица топ межблочных корреляций
                     st.write(f"#### {T[lang]['ml_crosscorr_top_pairs_title']}")
+                    st.caption(
+                        f"Significant = q < {cc_results.get('fdr_alpha', 0.05)} (Бенджамини–Хохберг FDR по {cc_results.get('n_tests', 0)} парам признаков)."
+                        if lang == "ru" else
+                        f"Significant = q < {cc_results.get('fdr_alpha', 0.05)} (Benjamini–Hochberg FDR over {cc_results.get('n_tests', 0)} feature pairs)."
+                    )
                     if not top_cross_df.empty:
                         filtered_top = top_cross_df[top_cross_df["Abs_Correlation"] >= min_r_thresh].copy()
                         if filtered_top.empty:
@@ -1074,62 +1469,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                     "Cross-modal concordance evaluation connecting MS formulas, FTIR functional groups, 13C-NMR carbon types, and bulk stoichiometry."
                 )
                 if STRUCTURE_ELUCIDATION_AVAILABLE and structure_elucidation is not None:
-                    c_el1, c_el2 = st.columns([1.5, 2.5])
-                    with c_el1:
-                        target_formula = st.text_input("Брутто-формула (FT-ICR MS):" if lang == "ru" else "Target Formula (FT-ICR MS):", value="C9H10O3")
-                        ftir_sel = st.multiselect(
-                            "Детектированные полосы FTIR (см⁻¹):" if lang == "ru" else "Observed FTIR Bands (cm⁻¹):",
-                            options=["1510 (Guaiacyl G-ring)", "1600 (Aromatic C=C)", "1720 (Carboxyl C=O)", "3400 (Phenolic OH)", "1030 (Methoxy/Poly)"],
-                            default=["1510 (Guaiacyl G-ring)", "1600 (Aromatic C=C)", "1720 (Carboxyl C=O)"],
-                        )
-                        nmr_arom_val = st.slider("13C-NMR Ароматичность fa (%):" if lang == "ru" else "13C-NMR Aromaticity fa (%):", 0.0, 100.0, 66.7, 1.0)
-                        chns_c_val = st.slider("Элементный углерод C (%):" if lang == "ru" else "Elemental Carbon C (%):", 20.0, 90.0, 65.0, 1.0)
-                        run_elucid_btn = st.button("🚀 " + ("Ранжировать изомеры по MMCS" if lang == "ru" else "Rank Isomers via MMCS"), type="primary", key="btn_run_elucid")
-
-                    with c_el2:
-                        active_ftir_keys = []
-                        for opt in ftir_sel:
-                            if "1510" in opt: active_ftir_keys.append("1510")
-                            if "1600" in opt: active_ftir_keys.append("1600")
-                            if "1720" in opt: active_ftir_keys.append("1720")
-                            if "3400" in opt: active_ftir_keys.append("3400")
-                            if "1030" in opt: active_ftir_keys.append("1030")
-
-                        constraints = structure_elucidation.MultiModalConstraints(
-                            formula=target_formula,
-                            ftir_active_bands=active_ftir_keys,
-                            nmr_aromatic_fraction=nmr_arom_val / 100.0,
-                            nmr_aliphatic_fraction=(100.0 - nmr_arom_val) / 200.0,
-                            elemental_pct={"C": chns_c_val, "H": 6.0, "O": 28.0},
-                        )
-
-                        candidates = [
-                            structure_elucidation.CandidateStructure("2-Methoxy-4-vinylphenol", "COc1cc(C=C)ccc1O", target_formula),
-                            structure_elucidation.CandidateStructure("Vanillin ethyl ether", "CCOc1cc(C=O)ccc1OC", target_formula),
-                            structure_elucidation.CandidateStructure("Coniferyl aldehyde precursor", "COc1cc(CC=O)ccc1O", target_formula),
-                            structure_elucidation.CandidateStructure("Aliphatic ester isomer", "CCCC(=O)OCCCC", target_formula),
-                        ]
-
-                        ranked_cands = structure_elucidation.elucidate_candidates(candidates, constraints)
-                        df_cands = pd.DataFrame([
-                            {
-                                "Rank": r.rank,
-                                "Compound": r.name,
-                                "SMILES": r.smiles,
-                                "MMCS Score": f"{r.concordance_score * 100.0:.1f}%",
-                                "MS Match": f"{r.ms_match_score * 100.0:.0f}%",
-                                "FTIR Match": f"{r.ftir_match_score * 100.0:.0f}%",
-                                "NMR Match": f"{r.nmr_match_score * 100.0:.0f}%",
-                                "CHNS Match": f"{r.elemental_match_score * 100.0:.0f}%",
-                            }
-                            for r in ranked_cands
-                        ])
-                        st.dataframe(df_cands, use_container_width=True, hide_index=True)
-                        if ranked_cands:
-                            best = ranked_cands[0]
-                            st.success(f"🏆 **Топ-1 структурный кандидат:** `{best.name}` (MMCS = **{best.concordance_score * 100.0:.1f}%**)")
+                    _render_structure_elucidation(lang)
                 else:
-                    st.info("Structure elucidation engine module available.")
+                    st.warning(
+                        "⚠️ Модуль `structure_elucidation.py` недоступен." if lang == "ru" else
+                        "⚠️ `structure_elucidation.py` module is not available."
+                    )
 
             with tab_ml5:
                 st.write("### 📥 Выгрузка аналитических отчетов" if lang == "ru" else "### 📥 Download Analytical Reports")

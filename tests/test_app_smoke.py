@@ -63,6 +63,27 @@ def test_every_module_and_data_source_renders(lang_label):
     assert not failures, failures
 
 
+@pytest.mark.parametrize("arch_idx", range(5))
+@pytest.mark.parametrize("strategy_idx", range(2))
+def test_ml_models_fit_on_benchmark(arch_idx, strategy_idx):
+    at = _run_app()
+    _open_module(at, _ml_module_index(at))
+    radio = at.radio(key="ml_data_source_mode_radio")
+    bench = next(o for o in radio.options if "Benchmark" in str(o))
+    radio.set_value(bench).run()
+    at.button(key="btn_ml_load_demo_main").click().run()
+    assert not at.exception, _errors(at)
+
+    arch = at.selectbox(key="ml_model_arch_select")
+    if arch_idx >= len(arch.options):
+        pytest.skip("architecture not available")
+    arch.select_index(arch_idx).run()
+    at.selectbox(key="pls_strategy_select").select_index(strategy_idx).run()
+    at.button(key="btn_run_chemo_model").click().run()
+    assert not at.exception, _errors(at)
+    assert not at.error, [str(e.value) for e in at.error]
+
+
 def test_batch_screening_of_demo_data():
     at = _run_app()
     _open_module(at, _ml_module_index(at))
