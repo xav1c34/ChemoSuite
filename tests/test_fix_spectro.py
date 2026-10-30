@@ -266,6 +266,30 @@ def test_ftir_gs_ratio_nan_when_1330_band_absent():
     assert np.isfinite(ind["FTIR_Lignin_Idx"])
 
 
+def _lignin_like_spectrum(wn, s_height, noise=0.004, seed=0):
+    # сильная G-полоса 1270 (σ=22) рядом с 1330: ее хвост дает в окне 1330 ~10 % ее высоты
+    bands = [(0.65, 1602, 25), (0.58, 1510, 16), (0.22, 1455, 20), (0.42, 1270, 22), (0.45, 1220, 25)]
+    if s_height:
+        bands.append((s_height, 1330, 15))
+    a = 0.1 + sum(h * np.exp(-0.5 * ((wn - c) / s) ** 2) for h, c, s in bands)
+    return a + np.random.default_rng(seed).normal(0.0, noise, size=wn.size)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_ftir_gs_ratio_ignores_tail_of_neighbouring_band(seed):
+    wn = np.arange(650.0, 4000.0, 2.0)
+    ind = ftir_core.calculate_ftir_indices(wn, _lignin_like_spectrum(wn, s_height=0.0, seed=seed))
+    assert np.isnan(ind["FTIR_GS_Ratio"])
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_ftir_gs_ratio_detects_s_shoulder_on_g_band_flank(seed):
+    wn = np.arange(650.0, 4000.0, 2.0)
+    ind = ftir_core.calculate_ftir_indices(wn, _lignin_like_spectrum(wn, s_height=0.15, seed=seed))
+    assert np.isfinite(ind["FTIR_GS_Ratio"])
+    assert 1.0 < ind["FTIR_GS_Ratio"] < 4.0
+
+
 def test_ftir_deconvolution_failure_is_flagged(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("Optimal parameters not found")
@@ -333,6 +357,49 @@ def _sadezky_spectrum(wn, d1=(80.0, 1350.0, 110.0), g=(80.0, 1585.0, 60.0), back
          + raman_core.gaussian_band(wn, 15.0, 1500.0, 120.0) + raman_core.lorentzian_band(wn, *g)
          + raman_core.lorentzian_band(wn, 12.0, 1620.0, 35.0))
     return y + (20.0 + 0.01 * (wn - 800.0) if background is None else background)
+
+
+def _five_band_carbon(wn, width_scale, seed):
+    y = (raman_core.lorentzian_band(wn, 25.0, 1200.0, 180.0 * width_scale)
+         + raman_core.lorentzian_band(wn, 100.0, 1350.0, 140.0 * width_scale)
+         + raman_core.gaussian_band(wn, 30.0, 1510.0, 140.0 * width_scale)
+         + raman_core.lorentzian_band(wn, 90.0, 1585.0, 70.0 * width_scale)
+         + raman_core.lorentzian_band(wn, 25.0, 1620.0, 40.0 * width_scale))
+    return y + np.random.default_rng(seed).normal(0.0, 1.5, wn.size)
+
+
+def test_raman_ratio_standard_error_matches_noise_spread():
+    # предсказанная по ковариации погрешность I_D/I_G согласуется с разбросом по реализациям шума
+    wn = np.arange(800.0, 2000.0, 2.0)
+    specs = [raman_core.RamanSpectrum("s", wn, _five_band_carbon(wn, 1.0, seed)).process() for seed in range(15)]
+    ratios = np.array([s.id_ig_ratio for s in specs])
+    empirical = ratios.std() / ratios.mean()
+    predicted = float(np.median([s.id_ig_rel_se for s in specs]))
+    assert 0.5 * empirical < predicted < 2.0 * empirical
+    assert all(s.fit_ok for s in specs)
+
+
+def test_raman_broad_bands_flagged_as_ill_conditioned():
+    wn = np.arange(800.0, 2000.0, 2.0)
+    spec = raman_core.RamanSpectrum("broad", wn, _five_band_carbon(wn, 1.6, seed=0)).process()
+    assert spec.fit_success
+    assert spec.id_ig_rel_se > raman_core.RAMAN_RATIO_MAX_REL_SE
+    assert not spec.fit_ok
+    assert any("poorly constrained" in w for w in spec.fit_warnings)
+    desc = raman_core.calculate_raman_descriptors([spec])
+    assert "id_ig_rel_se" in raman_core.RAMAN_QC_COLUMNS
+    assert desc.loc["broad", "id_ig_rel_se"] == pytest.approx(spec.id_ig_rel_se)
+
+
+def test_raman_zero_height_bands_do_not_inflate_ratio_error():
+    # только D1 и G: пустые D2/D3/D4 на нулевой границе не должны раздувать погрешность D1/G
+    wn = np.arange(800.0, 2000.0, 2.0)
+    y = (raman_core.lorentzian_band(wn, 100.0, 1360.0, 260.0) + raman_core.lorentzian_band(wn, 90.0, 1580.0, 140.0)
+         + np.random.default_rng(0).normal(0.0, 1.5, wn.size))
+    spec = raman_core.RamanSpectrum("two", wn, y).process()
+    assert spec.fit_ok
+    assert spec.id_ig_rel_se < 0.1
+    assert spec.id_ig_ratio == pytest.approx(100.0 / 90.0, rel=0.1)
 
 
 def test_raman_fit_failure_gives_nan_and_flag(monkeypatch):

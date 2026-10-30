@@ -431,6 +431,44 @@ def band_detection_threshold(
     return max(snr_k * estimate_noise_sigma(y), min_band_fraction * peak)
 
 
+def band_curvature_zscore(
+    wavenumbers: np.ndarray,
+    absorbance: np.ndarray,
+    center: float,
+    window: float = 8.0,
+    smooth_cm: float = 30.0
+) -> float:
+    """
+    Признак наличия полосы по кривизне: минимум второй производной Савицкого — Голея
+    (окно ≈ smooth_cm см^-1, полином 3-й степени) в center ± window, деленный на σ шума
+    этой производной (σ шума спектра × норма коэффициентов фильтра).
+
+    Пик или плечо дают d²A/dν² < 0, а хвост соседней полосы дальше ~1σ от ее центра имеет
+    положительную кривизну, поэтому z <= -3 означает «полоса есть», даже если она сидит на
+    склоне сильного соседа. NaN, если спектр слишком короткий для оценки.
+    """
+    w = np.asarray(wavenumbers, dtype=np.float64)
+    a = np.asarray(absorbance, dtype=np.float64)
+    order = np.argsort(w)
+    w, a = w[order], a[order]
+    if len(w) < 7 or not np.all(np.isfinite(a)):
+        return float("nan")
+    step = float(np.median(np.diff(w)))
+    if step <= 0:
+        return float("nan")
+    n = max(5, int(round(smooth_cm / step)) | 1)
+    if n >= len(a):
+        return float("nan")
+    d2 = scipy.signal.savgol_filter(a, n, 3, deriv=2, delta=step)
+    sigma = estimate_noise_sigma(a) * float(np.linalg.norm(scipy.signal.savgol_coeffs(n, 3, deriv=2, delta=step)))
+    # нижняя граница σ для гладких (синтетических) спектров, как и в band_detection_threshold
+    sigma = max(sigma, 0.01 * float(np.max(np.abs(d2))), 1e-12)
+    mask = (w >= center - window) & (w <= center + window)
+    if not np.any(mask):
+        return float("nan")
+    return float(np.min(d2[mask]) / sigma)
+
+
 def calculate_ftir_indices(
     wavenumbers: np.ndarray,
     absorbance: np.ndarray,
@@ -500,8 +538,16 @@ def calculate_ftir_indices(
     # 4. Лигниновый индекс: скелетная ароматика лигнина (1510) к общему ароматическому пулу (1600)
     lignin_index = _ratio(i_1510, i_1600)
 
-    # 5. Ориентировочное отношение G/S (1270 / 1330); NaN, если полоса 1330 не обнаружена
+    # 5. Ориентировочное отношение G/S (1270 / 1330); NaN, если полоса 1330 или 1270 не обнаружена.
+    # Интенсивность в окне 1330 почти всегда > 0 из-за хвостов соседних полос (1270, 1450),
+    # поэтому порога по высоте мало: обе полосы должны давать собственную отрицательную кривизну.
     gs_ratio = _ratio(i_1270, i_1330)
+    if np.isfinite(gs_ratio):
+        for band_center in (1330.0, 1270.0):
+            z = band_curvature_zscore(wavenumbers, absorbance, band_center)
+            if np.isfinite(z) and z > -snr_k:
+                gs_ratio = float("nan")
+                break
 
     # 6. Полисахаридный / углеводный индекс
     polysaccharide_index = _ratio(i_1030, i_1600)

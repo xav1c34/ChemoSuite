@@ -153,13 +153,15 @@ def render_raman_studio(T: dict, lang: str):
         kpi4.metric("Позиция G-полосы", _fmt(active_spec.g_pos, "{:.1f}", " см⁻¹"))
         kpi5.metric("Позиция D1-полосы", _fmt(active_spec.d_pos, "{:.1f}", " см⁻¹"))
         st.caption(
-            (f"Модель Sadezky et al. 2005 (D4, D1, D3, G, D2), R² = {_fmt(getattr(active_spec, 'fit_r2', float('nan')), '{:.4f}')}. "
+            (f"Модель Sadezky et al. 2005 (D4, D1, D3, G, D2), R² = {_fmt(getattr(active_spec, 'fit_r2', float('nan')), '{:.4f}')}, "
+             f"относительная погрешность I_D/I_G по ковариации подгонки ±{_fmt(100.0 * getattr(active_spec, 'id_ig_rel_se', float('nan')), '{:.0f}', ' %')}. "
              f"L_a: {getattr(active_spec, 'la_method', '') or '—'}; Cançado (TK) = {_fmt(getattr(active_spec, 'la_tk_nm', float('nan')), '{:.1f}', ' нм')}, "
              f"Ferrari–Robertson = {_fmt(getattr(active_spec, 'la_fr_nm', float('nan')), '{:.1f}', ' нм')}. "
              "I_D/I_G немонотонно зависит от порядка (Ferrari & Robertson 2000), поэтому режим нельзя однозначно определить по одному отношению; "
              "индекс упорядоченности — эвристическая шкала по FWHM(G), не литературный индекс.")
             if lang == "ru" else
-            (f"Sadezky et al. 2005 model (D4, D1, D3, G, D2), R² = {_fmt(getattr(active_spec, 'fit_r2', float('nan')), '{:.4f}')}. "
+            (f"Sadezky et al. 2005 model (D4, D1, D3, G, D2), R² = {_fmt(getattr(active_spec, 'fit_r2', float('nan')), '{:.4f}')}, "
+             f"relative standard error of I_D/I_G from the fit covariance ±{_fmt(100.0 * getattr(active_spec, 'id_ig_rel_se', float('nan')), '{:.0f}', ' %')}. "
              f"L_a: {getattr(active_spec, 'la_method', '') or '—'}; Cançado (TK) = {_fmt(getattr(active_spec, 'la_tk_nm', float('nan')), '{:.1f}', ' nm')}, "
              f"Ferrari–Robertson = {_fmt(getattr(active_spec, 'la_fr_nm', float('nan')), '{:.1f}', ' nm')}. "
              "I_D/I_G is non-monotonic in structural order (Ferrari & Robertson 2000), so the regime cannot be fixed from the ratio alone; "

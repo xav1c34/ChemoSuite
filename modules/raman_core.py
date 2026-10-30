@@ -46,6 +46,9 @@ CANCADO_COEFF_NM3 = 2.4e-10          # nm^-3, Cançado et al. 2006
 FR_C_PRIME_514_A2 = 0.0055           # Å^-2 at 514.5 nm, Ferrari & Robertson 2000
 TK_MIN_LA_NM = 2.0                   # lower validity limit of the Tuinstra–Koenig relation
 RAMAN_FIT_MIN_R2 = 0.95
+# Relative standard error of I_D/I_G above which the five-band fit is reported as ill-conditioned
+# (broad, merged bands let D3/D4 trade intensity with D1/G at almost no cost in χ²)
+RAMAN_RATIO_MAX_REL_SE = 0.20
 # Heuristic order scale: G-band FWHM of crystalline graphite (~15 cm^-1) … highly disordered carbon
 G_FWHM_ORDERED = 15.0
 G_FWHM_DISORDERED = 150.0
@@ -85,6 +88,63 @@ def sadezky_model(x: np.ndarray, *params: float) -> np.ndarray:
         h, c, w = params[3 * k:3 * k + 3]
         y += lorentzian_band(x, h, c, w) if band[1] == "lorentzian" else gaussian_band(x, h, c, w)
     return y
+
+
+def _active_set_covariance(
+    x: np.ndarray, y: np.ndarray, popt: np.ndarray, lower: List[float], upper: List[float]
+) -> np.ndarray:
+    """
+    Parameter covariance s²·(JᵀJ)⁻¹ over the active parameters only. Bands fitted to zero height and
+    parameters sitting on a bound are held fixed: otherwise their degenerate Jacobian columns (a
+    zero-height band has no centre/width sensitivity) inflate the errors of D1 and G several-fold.
+    """
+    p = np.asarray(popt, dtype=float)
+    lo, hi = np.asarray(lower, dtype=float), np.asarray(upper, dtype=float)
+    active = np.abs(p - lo) > 1e-3 * (hi - lo)
+    active &= np.abs(p - hi) > 1e-3 * (hi - lo)
+    y_scale = max(float(np.max(np.abs(y))), 1e-12)
+    for k in range(len(SADEZKY_BANDS)):
+        if p[3 * k] <= 1e-3 * y_scale:
+            active[3 * k:3 * k + 3] = False
+    idx = np.flatnonzero(active)
+    dof = len(x) - len(idx)
+    if len(idx) == 0 or dof <= 0:
+        return np.full((len(p), len(p)), np.nan)
+    cov = np.zeros((len(p), len(p)))  # fixed parameters contribute no variance
+    jac = np.empty((len(x), len(idx)))
+    for col, i in enumerate(idx):
+        step = 1e-6 * max(1.0, abs(p[i]))
+        p_hi, p_lo = p.copy(), p.copy()
+        p_hi[i] += step
+        p_lo[i] -= step
+        jac[:, col] = (_sadezky_with_background(x, *p_hi) - _sadezky_with_background(x, *p_lo)) / (2.0 * step)
+    s2 = float(np.sum((y - _sadezky_with_background(x, *p)) ** 2)) / dof
+    cov[np.ix_(idx, idx)] = s2 * np.linalg.pinv(jac.T @ jac)
+    return cov
+
+
+def _ratio_rel_se(popt: np.ndarray, pcov: np.ndarray) -> Tuple[float, float]:
+    """
+    Relative standard errors of I_D1/I_G and A_D1/A_G from the parameter covariance (delta method on
+    the log-ratio; band area ∝ height·FWHM for both profile shapes). NaN when the covariance is undefined.
+    """
+    names = [band[0] for band in SADEZKY_BANDS]
+    i_hd, i_hg = 3 * names.index("D1"), 3 * names.index("G")
+    p = np.asarray(popt, dtype=float)
+    cov = np.asarray(pcov, dtype=float)
+    if cov.shape != (len(p), len(p)) or not np.all(np.isfinite(cov)) or p[i_hd] <= 0 or p[i_hg] <= 0:
+        return float("nan"), float("nan")
+
+    def _rel_se(grad: Dict[int, float]) -> float:
+        g = np.zeros(len(p))
+        for idx, val in grad.items():
+            g[idx] = val
+        return float(np.sqrt(max(float(g @ cov @ g), 0.0)))
+
+    height_se = _rel_se({i_hd: 1.0 / p[i_hd], i_hg: -1.0 / p[i_hg]})
+    area_se = _rel_se({i_hd: 1.0 / p[i_hd], i_hd + 2: 1.0 / p[i_hd + 2],
+                       i_hg: -1.0 / p[i_hg], i_hg + 2: -1.0 / p[i_hg + 2]})
+    return height_se, area_se
 
 
 def _sadezky_with_background(x: np.ndarray, *params: float) -> np.ndarray:
@@ -158,6 +218,8 @@ class RamanSpectrum:
     i_g: float = float("nan")             # Peak height of G band
     id_ig_ratio: float = float("nan")     # I_D1 / I_G height ratio
     ad_ag_ratio: float = float("nan")     # Area_D1 / Area_G integrated area ratio
+    id_ig_rel_se: float = float("nan")    # relative standard error of I_D/I_G from the fit covariance
+    ad_ag_rel_se: float = float("nan")    # relative standard error of A_D/A_G
     la_crystallite_nm: float = float("nan")  # In-plane crystallite size L_a (nm), see la_method
     la_tk_nm: float = float("nan")        # Cançado 2006 (Tuinstra–Koenig regime)
     la_fr_nm: float = float("nan")        # Ferrari & Robertson 2000 (amorphous regime)
@@ -177,8 +239,8 @@ class RamanSpectrum:
         self.fit_warnings = [message] if message else []
         self.band_params = {}
         self.components = {}
-        for attr in ("d_pos", "g_pos", "i_d", "i_g", "id_ig_ratio", "ad_ag_ratio", "la_crystallite_nm",
-                     "la_tk_nm", "la_fr_nm", "fwhm_d", "fwhm_g", "carbon_order_index"):
+        for attr in ("d_pos", "g_pos", "i_d", "i_g", "id_ig_ratio", "ad_ag_ratio", "id_ig_rel_se", "ad_ag_rel_se",
+                     "la_crystallite_nm", "la_tk_nm", "la_fr_nm", "fwhm_d", "fwhm_g", "carbon_order_index"):
             setattr(self, attr, float("nan"))
         self.la_method = ""
 
@@ -308,12 +370,6 @@ class RamanSpectrum:
             warnings.append(f"Low fit quality: R² = {r2:.3f} < {RAMAN_FIT_MIN_R2}")
 
         d1, g = self.band_params["D1"], self.band_params["G"]
-        self.fit_success = True
-        self.fit_r2 = r2
-        self.fit_warnings = warnings
-        self.fit_ok = bool(np.isfinite(r2) and r2 >= RAMAN_FIT_MIN_R2 and not (d1["at_bound"] or g["at_bound"]))
-        self.fit_message = "" if self.fit_ok else "; ".join(warnings)
-
         self.d_pos = d1["center"]
         self.g_pos = g["center"]
         self.i_d = d1["height"]
@@ -322,6 +378,21 @@ class RamanSpectrum:
         self.fwhm_g = g["fwhm"]
         self.id_ig_ratio = float(d1["height"] / g["height"]) if g["height"] > 1e-6 else float("nan")
         self.ad_ag_ratio = float(d1["area"] / g["area"]) if g["area"] > 1e-6 else float("nan")
+        self.id_ig_rel_se, self.ad_ag_rel_se = _ratio_rel_se(popt, _active_set_covariance(wn, ints, popt, lower, upper))
+        ill_conditioned = not (np.isfinite(self.id_ig_rel_se) and self.id_ig_rel_se <= RAMAN_RATIO_MAX_REL_SE)
+        if ill_conditioned:
+            spread = f"±{100.0 * self.id_ig_rel_se:.0f} %" if np.isfinite(self.id_ig_rel_se) else "undefined"
+            warnings.append(
+                f"I_D/I_G poorly constrained by the five-band fit ({spread}): broad bands let D3/D4 "
+                "trade intensity with D1/G"
+            )
+
+        self.fit_success = True
+        self.fit_r2 = r2
+        self.fit_warnings = warnings
+        self.fit_ok = bool(np.isfinite(r2) and r2 >= RAMAN_FIT_MIN_R2 and not (d1["at_bound"] or g["at_bound"])
+                           and not ill_conditioned)
+        self.fit_message = "" if self.fit_ok else "; ".join(warnings)
 
         # Heuristic order index: linear rescaling of FWHM(G), monotonic in structural order
         # (FWHM(G) narrows continuously from amorphous carbon to graphite; I_D/I_G does not —
@@ -493,7 +564,7 @@ def generate_synthetic_raman_dataset() -> Dict[str, RamanSpectrum]:
     return spectra
 
 
-RAMAN_QC_COLUMNS = ["fit_success", "fit_r2", "la_method"]
+RAMAN_QC_COLUMNS = ["fit_success", "fit_r2", "id_ig_rel_se", "la_method"]
 
 
 def calculate_raman_descriptors(spectra: List[RamanSpectrum]) -> pd.DataFrame:
@@ -518,6 +589,7 @@ def calculate_raman_descriptors(spectra: List[RamanSpectrum]) -> pd.DataFrame:
             "carbon_order_index": s.carbon_order_index,
             "fit_success": bool(s.fit_success),
             "fit_r2": s.fit_r2,
+            "id_ig_rel_se": s.id_ig_rel_se,
             "la_method": s.la_method,
         })
     return pd.DataFrame(rows).set_index("sample_id")
