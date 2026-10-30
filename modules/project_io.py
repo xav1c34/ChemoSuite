@@ -69,6 +69,19 @@ def validate_safe_zip(
                 )
 
 
+def safe_spectrum_name(name: Any, default: str = "spectrum") -> str:
+    """
+    Приводит имя спектра (из загрузки, ZIP или .chemo) к безопасному имени файла:
+    отбрасывает каталоги ('../', 'C:\\', '/etc/'), управляющие символы и
+    зарезервированные значения '.', '..'. Защита от Path Traversal при записи на диск.
+    """
+    s = str(name if name is not None else "").replace("\\", "/")
+    s = s.split("/")[-1]
+    s = "".join(ch for ch in s if ch.isprintable() and ch not in '<>:"|?*')
+    s = s.strip().strip(".").strip()
+    return s[:200] if s else default
+
+
 def _to_json_serializable(val: Any) -> Any:
     """Рекурсивная конвертация numpy массивов, скаляров и вложенных структур в JSON-совместимые типы."""
     if hasattr(val, "to_numpy"):
@@ -399,11 +412,12 @@ def load_chemo_project(source: Union[bytes, io.BytesIO, str]) -> Dict[str, Any]:
             if "spectra_db/index.json" in names:
                 spectra_meta = json.loads(zf.read("spectra_db/index.json").decode("utf-8"))
                 for item in spectra_meta:
-                    idx = item["id"]
-                    spec_name = item["name"]
+                    idx = int(item["id"])
+                    spec_name = safe_spectrum_name(item.get("name"), default=f"spectrum_{idx}")
 
                     spec_entry = {
-                        "raw_path": item.get("raw_path", ""),
+                        # Путь из архива не доверенный: файл заново сохраняется в хранилище сессии
+                        "raw_path": "",
                         "file_bytes": None,
                         "raw_df": None,
                         "parsed_peaks": None,

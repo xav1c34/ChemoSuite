@@ -235,6 +235,14 @@ streamlit run app.py
 
 Once launched, the interface will open automatically in your browser at `http://localhost:8501`.
 
+**Local mode.** By default the app runs in web-hosting mode: every browser session gets its own temporary file storage, and server folders cannot be read by typing a path. On your own computer you can enable a persistent `user_spectra/` folder and import from local directories:
+
+```bash
+CHEMOSUITE_LOCAL_MODE=1 streamlit run app.py
+```
+
+On Windows PowerShell: `$env:CHEMOSUITE_LOCAL_MODE="1"; streamlit run app.py`. Never enable local mode on a public deployment.
+
 ---
 
 ## 📦 Input Data Formats
@@ -283,7 +291,7 @@ To ensure reproducible analytical practice and transparency for peer review, the
 
 ### 5. Data Security & Archival Integrity
 * All project session files (`.chemo`) are serialized strictly as structured JSON and tabular CSV within ZIP archives—no unauthenticated executable pickle streams are loaded.
-* Input ZIP archives and project bundles are automatically validated against Zip-Slip path traversal vulnerabilities and decompression bombs (enforced bounds: max 500 files, max 250 MB uncompressed payload).
+* Input ZIP archives and project bundles are automatically validated against Zip-Slip path traversal vulnerabilities and decompression bombs (enforced bounds: max 1000 files, max 250 MB uncompressed payload, max 100x compression ratio).
 
 ---
 

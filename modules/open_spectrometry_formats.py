@@ -17,6 +17,9 @@ from typing import Dict, Any, Tuple, Optional, List, Union
 import numpy as np
 import pandas as pd
 
+# Предел распаковки одного бинарного массива mzML (защита от декомпрессионной бомбы)
+MAX_DECOMPRESSED_ARRAY_BYTES = 200_000_000  # 200 MB
+
 
 def parse_mzml_content(raw_data: bytes) -> Dict[str, Any]:
     """
@@ -90,7 +93,12 @@ def parse_mzml_content(raw_data: bytes) -> Dict[str, Any]:
                 raw_b64 = binary_elem.text.strip().encode("ascii")
                 decoded = base64.b64decode(raw_b64)
                 if is_zlib:
-                    decoded = zlib.decompress(decoded)
+                    d_obj = zlib.decompressobj()
+                    decoded = d_obj.decompress(decoded, MAX_DECOMPRESSED_ARRAY_BYTES)
+                    if d_obj.unconsumed_tail:
+                        raise ValueError(
+                            f"mzML binary array exceeds {MAX_DECOMPRESSED_ARRAY_BYTES // 1_000_000} MB after decompression"
+                        )
 
                 dtype = np.float64 if is_64bit else np.float32
                 data_unpacked = np.frombuffer(decoded, dtype=dtype).astype(np.float64)

@@ -265,5 +265,7 @@ __marimo__/
 !assets/*
 scratch/
 .agent_usage.json
+.agent_usage.json.tmp
+uploaded_spectra/
 
 

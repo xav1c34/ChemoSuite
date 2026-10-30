@@ -4,10 +4,65 @@ views/common.py — Shared GUI utilities and chart wrappers for ChemoSuite Pro.
 
 import io
 import os
+import tempfile
 from typing import Optional, Dict, Any
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+try:
+    from modules.project_io import safe_spectrum_name
+except ImportError:
+    from project_io import safe_spectrum_name
+
+
+# ==============================================================================
+# РЕЖИМ РАЗВЁРТЫВАНИЯ И ХРАНИЛИЩЕ ФАЙЛОВ
+# ==============================================================================
+# Локальный режим (CHEMOSUITE_LOCAL_MODE=1) — для запуска на своём компьютере:
+# постоянная папка user_spectra/ и импорт спектров из локальных каталогов.
+# По умолчанию (веб-хостинг) каждая сессия получает изолированную временную папку,
+# а доступ к файловой системе сервера по введённому пути отключён.
+LOCAL_MODE = os.getenv("CHEMOSUITE_LOCAL_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+PERSISTENT_STORAGE_DIR = "user_spectra"
+
+
+def get_storage_dir() -> str:
+    """Каталог для файлов спектров текущей сессии."""
+    if LOCAL_MODE:
+        os.makedirs(PERSISTENT_STORAGE_DIR, exist_ok=True)
+        return PERSISTENT_STORAGE_DIR
+    s_dir = st.session_state.get("_chemo_storage_dir")
+    if not s_dir or not os.path.isdir(s_dir):
+        s_dir = tempfile.mkdtemp(prefix="chemosuite_")
+        st.session_state["_chemo_storage_dir"] = s_dir
+    return s_dir
+
+
+def storage_path(name: Any) -> str:
+    """Безопасный путь к файлу внутри хранилища сессии (без выхода за его пределы)."""
+    base = os.path.realpath(get_storage_dir())
+    path = os.path.realpath(os.path.join(base, safe_spectrum_name(name)))
+    if os.path.commonpath([base, path]) != base:
+        raise ValueError(f"Unsafe file name: {name!r}")
+    return path
+
+
+def remove_stored_file(path: Any) -> None:
+    """Удаляет файл, только если он лежит внутри хранилища текущей сессии."""
+    if not path:
+        return
+    base = os.path.realpath(get_storage_dir())
+    real = os.path.realpath(str(path))
+    try:
+        inside = os.path.commonpath([base, real]) == base
+    except ValueError:  # разные диски в Windows
+        inside = False
+    if inside and os.path.isfile(real):
+        try:
+            os.remove(real)
+        except OSError:
+            pass
 
 
 def st_df(data, **kwargs):

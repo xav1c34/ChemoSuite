@@ -7,4 +7,5 @@ plotly
 tensorly
 scikit-learn
 openpyxl
+requests
 pytest

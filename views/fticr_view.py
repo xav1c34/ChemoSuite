@@ -14,7 +14,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 
-from views.common import st_df, st_plotly, get_plot_download_buttons, ensure_sample_peaks
+from views.common import (
+    st_df, st_plotly, get_plot_download_buttons, ensure_sample_peaks,
+    LOCAL_MODE, storage_path, remove_stored_file, safe_spectrum_name,
+)
 
 try:
     from modules.fticr_core import (
@@ -88,9 +91,6 @@ except ImportError:
     export_mztab_m = None
     OPEN_FORMATS_AVAILABLE = False
 
-STORAGE_DIR = "uploaded_spectra"
-os.makedirs(STORAGE_DIR, exist_ok=True)
-
 
 def render_fticr_studio(T: dict, lang: str):
     """Render Module 1: FT-ICR MS Studio."""
@@ -106,9 +106,10 @@ def render_fticr_studio(T: dict, lang: str):
         if uploaded_files:
             latest_uploaded_name = None
             for uf in uploaded_files:
-                save_path = os.path.join(STORAGE_DIR, uf.name)
+                uf_name = safe_spectrum_name(uf.name)
+                save_path = storage_path(uf_name)
                 b_content = uf.getvalue()
-                existing = st.session_state["spectra_db"].get(uf.name)
+                existing = st.session_state["spectra_db"].get(uf_name)
                 if existing is not None and existing.get("file_bytes") == b_content:
                     continue
 
@@ -137,8 +138,8 @@ def render_fticr_studio(T: dict, lang: str):
                 }
                 if parsed_custom_df is None:
                     ensure_sample_peaks(s_new)
-                st.session_state["spectra_db"][uf.name] = s_new
-                latest_uploaded_name = uf.name
+                st.session_state["spectra_db"][uf_name] = s_new
+                latest_uploaded_name = uf_name
 
             if latest_uploaded_name and st.session_state.get("_last_selected_upload") != latest_uploaded_name:
                 st.session_state["active_spectrum_selector"] = latest_uploaded_name
@@ -164,45 +165,45 @@ def render_fticr_studio(T: dict, lang: str):
                         st.markdown(f"**{is_cur}`{s_name}`** ({p_len} {has_form})")
                     with c_col2:
                         if st.button("🗑️", key=f"del_quick_{s_name}", help="Удалить" if lang == "ru" else "Delete"):
-                            if os.path.exists(s_obj.get("raw_path", "")):
-                                try: os.remove(s_obj["raw_path"])
-                                except Exception: pass
+                            remove_stored_file(s_obj.get("raw_path"))
                             del st.session_state["spectra_db"][s_name]
                             if st.session_state.get("active_spectrum_selector") == s_name:
                                 remaining = list(st.session_state["spectra_db"].keys())
                                 st.session_state["active_spectrum_selector"] = remaining[0] if remaining else None
                             st.rerun()
 
-        with st.expander(T[lang]["folder_expander"], expanded=False):
-            local_folder = st.text_input(
-                T[lang]["folder_input"],
-                placeholder="C:/data/spectra" if lang == "en" else "например, C:/data/spectra",
-                help=T[lang]["folder_help"],
-            )
-            if st.button(T[lang]["folder_btn"]):
-                if local_folder and os.path.isdir(local_folder):
-                    added_count = 0
-                    for root, _, files in os.walk(local_folder):
-                        for file in files:
-                            if file.lower().endswith((".csv", ".txt", ".tsv", ".xy", ".mzml", ".jdx")) and file not in st.session_state["spectra_db"]:
-                                src_path = os.path.join(root, file)
-                                dst_path = os.path.join(STORAGE_DIR, file)
-                                try:
-                                    with open(src_path, "rb") as sf: content = sf.read()
-                                    with open(dst_path, "wb") as df: df.write(content)
-                                    s_dir_new = {
-                                        "raw_path": dst_path, "file_bytes": content,
-                                        "parsed_peaks": None, "assigned_df": None, "raw_df": None,
-                                    }
-                                    ensure_sample_peaks(s_dir_new)
-                                    st.session_state["spectra_db"][file] = s_dir_new
-                                    added_count += 1
-                                except Exception:
-                                    pass
-                    st.success(T[lang]["folder_success"].format(n=added_count))
-                    st.rerun()
-                else:
-                    st.error(T[lang]["folder_err"])
+        # Импорт из каталога читает файловую систему сервера — только для локального запуска
+        if LOCAL_MODE:
+            with st.expander(T[lang]["folder_expander"], expanded=False):
+                local_folder = st.text_input(
+                    T[lang]["folder_input"],
+                    placeholder="C:/data/spectra" if lang == "en" else "например, C:/data/spectra",
+                    help=T[lang]["folder_help"],
+                )
+                if st.button(T[lang]["folder_btn"]):
+                    if local_folder and os.path.isdir(local_folder):
+                        added_count = 0
+                        for root, _, files in os.walk(local_folder):
+                            for file in files:
+                                if file.lower().endswith((".csv", ".txt", ".tsv", ".xy", ".mzml", ".jdx")) and file not in st.session_state["spectra_db"]:
+                                    src_path = os.path.join(root, file)
+                                    dst_path = storage_path(file)
+                                    try:
+                                        with open(src_path, "rb") as sf: content = sf.read()
+                                        with open(dst_path, "wb") as df: df.write(content)
+                                        s_dir_new = {
+                                            "raw_path": dst_path, "file_bytes": content,
+                                            "parsed_peaks": None, "assigned_df": None, "raw_df": None,
+                                        }
+                                        ensure_sample_peaks(s_dir_new)
+                                        st.session_state["spectra_db"][file] = s_dir_new
+                                        added_count += 1
+                                    except Exception:
+                                        pass
+                        st.success(T[lang]["folder_success"].format(n=added_count))
+                        st.rerun()
+                    else:
+                        st.error(T[lang]["folder_err"])
 
         with st.expander(T[lang]["batch_zip_expander"], expanded=False):
             batch_zip_file = st.file_uploader(
@@ -232,7 +233,8 @@ def render_fticr_studio(T: dict, lang: str):
                         )
                         if not summary_df.empty:
                             for s_name, s_data in processed_dict.items():
-                                save_path = os.path.join(STORAGE_DIR, s_name)
+                                s_name = safe_spectrum_name(s_name)
+                                save_path = storage_path(s_name)
                                 try:
                                     with open(save_path, "wb") as f_out:
                                         f_out.write(s_data["file_bytes"])
@@ -282,9 +284,7 @@ def render_fticr_studio(T: dict, lang: str):
                 current_sample = st.session_state["spectra_db"][active_spectrum_name]
 
                 if st.button(T[lang]["del_sample"], type="secondary"):
-                    if os.path.exists(current_sample["raw_path"]):
-                        try: os.remove(current_sample["raw_path"])
-                        except Exception: pass
+                    remove_stored_file(current_sample.get("raw_path"))
                     del st.session_state["spectra_db"][active_spectrum_name]
                     remaining = list(st.session_state["spectra_db"].keys())
                     st.session_state["active_spectrum_selector"] = remaining[0] if remaining else None
@@ -1095,7 +1095,7 @@ In high-resolution mass spectrometry of natural waters (Lake Baikal) and industr
                         else:
                             clean_sub_df["norm_intensity"] = (clean_sub_df["intensity"] / clean_sub_df["intensity"].max()) * 100.0
                             new_sample_name = f"{name_a}_sub_{name_b}.csv"
-                            fpath_sub = os.path.join(STORAGE_DIR, new_sample_name)
+                            fpath_sub = storage_path(new_sample_name)
                             clean_sub_df.to_csv(fpath_sub, sep="\t", index=False)
 
                             st.session_state["spectra_db"][new_sample_name] = {
@@ -1163,7 +1163,7 @@ In high-resolution mass spectrometry of natural waters (Lake Baikal) and industr
                         else:
                             alg_df["norm_intensity"] = (alg_df["intensity"] / alg_df["intensity"].max()) * 100.0
                             new_alg_name = f"{name_a}_{op_choice[0]}_{name_b}.csv"
-                            fpath_alg = os.path.join(STORAGE_DIR, new_alg_name)
+                            fpath_alg = storage_path(new_alg_name)
                             alg_df.to_csv(fpath_alg, sep="\t", index=False)
 
                             st.session_state["spectra_db"][new_alg_name] = {
