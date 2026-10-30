@@ -8,7 +8,6 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](assets/tests_badge.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -136,62 +135,39 @@ The platform addresses a key task in environmental monitoring: reliably distingu
 ```text
 ChemoSuite/
 │
-├── app.py                            # Main super-app: Streamlit UI routing, 8-modal dashboards, Data Staging, and ML atlas
+├── app.py                            # Streamlit entry point: sidebar, module routing, project manager, telemetry header
 │
-├── modules/                          # 🧠 Computational and chemometric engines (8 analytical modalities)
-│   ├── __init__.py                   # Package initialization and module exports
-│   ├── fticr_core.py                 # Mass spec core: formulas, 13C isotopes, KMD, 20 cells, TMDS networks, vector fluxes
-│   ├── eem_core.py                   # Optical core: EEM filters, PARAFAC tensors, UV-Vis parser, IFE, derivatives, indices
-│   ├── chemo_ml.py                   # Chemometric core: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, permutation
-│   ├── chemo_pubchem.py              # Chemoinformatics: PubChem PUG-REST API, ChEMBL, HMDB, 2D structures, offline library
-│   ├── ftir_core.py                  # FTIR core: AsLS, C=O/C=C deconvolution, lignin library, spectral indices
-│   ├── nmr_core.py                   # NMR core: AsLS, IHSS integrals, S/G/H deconvolution, auto-recalibration
-│   ├── thermal_core.py               # Thermal core: Py-GC-MS peak detection, reference library, TGA/DTG derivatives, zones I-IV
-│   ├── sec_core.py                   # SEC/GPC core: AsLS, polynomial MW calibration, differential & cumulative MWD
-│   ├── elemental_core.py             # Elemental core: CHNS-O stoichiometry, ash/moisture correction, NOSC, heating value
-│   ├── cross_correlation.py          # Cross-Omics core: 2D-COS heterospectral correlation, multiblock interaction networks
-│   ├── batch_screener.py             # Batch processing: directory scanning, 8-modality auto-detection, ZIP packaging
-│   ├── project_io.py                 # .chemo project manager: serialization, ZIP compression, session restore
-│   └── report_generator.py           # Ecological passport generator (Interactive HTML/Print-to-PDF & styled Excel)
+├── modules/                          # 🧠 Computational engines (no Streamlit UI code)
+│   ├── fticr_core.py                 # FT-ICR MS: formula assignment, 13C check, KMD, VK 20-cell grid, TMDS networks
+│   ├── eem_core.py                   # EEM-PARAFAC & UV-Vis: scatter masking, Raman units, IFE, PARAFAC, indices
+│   ├── ftir_core.py                  # FTIR: AsLS baseline, band ratios, carbonyl-region deconvolution
+│   ├── nmr_core.py                   # 13C/1H NMR: baseline, referencing, chemical-shift integration
+│   ├── thermal_core.py               # Py-GC-MS & TGA/DTG: marker classification, pyrolysis ratios, thermal zones
+│   ├── sec_core.py                   # SEC/GPC: calibration, Mn/Mw/Mz, molecular-weight fractions
+│   ├── elemental_core.py             # CHNS-O: basis conversion, atomic ratios, NOSC, heating value
+│   ├── irms_core.py                  # IRMS: δ-notation, reference ratios, two end-member mixing
+│   ├── ic_core.py                    # Ion chromatography: major ions, charge balance, ionic strength
+│   ├── raman_core.py                 # Raman: D/G band fitting, ID/IG, crystallite size
+│   ├── chemo_ml.py                   # Data fusion, PLS-DA, OPLS-DA, sPLS-DA, permutation test, Hotelling T²
+│   ├── multiblock_chemometrics.py    # MB-PLS and SO-PLS multiblock models
+│   ├── cross_correlation.py          # Cross-block correlation and generalized 2D correlation (Noda)
+│   ├── structure_elucidation.py      # Candidate ranking from MS + FTIR + NMR + CHNS constraints
+│   ├── chemo_pubchem.py              # PubChem PUG-REST lookups and offline reference compounds
+│   ├── chemo_agent.py                # Chemo Agent LLM assistant (Polza.ai API, budget guard)
+│   ├── batch_screener.py             # Folder/archive batch screening with modality auto-detection
+│   ├── open_spectrometry_formats.py  # mzML/mzXML, JCAMP-DX import, mzTab-M export
+│   ├── project_io.py                 # .chemo project files (JSON + CSV in ZIP, no pickle)
+│   └── report_generator.py           # HTML and Excel analytical reports
 │
-├── demo_data/                        # Synchronized multimodal demo data across all 8 modalities
-│   ├── fticr_ms/                     # High-resolution mass spec peak lists (Baikal NOM & Sludge Lignin)
-│   ├── eem/                          # 12 excitation-emission fluorescence matrices
-│   ├── uv_vis/                       # 12 UV-Vis absorption spectra (200–700 nm)
-│   ├── ftir/                         # 12 FTIR spectra (400–4000 cm⁻¹) & descriptor matrix
-│   ├── nmr/                          # 12 synthetic 13C NMR spectra & descriptor matrix
-│   ├── thermal/                      # 24 synthetic Py-GC-MS & TGA reference pairs & descriptor matrix
-│   ├── sec/                          # 12 SEC/GPC chromatograms & descriptor matrix
-│   ├── elemental/                    # CHNS-O elemental benchmark matrix (12 samples)
-│   ├── multimodal_ml/                # Summary descriptor tables (block-wise and unified matrix)
-│   └── README.md                     # Guide on using demo files
-│
-├── tests/                            # Automated test suite (121 unit, integration, and stress tests)
-│   ├── test_fticr.py                 # Mass spectrometry tests (formulas, KMD, 20 cells, TMDS networks)
-│   ├── test_eem_uv.py                # Optical spectroscopy tests (EEM, scatter removal, UV-Vis, IFE)
-│   ├── test_ftir.py                  # FTIR tests (AsLS, deconvolution, lignin indices, library)
-│   ├── test_nmr.py                   # NMR tests (IHSS integrals, S/G/H deconvolution, auto-recalibration, JCAMP-DX)
-│   ├── test_thermal.py               # Thermal tests (Py-GC-MS library match, TGA/DTG derivatives, zones I-IV)
-│   ├── test_sec.py                   # SEC/GPC tests (calibration, differential/cumulative MWD, fractions)
-│   ├── test_elemental.py             # Elemental analysis tests (stoichiometry, ash/moist, NOSC, combustion heat)
-│   ├── test_chemo_ml.py              # Chemometrics tests (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
-│   ├── test_cross_correlation.py     # Cross-Omics tests (2D-COS heterospectral correlation, network edges)
-│   ├── test_batch_screener.py        # Autonomous batch screener tests (modality detection, directory scan, ZIP)
-│   ├── test_report_generator.py      # Multi-sheet Excel & interactive HTML ecological passport tests
-│   ├── test_project_io.py            # Session serialization & restoration tests (.chemo)
-│   ├── test_chemo_pubchem.py         # PubChem chemoinformatics tests (PUG-REST, formula cleaning)
-│   ├── test_demo_pipelines.py        # End-to-end integration tests for demo data
-│   └── test_unusual_stress_cases.py  # Stress testing under adversarial and boundary conditions
-│
-├── .github/workflows/ci.yml          # GitHub Actions CI pipeline (Ubuntu/Windows, Python 3.10-3.14)
-├── pytest.ini                        # Pytest configuration file
-├── CITATION.cff                      # Machine-readable citation metadata (GitHub native citation)
-├── assets/                           # Screenshots and graphics for the README
-├── user_spectra/                     # Local storage for uploaded mass spectra (in .gitignore)
-├── requirements.txt                  # Project dependencies (streamlit, tensorly, scikit-learn, openpyxl, pytest)
-├── .gitignore                        # System and temporary file exclusions
-├── README.md                         # Main repository documentation on GitHub (English default)
-└── README_RU.md                      # Platform documentation (Russian)
+├── views/                            # 🖥️ Streamlit pages, one per analytical studio (+ common.py helpers)
+├── demo_data/                        # Synthetic demo dataset for all modalities (see demo_data/README.md)
+├── tests/                            # pytest: unit, integration, stress, security and UI smoke tests (AppTest)
+├── .github/workflows/ci.yml          # GitHub Actions CI (Ubuntu/Windows, Python 3.10–3.13)
+├── assets/                           # Screenshots and CSS theme
+├── requirements.txt                  # Runtime dependencies
+├── CITATION.cff                      # Citation metadata
+├── README.md                         # Documentation (English)
+└── README_RU.md                      # Documentation (Russian)
 ```
 
 ---
@@ -204,7 +180,7 @@ git clone https://github.com/xav1c34/ChemoSuite.git
 cd ChemoSuite
 ```
 
-### 2. Настройка виртуального окружения
+### 2. Set Up a Virtual Environment
 **Windows (PowerShell):**
 ```powershell
 python -m venv .venv

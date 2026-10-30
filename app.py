@@ -1,167 +1,22 @@
 # app.py — ChemoSuite Unified Analytical Platform
-import inspect
-import io
-import math
 import os
 from pathlib import Path
 import sys
-import tempfile
-import urllib.parse
-from typing import Any, Dict, List, Optional, Tuple
 
 # Регистрация папки modules в путях поиска Python
 _MODULES_DIR = str(Path(__file__).resolve().parent / "modules")
 if _MODULES_DIR not in sys.path:
     sys.path.insert(0, _MODULES_DIR)
 
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 
-# Попытка импорта специализированных библиотек
-try:
-    import nomspectra as ns
-    from nomspectra import Spectrum
-    NOMSPECTRA_INSTALLED = True
-except ImportError:
-    NOMSPECTRA_INSTALLED = False
-
-try:
-    import eem_core
-    EEM_CORE_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import eem_core
-        EEM_CORE_AVAILABLE = True
-    except ImportError:
-        eem_core = None
-        EEM_CORE_AVAILABLE = False
-
-try:
-    import chemo_ml
-    CHEMO_ML_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import chemo_ml
-        CHEMO_ML_AVAILABLE = True
-    except ImportError:
-        chemo_ml = None
-        CHEMO_ML_AVAILABLE = False
-
-try:
-    import report_generator
-    REPORT_GEN_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import report_generator
-        REPORT_GEN_AVAILABLE = True
-    except ImportError:
-        report_generator = None
-        REPORT_GEN_AVAILABLE = False
-
+# Вычислительные ядра импортируются самими модулями views/; здесь нужен только менеджер проектов
 try:
     import project_io
     PROJECT_IO_AVAILABLE = True
 except ImportError:
-    try:
-        from modules import project_io
-        PROJECT_IO_AVAILABLE = True
-    except ImportError:
-        project_io = None
-        PROJECT_IO_AVAILABLE = False
-
-try:
-    import chemo_pubchem
-    CHEMO_PUBCHEM_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import chemo_pubchem
-        CHEMO_PUBCHEM_AVAILABLE = True
-    except ImportError:
-        chemo_pubchem = None
-        CHEMO_PUBCHEM_AVAILABLE = False
-
-try:
-    import ftir_core
-    FTIR_CORE_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import ftir_core
-        FTIR_CORE_AVAILABLE = True
-    except ImportError:
-        ftir_core = None
-        FTIR_CORE_AVAILABLE = False
-
-try:
-    import nmr_core
-    NMR_CORE_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import nmr_core
-        NMR_CORE_AVAILABLE = True
-    except ImportError:
-        nmr_core = None
-        NMR_CORE_AVAILABLE = False
-
-try:
-    import thermal_core
-    THERMAL_CORE_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import thermal_core
-        THERMAL_CORE_AVAILABLE = True
-    except ImportError:
-        thermal_core = None
-        THERMAL_CORE_AVAILABLE = False
-
-try:
-    import sec_core
-    SEC_CORE_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import sec_core
-        SEC_CORE_AVAILABLE = True
-    except ImportError:
-        sec_core = None
-        SEC_CORE_AVAILABLE = False
-
-try:
-    import elemental_core
-    ELEMENTAL_CORE_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import elemental_core
-        ELEMENTAL_CORE_AVAILABLE = True
-    except ImportError:
-        elemental_core = None
-        ELEMENTAL_CORE_AVAILABLE = False
-
-try:
-    import cross_correlation
-    CROSS_CORR_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import cross_correlation
-        CROSS_CORR_AVAILABLE = True
-    except ImportError:
-        cross_correlation = None
-        CROSS_CORR_AVAILABLE = False
-
-try:
-    import batch_screener
-    BATCH_SCREENER_AVAILABLE = True
-except ImportError:
-    try:
-        from modules import batch_screener
-        BATCH_SCREENER_AVAILABLE = True
-    except ImportError:
-        batch_screener = None
-        BATCH_SCREENER_AVAILABLE = False
+    project_io = None
+    PROJECT_IO_AVAILABLE = False
 
 
 # ==============================================================================
@@ -181,7 +36,7 @@ if _css_file.exists():
         st.markdown(f"<style>{_f_css.read()}</style>", unsafe_allow_html=True)
 
 
-from views.common import LOCAL_MODE, PERSISTENT_STORAGE_DIR, storage_path
+from views.common import LOCAL_MODE, PERSISTENT_STORAGE_DIR, storage_path, ensure_sample_peaks
 
 STORAGE_DIR = PERSISTENT_STORAGE_DIR
 if LOCAL_MODE:
@@ -336,7 +191,7 @@ T = {
         "batch_ion_mode": "Режим ионизации:",
         "batch_ppm_tol": "Допуск погрешности (ppm):",
         "batch_min_int": "Порог шума (мин. интенсивность):",
-        "batch_run_btn": "🚀 Запустить пакетную обработку архива",
+        "batch_zip_run_btn": "🚀 Запустить пакетную обработку архива",
         "batch_success": "Успешно обработано спектров: {n}",
         "batch_table_title": "Сводная матрица дескрипторов (20 ячеек, индексы, пулы):",
         "batch_dl_csv": "📥 Скачать матрицу дескрипторов (chemo_fticr_block.csv)",
@@ -1050,7 +905,7 @@ T = {
         "batch_ion_mode": "Ionization mode:",
         "batch_ppm_tol": "PPM tolerance:",
         "batch_min_int": "Noise cutoff (min intensity):",
-        "batch_run_btn": "🚀 Run Batch Archive Processing",
+        "batch_zip_run_btn": "🚀 Run Batch Archive Processing",
         "batch_success": "Successfully processed spectra: {n}",
         "batch_table_title": "Summary Descriptor Matrix (20 cells, indices, pools):",
         "batch_dl_csv": "📥 Download Descriptor Matrix (chemo_fticr_block.csv)",
@@ -1329,7 +1184,6 @@ T = {
         "thermal_sync_success": "Thermal descriptors ({n} samples) successfully synced to Module 3!",
         "thermal_dl_csv": "📥 Download Thermal Descriptors (CSV)",
         "thermal_dl_excel": "📊 Export to Excel (.xlsx)",
-        "ml_up_sec": "SEC/GPC Descriptors table (CSV):",
         # Module 7: Size-Exclusion & Gel Permeation Chromatography (SEC / GPC)
         "mod7_name": "📏 Size-Exclusion Chromatography (SEC / GPC)",
         "sec_title": "📏 Size-Exclusion & Gel Permeation Chromatography (SEC / GPC Studio)",
@@ -1622,147 +1476,6 @@ T = {
 }
 
 # ==============================================================================
-# КОНСТАНТЫ И ВЫЧИСЛИТЕЛЬНОЕ ЯДРО FT-ICR MS
-# ==============================================================================
-from fticr_core import (
-    EXACT_MASSES,
-    C13_DIFF,
-    H_ION_MASS,
-    KMD_BASES,
-    TMDS_LIBRARY,
-    VAN_KREVELEN_REGIONS,
-    get_biomolecular_distribution,
-    batch_process_fticr_spectra,
-    calculate_descriptors,
-    parse_uploaded_file,
-    fast_formula_assigner,
-    run_formula_assignment,
-    compute_kmd,
-    compute_vk20_grid,
-    align_two_spectra_fast,
-    perform_spectral_algebra,
-    run_tmds_screening,
-    build_tmds_network_graph,
-    compute_geochemical_vector_fluxes,
-    find_transformation_pathways,
-    get_calibrant_library,
-)
-
-
-# ==============================================================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЯДРО FT-ICR MS
-# ==============================================================================
-def st_df(data, **kwargs):
-    if isinstance(data, pd.DataFrame):
-        col_cfg = kwargs.get("column_config")
-        if col_cfg is None:
-            col_cfg = {}
-        else:
-            col_cfg = dict(col_cfg)
-        for col in data.columns:
-            if col not in col_cfg:
-                col_s = str(col).lower()
-                if any(k in col_s for k in ["origin", "генезис", "эколог", "desc", "описан", "status", "статус", "name", "назван", "smiles", "pathway", "trans"]):
-                    col_cfg[col] = st.column_config.TextColumn(width="large")
-                elif pd.api.types.is_string_dtype(data[col]) or pd.api.types.is_object_dtype(data[col]):
-                    max_len = data[col].astype(str).str.len().max() if len(data) > 0 else 0
-                    if max_len > 35:
-                        col_cfg[col] = st.column_config.TextColumn(width="large")
-                    elif max_len > 15:
-                        col_cfg[col] = st.column_config.TextColumn(width="medium")
-        if col_cfg:
-            kwargs["column_config"] = col_cfg
-    try:
-        return st.dataframe(data, width="stretch", **kwargs)
-    except TypeError:
-        return st.dataframe(data, use_container_width=True, **kwargs)
-
-
-def ensure_sample_peaks(sample: Optional[Dict[str, Any]]) -> Optional[pd.DataFrame]:
-    """Гарантирует наличие валидного DataFrame пиков (parsed_peaks) у образца."""
-    if sample is None:
-        return None
-    if sample.get("parsed_peaks") is not None and not sample["parsed_peaks"].empty:
-        return sample["parsed_peaks"]
-
-    b_content = sample.get("file_bytes")
-    if not b_content and sample.get("raw_path") and os.path.exists(sample["raw_path"]):
-        try:
-            with open(sample["raw_path"], "rb") as f:
-                b_content = f.read()
-                sample["file_bytes"] = b_content
-        except Exception:
-            pass
-
-    if not b_content:
-        return None
-
-    try:
-        raw_df = parse_uploaded_file(b_content, delimiter="Auto", decimal_sep=".", has_header=True)
-        if raw_df is None or raw_df.empty:
-            return None
-        sample["raw_df"] = raw_df
-        col_names = list(raw_df.columns)
-        mz_col = col_names[0]
-        int_col = col_names[1] if len(col_names) > 1 else col_names[0]
-        for idx, cname in enumerate(col_names):
-            cn_low = str(cname).lower()
-            if any(k in cn_low for k in ["m/z", "mass", "mz", "m.z"]):
-                mz_col = cname
-            elif any(k in cn_low for k in ["int", "i", "count", "abund"]):
-                int_col = cname
-        clean_m = pd.to_numeric(raw_df[mz_col], errors="coerce")
-        clean_i = pd.to_numeric(raw_df[int_col], errors="coerce")
-        valid_mask = clean_m.notna() & clean_i.notna()
-        v_df = pd.DataFrame({"mass": clean_m[valid_mask].astype(float), "intensity": clean_i[valid_mask].astype(float)})
-        v_df = v_df[v_df["mass"] > 0].sort_values("mass").reset_index(drop=True)
-        if not v_df.empty:
-            v_df["norm_intensity"] = (v_df["intensity"] / max(1e-12, float(v_df["intensity"].max()))) * 100.0
-            sample["parsed_peaks"] = v_df
-            return v_df
-    except Exception:
-        pass
-    return sample.get("parsed_peaks")
-
-
-def st_plotly(fig, **kwargs):
-    config = {
-        "scrollZoom": True,
-        "displayModeBar": True,
-        "displaylogo": False,
-        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-    }
-    try:
-        return st.plotly_chart(fig, width="stretch", config=config, **kwargs)
-    except TypeError:
-        return st.plotly_chart(fig, use_container_width=True, config=config, **kwargs)
-
-
-def get_plot_download_buttons(fig, base_filename: str, lang: str):
-    col1, col2, _ = st.columns([1.8, 1.8, 4.4])
-    with col1:
-        png_buf = io.BytesIO()
-        fig.savefig(png_buf, format="png", dpi=300, bbox_inches="tight")
-        st.download_button(
-            label=T[lang]["download_png"],
-            data=png_buf.getvalue(),
-            file_name=f"{base_filename}.png",
-            mime="image/png",
-            key=f"dl_png_{base_filename}",
-        )
-    with col2:
-        svg_buf = io.BytesIO()
-        fig.savefig(svg_buf, format="svg", bbox_inches="tight")
-        st.download_button(
-            label=T[lang]["download_svg"],
-            data=svg_buf.getvalue(),
-            file_name=f"{base_filename}.svg",
-            mime="image/svg+xml",
-            key=f"dl_svg_{base_filename}",
-        )
-
-
-# ==============================================================================
 # ИНИЦИАЛИЗАЦИЯ ХРАНИЛИЩА SESSION_STATE
 # ==============================================================================
 if "spectra_db" not in st.session_state:
@@ -2032,11 +1745,7 @@ with st.sidebar:
                     st.rerun()
 
     try:
-        import importlib
-        import modules.chemo_agent
-        importlib.reload(modules.chemo_agent)
         import views.agent_view
-        importlib.reload(views.agent_view)
 
         # Sanitize any stale deprecated model in active browser session
         _stale_m = st.session_state.get("agent_model_select")

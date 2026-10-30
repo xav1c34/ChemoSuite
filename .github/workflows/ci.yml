@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
     - name: Checkout repository
@@ -33,3 +33,5 @@ jobs:
     - name: Run Pytest test suite
       run: |
         pytest -v tests
+      env:
+        PYTHONIOENCODING: utf-8

@@ -8,7 +8,6 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![CI](https://github.com/xav1c34/ChemoSuite/actions/workflows/ci.yml/badge.svg)
-![Tests](assets/tests_badge.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
 ![TensorLy](https://img.shields.io/badge/TensorLy-0.8.1-green)
 ![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.4%2B-orange?logo=scikit-learn&logoColor=white)
@@ -135,62 +134,39 @@
 ```text
 ChemoSuite/
 │
-├── app.py                            # Главный супер-апп: Streamlit UI-маршрутизация, дашборды 8 модальностей, Data Staging и ML-атлас
+├── app.py                            # Точка входа Streamlit: боковая панель, маршрутизация модулей, менеджер проектов
 │
-├── modules/                          # 🧠 Вычислительные и хемометрические ядра платформы (8 модальностей)
-│   ├── __init__.py                   # Пакетная инициализация и реэкспорт функций
-│   ├── fticr_core.py                 # Ядро масс-спектрометрии: формулы, изотопы 13C, KMD, 20 ячеек, TMDS сети, векторные потоки
-│   ├── eem_core.py                   # Оптическое ядро: фильтрация EEM, тензоры PARAFAC, парсер УФ-Вид, IFE, производные, индексы
-│   ├── chemo_ml.py                   # Хемометрическое ядро: Low/Mid Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Hotelling, S-Plot, пермутация
-│   ├── chemo_pubchem.py              # Хемоинформатика: PubChem PUG-REST API, ChEMBL, HMDB, 2D структуры, офлайн-библиотека
-│   ├── ftir_core.py                  # Ядро ИК-спектроскопии: AsLS, деконволюция C=O/C=C, библиотека лигнинов, индексы
-│   ├── nmr_core.py                   # Ядро ЯМР-спектроскопии: AsLS, интегралы IHSS, деконволюция S/G/H, авторекалибровка
-│   ├── thermal_core.py               # Ядро термического анализа: Py-GC-MS библиотека, DTG производные, зоны I-IV, индексы
-│   ├── sec_core.py                   # Ядро эксклюзионной хроматографии: AsLS, калибровка ММР, дифференциальное и интегральное ММР
-│   ├── elemental_core.py             # Ядро элементного анализа: CHNS-O стехиометрия, поправка на золу/влажность, NOSC, теплота сгорания
-│   ├── cross_correlation.py          # Кросс-Омикс ядро: 2D-COS гетероспектральная корреляция, графы межмодальных связей
-│   ├── batch_screener.py             # Пакетная обработка: сканирование директорий, автоопределение 8 модальностей, ZIP-экспорт
-│   ├── project_io.py                 # Модуль проектов .chemo: сериализация, ZIP-сжатие и восстановление сессии
-│   └── report_generator.py           # Генератор экологических паспортов (Интерактивный HTML/PDF и многостраничный Excel)
+├── modules/                          # 🧠 Вычислительные ядра (без кода интерфейса Streamlit)
+│   ├── fticr_core.py                 # FT-ICR MS: приписывание формул, проверка 13C, KMD, сетка ВК 20 ячеек, сети TMDS
+│   ├── eem_core.py                   # EEM-PARAFAC и УФ-Вид: маскирование рассеяния, единицы Рамана, IFE, PARAFAC, индексы
+│   ├── ftir_core.py                  # ИК-Фурье: базовая линия AsLS, отношения полос, деконволюция карбонильной области
+│   ├── nmr_core.py                   # ЯМР 13C/1H: базовая линия, калибровка шкалы, интегрирование по диапазонам сдвигов
+│   ├── thermal_core.py               # Py-GC-MS и ТГА/ДТГ: классификация маркеров, пиролитические отношения, зоны
+│   ├── sec_core.py                   # SEC/GPC: калибровка, Mn/Mw/Mz, молекулярно-массовые фракции
+│   ├── elemental_core.py             # CHNS-O: пересчёт на базис, атомные отношения, NOSC, теплота сгорания
+│   ├── irms_core.py                  # IRMS: δ-нотация, эталонные отношения, двухкомпонентное смешение
+│   ├── ic_core.py                    # Ионная хроматография: главные ионы, ионный баланс, ионная сила
+│   ├── raman_core.py                 # Раман: подгонка полос D/G, ID/IG, размер кристаллитов
+│   ├── chemo_ml.py                   # Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, пермутационный тест, T² Хотеллинга
+│   ├── multiblock_chemometrics.py    # Мультиблочные модели MB-PLS и SO-PLS
+│   ├── cross_correlation.py          # Межблочная корреляция и обобщённая 2D-корреляция (Noda)
+│   ├── structure_elucidation.py      # Ранжирование кандидатов по ограничениям MS + FTIR + ЯМР + CHNS
+│   ├── chemo_pubchem.py              # Запросы PubChem PUG-REST и офлайн-справочник соединений
+│   ├── chemo_agent.py                # ИИ-ассистент Chemo Agent (API Polza.ai, контроль бюджета)
+│   ├── batch_screener.py             # Пакетный скрининг папок и архивов с автоопределением модальности
+│   ├── open_spectrometry_formats.py  # Импорт mzML/mzXML и JCAMP-DX, экспорт mzTab-M
+│   ├── project_io.py                 # Файлы проектов .chemo (JSON + CSV в ZIP, без pickle)
+│   └── report_generator.py           # Аналитические отчёты HTML и Excel
 │
-├── demo_data/                        # Согласованные мультимодальные демо-данные (все 8 модальностей)
-│   ├── fticr_ms/                     # Пик-листы масс-спектров высокого разрешения (Байкал РОВ и Шлам-лигнин)
-│   ├── eem/                          # 12 матриц возбуждения-испускания флуоресценции
-│   ├── uv_vis/                       # 12 спектров поглощения УФ-Вид (200–700 нм)
-│   ├── ftir/                         # 12 ИК-спектров (400–4000 см⁻¹) и матрица дескрипторов
-│   ├── nmr/                          # 12 синтетических эталонов 13C ЯМР и матрица дескрипторов
-│   ├── thermal/                      # 24 синтетические пары Py-GC-MS и TGA эталонов и матрица дескрипторов
-│   ├── sec/                          # 12 хроматограмм SEC/GPC и матрица дескрипторов
-│   ├── elemental/                    # Бенчмарк-матрица элементного анализа CHNS-O (12 проб)
-│   ├── multimodal_ml/                # Сводные таблицы дескрипторов (поблочные и единая матрица)
-│   └── README.md                     # Инструкция по использованию демо-файлов
-│
-├── tests/                            # Набор автоматических тестов pytest (121 unit-, интеграционный и стресс-тест)
-│   ├── test_fticr.py                 # Тесты масс-спектрометрии (формулы, KMD, 20 ячеек, TMDS сети)
-│   ├── test_eem_uv.py                # Тесты оптики (EEM, фильтрация рассеяния, UV-Vis, IFE)
-│   ├── test_ftir.py                  # Тесты FTIR (AsLS, деконволюция, лигниновые индексы, библиотека)
-│   ├── test_nmr.py                   # Тесты NMR (интегралы IHSS, деконволюция S/G/H, авторекалибровка, JCAMP-DX)
-│   ├── test_thermal.py               # Тесты термического анализа (Py-GC-MS библиотека, DTG, зоны I-IV)
-│   ├── test_sec.py                   # Тесты хроматографии SEC/GPC (калибровка, ММР, эко-фракции)
-│   ├── test_elemental.py             # Тесты элементного анализа (стехиометрия, зольность, NOSC, теплота сгорания)
-│   ├── test_chemo_ml.py              # Тесты хемометрики (Data Fusion, PLS-DA, OPLS-DA, sPLS-DA, 3D Ellipsoid, S-Plot)
-│   ├── test_cross_correlation.py     # Тесты Cross-Omics (2D-COS гетероспектральная корреляция, ребра сети)
-│   ├── test_batch_screener.py        # Тесты пакетного скринера (определение модальностей, сканирование папок, ZIP)
-│   ├── test_report_generator.py      # Тесты генерации многостраничных Excel- и интерактивных HTML-паспортов
-│   ├── test_project_io.py            # Тесты сериализации и восстановления сессий (.chemo)
-│   ├── test_chemo_pubchem.py         # Тесты хемоинформатики PubChem (PUG-REST, очистка формул)
-│   ├── test_demo_pipelines.py        # Сквозные интеграционные тесты демо-данных
-│   └── test_unusual_stress_cases.py  # Стресс-тестирование граничных и сингулярных условий
-│
-├── .github/workflows/ci.yml          # GitHub Actions CI пайплайн (Ubuntu/Windows, Python 3.10-3.14)
-├── pytest.ini                        # Конфигурация запуска тестов pytest
-├── CITATION.cff                      # Машиночитаемые метаданные цитирования (встроенное цитирование GitHub)
-├── assets/                           # Скриншоты и графические материалы для README
-├── user_spectra/                     # Локальное хранилище загруженных масс-спектров (в .gitignore)
-├── requirements.txt                  # Зависимости проекта (streamlit, tensorly, scikit-learn, openpyxl, pytest)
-├── .gitignore                        # Исключения системных и временных файлов
-├── README.md                         # Главная документация платформы на GitHub (English)
-└── README_RU.md                      # Документация платформы (русский язык)
+├── views/                            # 🖥️ Страницы Streamlit, по одной на студию (+ общие хелперы common.py)
+├── demo_data/                        # Синтетический демо-набор для всех модальностей (см. demo_data/README.md)
+├── tests/                            # pytest: модульные, интеграционные, стресс-, security- и UI smoke-тесты (AppTest)
+├── .github/workflows/ci.yml          # GitHub Actions CI (Ubuntu/Windows, Python 3.10–3.13)
+├── assets/                           # Скриншоты и CSS-тема
+├── requirements.txt                  # Зависимости
+├── CITATION.cff                      # Метаданные для цитирования
+├── README.md                         # Документация (английский)
+└── README_RU.md                      # Документация (русский)
 ```
 
 ---
