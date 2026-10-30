@@ -21,6 +21,7 @@ def test_ic_sample_charge_balance_and_metrics():
         na_plus=22.99,
         cl_minus=35.45,
         so4_2minus=0.0,
+        alkalinity_meq_l=0.0,  # carbonate-free standard: alkalinity stated explicitly
     ).compute_metrics()
 
     # Molar charges are equal (1 meq/L Na+, 1 meq/L Cl-) -> CBE ~ 0.0%

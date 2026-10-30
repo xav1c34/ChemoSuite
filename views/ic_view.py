@@ -18,6 +18,30 @@ try:
 except ImportError:
     ic_core = None
 
+try:
+    from modules.report_generator import sanitize_excel_df
+except ImportError:  # pragma: no cover
+    def sanitize_excel_df(df):
+        return df
+
+
+def _fmt(val, spec=".1f", suffix="", na="n/a"):
+    """Formats a number; NaN/None -> 'n/a' (never a fabricated 0)."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return na
+    if not np.isfinite(v):
+        return na
+    return f"{v:{spec}}{suffix}"
+
+
+_CBE_FLAG_TEXT = {
+    "HCO3_missing": ("нет HCO₃⁻/щёлочности", "no HCO₃⁻/alkalinity"),
+    "major_ion_missing": ("не измерен главный ион", "major ion not measured"),
+    "no_ions": ("нет данных", "no data"),
+}
+
 
 def render_ic_studio(T: dict, lang: str):
     """Render Module 10: Ion Chromatography Studio (IC)."""
@@ -50,9 +74,27 @@ def render_ic_studio(T: dict, lang: str):
                 type=["csv", "tsv", "txt"],
                 key="ic_uploader_file",
             )
+            alk_opts = {
+                ("Авто (по заголовку столбца)" if lang == "ru" else "Auto (from column header)"): None,
+                "meq/L (мг-экв/л)" if lang == "ru" else "meq/L": "meq/L",
+                "mg/L CaCO₃": "mg/L CaCO3",
+            }
+            alk_choice = st.selectbox(
+                "Единицы щёлочности (если есть столбец Alkalinity):" if lang == "ru" else "Alkalinity unit (if an Alkalinity column is present):",
+                list(alk_opts.keys()),
+                index=0,
+                key="ic_alk_unit_select",
+            )
             if up_file is not None:
-                samples = ic_core.parse_ic_table(up_file.getvalue())
+                samples = ic_core.parse_ic_table(up_file.getvalue(), alkalinity_unit=alk_opts[alk_choice])
                 st.session_state["ic_samples"] = {s.sample_id: s for s in samples}
+                if samples:
+                    for w in samples[0].metadata.get("parse_warnings", []):
+                        st.warning(w)
+                    st.caption(
+                        ("Распознанные столбцы: " if lang == "ru" else "Recognised columns: ")
+                        + ", ".join(f"{v}→{k}" for k, v in samples[0].metadata.get("column_map", {}).items())
+                    )
         else:
             if not st.session_state.get("ic_samples"):
                 bench_df = ic_core.generate_synthetic_ic_dataset()
@@ -75,15 +117,25 @@ def render_ic_studio(T: dict, lang: str):
         )
     active_sample = curr_samples[active_id]
 
+    cbe_val = active_sample.charge_balance_error_pct
+    cbe_ok = cbe_val is not None and np.isfinite(cbe_val)
+    cbe_flag = getattr(active_sample, "charge_balance_flag", "")
+    cbe_flag_txt = _CBE_FLAG_TEXT.get(cbe_flag, ("", ""))[0 if lang == "ru" else 1]
+    cbe_str = _fmt(cbe_val, "+.1f", "%") if cbe_ok else f"n/a ({cbe_flag_txt})" if cbe_flag_txt else "n/a"
+
     with col_sel2:
         chips = [
             f'<span class="sample-chip"><b>SO₄²⁻</b>: {active_sample.so4_2minus:.1f} mg/L</span>',
             f'<span class="sample-chip"><b>Cl⁻</b>: {active_sample.cl_minus:.1f} mg/L</span>',
-            f'<span class="sample-chip"><b>SO₄/Cl</b>: {active_sample.so4_to_cl_ratio:.1f}</span>',
+            f'<span class="sample-chip"><b>HCO₃⁻</b>: {_fmt(getattr(active_sample, "hco3_eff_mg_l", np.nan), ".1f", " mg/L")}</span>',
+            f'<span class="sample-chip"><b>SO₄/Cl</b>: {_fmt(active_sample.so4_to_cl_ratio, ".1f")}</span>',
             f'<span class="sample-chip green"><b>LMWOA</b>: {active_sample.total_lmwoa_mg_l:.1f} mg/L</span>',
         ]
-        cbe_color = "green" if abs(active_sample.charge_balance_error_pct) <= 5.0 else ("orange" if abs(active_sample.charge_balance_error_pct) <= 15.0 else "red")
-        chips.append(f'<span class="sample-chip {cbe_color}"><b>CBE</b>: {active_sample.charge_balance_error_pct:+.1f}%</span>')
+        if cbe_ok:
+            cbe_color = "green" if abs(cbe_val) <= 5.0 else ("orange" if abs(cbe_val) <= 15.0 else "red")
+        else:
+            cbe_color = "orange"
+        chips.append(f'<span class="sample-chip {cbe_color}"><b>CBE</b>: {cbe_str}</span>')
 
         k_color = "red" if active_sample.kraft_effluent_indicator > 0.6 else ("orange" if active_sample.kraft_effluent_indicator > 0.25 else "green")
         chips.append(f'<span class="sample-chip {k_color}"><b>Kraft Effluent</b>: {active_sample.kraft_effluent_indicator*100:.0f}%</span>')
@@ -103,12 +155,33 @@ def render_ic_studio(T: dict, lang: str):
     # TAB 1: Ионный профиль & Баланс
     with tab1:
         st.subheader(f"{'Ионный состав и электронейтральность' if lang == 'ru' else 'Ion Balance'} — {active_id}")
-        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-        kpi1.metric("Сульфат (SO₄²⁻)", f"{active_sample.so4_2minus:.1f} мг/л")
-        kpi2.metric("Хлорид (Cl⁻)", f"{active_sample.cl_minus:.1f} мг/л")
-        kpi3.metric("Нитрат (NO₃⁻)", f"{active_sample.no3_minus:.2f} мг/л")
-        kpi4.metric("Сумма LMWOA", f"{active_sample.total_lmwoa_mg_l:.2f} мг/л")
-        kpi5.metric("Баланс зарядов (CBE)", f"{active_sample.charge_balance_error_pct:+.1f} %", delta=f"{'В норме (≤5%)' if abs(active_sample.charge_balance_error_pct) <= 5.0 else 'Дисбаланс'}")
+        u = "мг/л" if lang == "ru" else "mg/L"
+        kpi1, kpi2, kpi3, kpi6, kpi4, kpi5 = st.columns(6)
+        kpi1.metric("Сульфат (SO₄²⁻)" if lang == "ru" else "Sulfate (SO₄²⁻)", f"{active_sample.so4_2minus:.1f} {u}")
+        kpi2.metric("Хлорид (Cl⁻)" if lang == "ru" else "Chloride (Cl⁻)", f"{active_sample.cl_minus:.1f} {u}")
+        kpi3.metric("Нитрат (NO₃⁻)" if lang == "ru" else "Nitrate (NO₃⁻)", f"{active_sample.no3_minus:.2f} {u}")
+        basis = getattr(active_sample, "carbonate_basis", "")
+        kpi6.metric(
+            "Гидрокарбонат (HCO₃⁻)" if lang == "ru" else "Bicarbonate (HCO₃⁻)",
+            _fmt(getattr(active_sample, "hco3_eff_mg_l", np.nan), ".1f", f" {u}"),
+            help=(("Источник: " if lang == "ru" else "Basis: ") + (basis or "—")),
+        )
+        kpi4.metric("Сумма LMWOA" if lang == "ru" else "Total LMWOA", f"{active_sample.total_lmwoa_mg_l:.2f} {u}")
+        if cbe_ok:
+            cbe_delta = ("В норме (≤5%)" if lang == "ru" else "Within ±5%") if abs(cbe_val) <= 5.0 else ("Дисбаланс" if lang == "ru" else "Imbalance")
+        else:
+            cbe_delta = None
+        kpi5.metric("Баланс зарядов (CBE)" if lang == "ru" else "Charge balance (CBE)", cbe_str, delta=cbe_delta)
+        if np.isfinite(getattr(active_sample, "sum_cations_meq_l", np.nan)):
+            st.caption(
+                (f"Σ катионов = {_fmt(active_sample.sum_cations_meq_l, '.3f')} мг-экв/л; Σ анионов = {_fmt(active_sample.sum_anions_meq_l, '.3f')} мг-экв/л; "
+                 f"средний заряд PO₄ = {_fmt(active_sample.po4_mean_charge, '.2f')}. CBE = (Σкат − Σан)/(Σкат + Σан)·100 (Standard Methods 1030 E).")
+                if lang == "ru" else
+                (f"Σ cations = {_fmt(active_sample.sum_cations_meq_l, '.3f')} meq/L; Σ anions = {_fmt(active_sample.sum_anions_meq_l, '.3f')} meq/L; "
+                 f"mean PO₄ charge = {_fmt(active_sample.po4_mean_charge, '.2f')}. CBE = (Σcat − Σan)/(Σcat + Σan)·100 (Standard Methods 1030 E).")
+            )
+        for note in getattr(active_sample, "notes", []):
+            st.warning(note)
 
         st.markdown("---")
         c_chart1, c_chart2 = st.columns(2)
@@ -121,6 +194,7 @@ def render_ic_studio(T: dict, lang: str):
                 {"Ион": "NO₃⁻", "Концентрация (мг/л)": active_sample.no3_minus, "Тип": "Минеральный"},
                 {"Ион": "F⁻", "Концентрация (мг/л)": active_sample.f_minus, "Тип": "Минеральный"},
                 {"Ион": "PO₄³⁻", "Концентрация (мг/л)": active_sample.po4_3minus, "Тип": "Минеральный"},
+                {"Ион": "HCO₃⁻", "Концентрация (мг/л)": getattr(active_sample, "hco3_eff_mg_l", np.nan), "Тип": "Карбонатный"},
                 {"Ион": "Ацетат", "Концентрация (мг/л)": active_sample.acetate, "Тип": "LMWOA"},
                 {"Ион": "Формиат", "Концентрация (мг/л)": active_sample.formate, "Тип": "LMWOA"},
                 {"Ион": "Оксалат", "Концентрация (мг/л)": active_sample.oxalate, "Тип": "LMWOA"},
@@ -130,7 +204,7 @@ def render_ic_studio(T: dict, lang: str):
                 x="Ион",
                 y="Концентрация (мг/л)",
                 color="Тип",
-                color_discrete_map={"Минеральный": "#0ea5e9", "LMWOA": "#10b981"},
+                color_discrete_map={"Минеральный": "#0ea5e9", "LMWOA": "#10b981", "Карбонатный": "#64748b"},
                 template="plotly_white",
             )
             fig_anions.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=350)
@@ -172,7 +246,9 @@ def render_ic_studio(T: dict, lang: str):
                 "Cl": s.cl_minus,
                 "SO4_Cl_Ratio": s.so4_to_cl_ratio,
                 "LMWOA_Total": s.total_lmwoa_mg_l,
+                "HCO3": getattr(s, "hco3_eff_mg_l", np.nan),
                 "CBE_pct": s.charge_balance_error_pct,
+                "CBE_flag": getattr(s, "charge_balance_flag", ""),
                 "Kraft_Index": s.kraft_effluent_indicator,
                 "Sample_Type": s.sample_type,
             })
@@ -192,13 +268,14 @@ def render_ic_studio(T: dict, lang: str):
                 title="Сульфат vs Хлорид (Трассировка шлама)" if lang == "ru" else "SO4 vs Cl (Sludge Tracing)",
                 labels={"SO4": "SO₄²⁻ (мг/л)", "Cl": "Cl⁻ (мг/л)"},
             )
-            # Add pristine Baikal line (SO4/Cl ≈ 1.8)
+            # Pelagic Baikal background SO4/Cl ≈ 13 by mass (SO4 ≈ 5.5, Cl ≈ 0.43 mg/L; Falkner et al. 1991)
+            bg_ratio = getattr(ic_core, "BAIKAL_SO4_CL_BACKGROUND", 13.0)
             max_cl = max(15.0, ic_overview_df["Cl"].max())
             fig_so4_cl.add_trace(go.Scatter(
                 x=[0, max_cl],
-                y=[0, max_cl * 1.8],
+                y=[0, max_cl * bg_ratio],
                 mode="lines",
-                name="Фон Байкала (SO₄/Cl ~ 1.8)",
+                name=(f"Фон Байкала (SO₄/Cl ≈ {bg_ratio:.0f})" if lang == "ru" else f"Baikal background (SO₄/Cl ≈ {bg_ratio:.0f})"),
                 line=dict(color="#0ea5e9", dash="dot"),
             ))
             fig_so4_cl.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=380)
@@ -259,5 +336,5 @@ def render_ic_studio(T: dict, lang: str):
         with c_exp_xlsx:
             out_buf = io.BytesIO()
             with pd.ExcelWriter(out_buf, engine="openpyxl") as writer:
-                desc_df.to_excel(writer, sheet_name="IC_Data")
+                sanitize_excel_df(desc_df.reset_index()).to_excel(writer, sheet_name="IC_Data", index=False)
             st.download_button("📊 Скачать Excel", out_buf.getvalue(), "ic_descriptors.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)

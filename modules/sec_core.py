@@ -4,12 +4,13 @@ sec_core.py — Математическое ядро гель-проникаю�
 полидисперсности, фракционирования природного органического вещества (РОВ/DOM, гуминовые кислоты)
 и техногенного шлам-лигнина целлюлозно-бумажного производства.
 """
+import dataclasses
 from dataclasses import dataclass, field
 import io
 import math
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -47,8 +48,22 @@ def decode_bytes(b: bytes) -> str:
 # ==============================================================================
 # ПРЕСЕТЫ ЭТАЛОННЫХ КАЛИБРОВОК SEC / GPC (PSS, PEG/PEO, PULLULAN)
 # ==============================================================================
-# log10(M) = a - b * V_e (или полином 3-й степени log10(M) = c0 + c1*V + c2*V^2 + c3*V^3)
-# Типовые параметры для аналитической колонки (например, 7.8 x 300 мм, V0 ~ 5.5 мл, Vt ~ 11.5 мл):
+# Форма калибровки: полином 3-й степени log10(M) = c0 + c1*V + c2*V^2 + c3*V^3
+# (стандартная форма для SEC; Striegel, Yau, Kirkland & Bly, "Modern Size-Exclusion
+# Liquid Chromatography", 2nd ed., Wiley, 2009).
+#
+# "default_coeffs" — МНК-подгонка (numpy.polyfit, deg=3) log10(M) vs V по стандартам,
+# перечисленным в самом пресете; тест проверяет совпадение с повторной подгонкой и
+# воспроизведение M стандартов с точностью <= 5 %. Прежние коэффициенты
+# [7.38, -0.428] / [7.45, -0.442] / [7.52, -0.435] не согласовывались со своими же
+# стандартами (ошибка M до 38 % / 22 % / 28 %). Линейная МНК-подгонка ("linear_coeffs",
+# например PSS: a = 7.744, b = -0.452) оставляет до 17.5 % ошибки на крайних стандартах,
+# поэтому по умолчанию используется кубическая форма (degree = 3).
+#
+# Калибровка действительна ТОЛЬКО внутри диапазона объёмов стандартов ("v_range"):
+# сигнал вне диапазона не экстраполируется, а исключается из интегрирования
+# (см. calculate_sec_indices: SEC_Excluded_Area_pct / SEC_Above_Cal_Range_pct /
+# SEC_Below_Cal_Range_pct).
 CALIBRATION_PRESETS: Dict[str, Dict[str, Any]] = {
     "PSS_Sodium_Sulfonate": {
         "name_en": "Sodium Polystyrene Sulfonate (PSS)",
@@ -62,8 +77,12 @@ CALIBRATION_PRESETS: Dict[str, Dict[str, Any]] = {
             {"name": "PSS-65k", "mw": 65400.0, "vr": 6.45},
             {"name": "PSS-120k", "mw": 122000.0, "vr": 5.85},
         ],
-        "default_coeffs": [7.38, -0.428],  # log10(M) = 7.38 - 0.428 * V
-        "mw_range": (500.0, 150000.0),
+        # log10(M) = c0 + c1*V + c2*V^2 + c3*V^3 (МНК по 7 стандартам выше)
+        "default_coeffs": [12.849232966762662, -2.544666616696549, 0.2793766257806849, -0.012136630188668177],
+        "degree": 3,
+        "linear_coeffs": [7.74388, -0.45195],
+        "v_range": (5.85, 10.25),
+        "mw_range": (1100.0, 122000.0),
     },
     "PEG_PEO_Standards": {
         "name_en": "Polyethylene Glycol / Oxide (PEG/PEO)",
@@ -76,8 +95,11 @@ CALIBRATION_PRESETS: Dict[str, Dict[str, Any]] = {
             {"name": "PEO-24k", "mw": 23800.0, "vr": 7.20},
             {"name": "PEO-50k", "mw": 49000.0, "vr": 6.35},
         ],
-        "default_coeffs": [7.45, -0.442],
-        "mw_range": (300.0, 100000.0),
+        "default_coeffs": [6.258113283548378, -0.09617941347030647, -0.02622772129767934, 0.0004115307763191064],
+        "degree": 3,
+        "linear_coeffs": [7.59824, -0.45104],
+        "v_range": (6.35, 10.60),
+        "mw_range": (600.0, 49000.0),
     },
     "Pullulan_Polysaccharides": {
         "name_en": "Pullulan Polysaccharides",
@@ -90,10 +112,34 @@ CALIBRATION_PRESETS: Dict[str, Dict[str, Any]] = {
             {"name": "Pul-47k", "mw": 47300.0, "vr": 6.60},
             {"name": "Pul-112k", "mw": 112000.0, "vr": 5.75},
         ],
-        "default_coeffs": [7.52, -0.435],
-        "mw_range": (500.0, 150000.0),
+        "default_coeffs": [12.101302360718734, -2.354362842766165, 0.26278640508952156, -0.011590480763013859],
+        "degree": 3,
+        "linear_coeffs": [7.53274, -0.42787],
+        "v_range": (5.75, 10.35),
+        "mw_range": (1080.0, 112000.0),
     }
 }
+
+# Ключи индексов SEC. То, что невозможно вычислить, возвращается как NaN (а не как правдоподобная константа).
+SEC_INDEX_KEYS: Tuple[str, ...] = (
+    "SEC_Mn", "SEC_Mw", "SEC_Mz", "SEC_Mp", "SEC_PDI", "SEC_Polydispersity",
+    "SEC_Fraction_I_pct", "SEC_Fraction_II_pct", "SEC_Fraction_III_pct", "SEC_Fraction_IV_pct",
+    "SEC_HMW_pct", "SEC_LMW_pct", "SEC_HMW_LMW_ratio",
+    "SEC_Excluded_Area_pct", "SEC_Above_Cal_Range_pct", "SEC_Below_Cal_Range_pct",
+)
+
+
+def _nan_indices() -> Dict[str, float]:
+    return {k: float("nan") for k in SEC_INDEX_KEYS}
+
+
+def _preset_r_squared(preset_key: str) -> float:
+    p = CALIBRATION_PRESETS[preset_key]
+    v = np.array([s["vr"] for s in p["standards"]], dtype=float)
+    y = np.log10(np.array([s["mw"] for s in p["standards"]], dtype=float))
+    pred = np.polyval(np.asarray(p["default_coeffs"], dtype=float)[::-1], v)
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    return round(1.0 - float(np.sum((y - pred) ** 2)) / ss_tot, 5) if ss_tot > 0 else float("nan")
 
 
 # ==============================================================================
@@ -102,33 +148,67 @@ CALIBRATION_PRESETS: Dict[str, Dict[str, Any]] = {
 
 @dataclass
 class SECCalibration:
-    """Параметры калибровочной кривой эксклюзионной хроматографии log10(M) = f(V)."""
+    """
+    Параметры калибровочной кривой эксклюзионной хроматографии log10(M) = sum(c_k * V^k).
+
+    coefficients — [c0, c1, ...] (для degree = 1: [a, b], log10(M) = a + b*V, b < 0).
+    v_min / v_max — диапазон элюционных объёмов калибровочных стандартов; вне его масса
+    не экстраполируется (None = диапазон неизвестен, проверка экстраполяции невозможна).
+    По умолчанию — пресет PSS (кубическая МНК-подгонка по стандартам пресета).
+    """
     calibration_type: str = "PSS_Sodium_Sulfonate"
-    coefficients: List[float] = field(default_factory=lambda: [7.38, -0.428])  # [a, b] -> log10(M) = a + b*V (b отрицательный)
-    degree: int = 1
-    r_squared: float = 0.998
-    mw_min: float = 300.0
-    mw_max: float = 200000.0
+    coefficients: List[float] = field(default_factory=lambda: list(CALIBRATION_PRESETS["PSS_Sodium_Sulfonate"]["default_coeffs"]))
+    degree: int = 3
+    r_squared: float = field(default_factory=lambda: _preset_r_squared("PSS_Sodium_Sulfonate"))
+    mw_min: float = 1100.0
+    mw_max: float = 122000.0
     v0: float = 5.2    # Объем полного исключения (мл)
     vt: float = 11.8   # Объем полного проникновения (мл)
+    v_min: Optional[float] = 5.85   # Диапазон объёмов стандартов (мл)
+    v_max: Optional[float] = 10.25
 
     def v_to_log_mw(self, v: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Пересчет элюционного объема (или времени) в log10(MW)."""
-        if self.degree == 1:
-            a, b = self.coefficients[0], self.coefficients[1]
-            return a + b * v
-        else:
-            # Полиномиальная калибровка: c0 + c1*v + c2*v^2 + ...
-            res = np.zeros_like(v, dtype=float)
-            for power, coef in enumerate(self.coefficients):
-                res += coef * (v ** power)
-            return res
+        """Пересчет элюционного объема (или времени) в log10(MW) по калибровочному полиному."""
+        coeffs = list(self.coefficients)[: max(1, int(self.degree)) + 1]
+        v_arr = np.asarray(v, dtype=float)
+        res = np.zeros_like(v_arr, dtype=float)
+        for power, coef in enumerate(coeffs):
+            res = res + coef * (v_arr ** power)
+        return float(res) if np.ndim(res) == 0 else res
 
     def v_to_mw(self, v: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Пересчет элюционного объема в молекулярную массу (Да)."""
         log_m = self.v_to_log_mw(v)
         m = 10.0 ** np.clip(log_m, 1.0, 7.0)
         return m
+
+    def in_calibrated_range(self, v: Union[float, np.ndarray]) -> np.ndarray:
+        """Маска точек внутри диапазона объёмов стандартов (True везде, если диапазон неизвестен)."""
+        v_arr = np.asarray(v, dtype=float)
+        if self.v_min is None or self.v_max is None:
+            return np.ones(v_arr.shape, dtype=bool)
+        lo, hi = min(self.v_min, self.v_max), max(self.v_min, self.v_max)
+        tol = 1e-9 * max(1.0, abs(hi))
+        return (v_arr >= lo - tol) & (v_arr <= hi + tol)
+
+
+def calibration_from_preset(preset_key: str) -> SECCalibration:
+    """Создаёт SECCalibration из пресета CALIBRATION_PRESETS (с диапазоном объёмов стандартов)."""
+    if preset_key not in CALIBRATION_PRESETS:
+        preset_key = "PSS_Sodium_Sulfonate"
+    p = CALIBRATION_PRESETS[preset_key]
+    coeffs = [float(c) for c in p["default_coeffs"]]
+    v_lo, v_hi = p["v_range"]
+    return SECCalibration(
+        calibration_type=preset_key,
+        coefficients=coeffs,
+        degree=int(p.get("degree", len(coeffs) - 1)),
+        r_squared=_preset_r_squared(preset_key),
+        mw_min=float(p["mw_range"][0]),
+        mw_max=float(p["mw_range"][1]),
+        v_min=float(v_lo),
+        v_max=float(v_hi),
+    )
 
 
 @dataclass
@@ -169,19 +249,33 @@ class SECSample:
 
 def baseline_als_sec(
     y: np.ndarray,
-    lam: float = 1e5,
-    p: float = 0.005,
+    lam: Optional[float] = None,
+    p: float = 0.001,
     niter: int = 15
 ) -> np.ndarray:
     """
     Асимметричные наименьшие квадраты (Asymmetric Least Squares, ALS) для базовой линии SEC.
     Бережно огибает элюционные пики снизу, убирая дрейф детектора.
+
+    Eilers P.H.C., Boelens H.F.M. (2005) "Baseline correction with asymmetric least squares
+    smoothing": минимизируется sum w_i (y_i - z_i)^2 + lam * sum (Δ²z_i)^2, т.е.
+    (W + lam * D'D) z = W y, где D — оператор вторых разностей размера (L-2) x L.
+    (Ранее D строился как L x (L-2) и использовалось D·D' — это не D'D: штраф не действовал
+    на краях, и плоская базовая линия 5.0 подгонялась как ~0.001 в начале хроматограммы.)
+
+    lam=None -> lam = 1e9 * (L / 721)^4. Эффективная ширина сглаживания в точках ~ lam^(1/4),
+    поэтому масштаб L^4 сохраняет её постоянной в единицах объёма. SEC-пики занимают большую
+    часть хроматограммы, и при lam ~ 1e5 базовая линия «врезается» в широкий пик; при
+    lam = 1e9, p = 0.001 Mw синтетического профиля с известным дрейфом воспроизводится < 1 %.
     """
+    y = np.asarray(y, dtype=float)
     L = len(y)
     if L < 5:
         return np.zeros_like(y)
-    D = sparse.diags([1.0, -2.0, 1.0], [0, 1, 2], shape=(L, L - 2), format="csc", dtype=float)
-    D_mat = lam * (D @ D.T)
+    if lam is None:
+        lam = 1e9 * (L / 721.0) ** 4
+    D = sparse.diags([1.0, -2.0, 1.0], [0, 1, 2], shape=(L - 2, L), format="csc", dtype=float)
+    D_mat = lam * (D.T @ D)
     w = np.ones(L)
     for _ in range(niter):
         W = sparse.diags(w, 0, shape=(L, L), format="csc")
@@ -201,12 +295,15 @@ def fit_sec_calibration(
     """
     v_arr = np.asarray(standards_v, dtype=float)
     mw_arr = np.asarray(standards_mw, dtype=float)
+    ok = np.isfinite(v_arr) & np.isfinite(mw_arr) & (mw_arr > 0)
+    v_arr, mw_arr = v_arr[ok], mw_arr[ok]
     log_mw = np.log10(np.clip(mw_arr, 10.0, None))
 
-    if len(v_arr) < 2:
-        return SECCalibration()
+    if len(v_arr) < 2 or len(np.unique(v_arr)) < 2:
+        # Раньше молча возвращался пресет PSS — это подмена пользовательской калибровки.
+        raise ValueError("At least two standards with distinct elution volumes are required to fit a SEC calibration.")
 
-    deg = min(degree, len(v_arr) - 1)
+    deg = max(1, min(int(degree), len(v_arr) - 1))
     if deg == 1:
         # Линейная регрессия y = a + b*x
         slope, intercept = np.polyfit(v_arr, log_mw, deg=1)
@@ -222,7 +319,7 @@ def fit_sec_calibration(
     ss_tot = np.sum((log_mw - np.mean(log_mw)) ** 2)
     r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 1e-12 else 1.0
 
-    return SECCalibration(
+    calib = SECCalibration(
         calibration_type="Fitted_Custom",
         coefficients=coeffs,
         degree=deg,
@@ -230,8 +327,26 @@ def fit_sec_calibration(
         mw_min=float(np.min(mw_arr)),
         mw_max=float(np.max(mw_arr)),
         v0=float(np.min(v_arr) * 0.85),
-        vt=float(np.max(v_arr) * 1.15)
+        vt=float(np.max(v_arr) * 1.15),
+        v_min=float(np.min(v_arr)),
+        v_max=float(np.max(v_arr)),
     )
+    # Калибровочная кривая обязана монотонно убывать внутри диапазона стандартов
+    v_chk = np.linspace(calib.v_min, calib.v_max, 200)
+    if np.any(np.diff(np.asarray(calib.v_to_log_mw(v_chk))) >= 0):
+        calib.calibration_type = "Fitted_Custom_NonMonotonic"
+    return calib
+
+
+def _calibrated_mass_bounds(calib: SECCalibration, v_in: np.ndarray, mw_in: np.ndarray) -> Tuple[float, float]:
+    """Диапазон масс, покрытый калибровкой (по границам стандартов, иначе — по точкам в окне)."""
+    if calib.v_min is not None and calib.v_max is not None:
+        m_a = float(calib.v_to_mw(float(calib.v_min)))
+        m_b = float(calib.v_to_mw(float(calib.v_max)))
+        return min(m_a, m_b), max(m_a, m_b)
+    if len(mw_in) == 0:
+        return float("nan"), float("nan")
+    return float(np.min(mw_in)), float(np.max(mw_in))
 
 
 def calculate_sec_indices(
@@ -253,69 +368,83 @@ def calculate_sec_indices(
       * Фракция III (1 - 5 кДа): типичное растворенное РОВ (DOM);
       * Фракция IV (< 1 кДа): низкомолекулярные полифенолы и кислоты.
     - Отношение HMW / LMW.
+
+    Интегрирование ведётся ТОЛЬКО внутри диапазона объёмов калибровочных стандартов
+    (calibration.v_min..v_max) — масса вне диапазона не экстраполируется. Доли фракций
+    выражены в % от площади внутри калиброванного окна; фракция, чей интервал масс не
+    пересекается с калиброванным диапазоном, не может быть измерена и возвращается как NaN
+    (например, < 1 кДа для PSS, чей самый лёгкий стандарт 1.1 кДа). Площадь вне окна
+    возвращается отдельно: SEC_Excluded_Area_pct = SEC_Above_Cal_Range_pct (раньше самого
+    тяжёлого стандарта, M > M_max) + SEC_Below_Cal_Range_pct (позже самого лёгкого, M < M_min).
+    Всё, что нельзя вычислить (пустой/нулевой сигнал, деление на 0), возвращается как NaN.
     """
     calib = calibration or SECCalibration()
-    if len(vol_or_time) < 5 or np.all(signal <= 0):
-        return {
-            "SEC_Mn": 0.0, "SEC_Mw": 0.0, "SEC_Mz": 0.0, "SEC_Mp": 0.0, "SEC_PDI": 1.0,
-            "SEC_Fraction_I_pct": 0.0, "SEC_Fraction_II_pct": 0.0,
-            "SEC_Fraction_III_pct": 0.0, "SEC_Fraction_IV_pct": 0.0,
-            "SEC_HMW_LMW_ratio": 0.0,
-        }
+    res = _nan_indices()
+    v = np.asarray(vol_or_time, dtype=float)
+    s = np.asarray(signal, dtype=float)
+    if len(v) < 5 or len(s) != len(v):
+        return res
 
-    # Массив молекулярных масс M(i)
-    mw_arr = calib.v_to_mw(vol_or_time)
-    mw_arr = np.clip(mw_arr, 50.0, 1e7)
+    finite = np.isfinite(v) & np.isfinite(s)
+    s_pos = np.where(finite, np.clip(np.nan_to_num(s, nan=0.0), 0.0, None), 0.0)
+    tot_all = float(np.sum(s_pos))
+    if tot_all <= 1e-12:
+        return res
 
-    # Очищаем сигнал от отрицательных шумов
-    s_pos = np.clip(signal, 0.0, None)
-    tot_s = np.sum(s_pos)
-    if tot_s <= 1e-12:
-        return {
-            "SEC_Mn": 0.0, "SEC_Mw": 0.0, "SEC_Mz": 0.0, "SEC_Mp": 0.0, "SEC_PDI": 1.0,
-            "SEC_Fraction_I_pct": 0.0, "SEC_Fraction_II_pct": 0.0,
-            "SEC_Fraction_III_pct": 0.0, "SEC_Fraction_IV_pct": 0.0,
-            "SEC_HMW_LMW_ratio": 0.0,
-        }
+    in_rng = calib.in_calibrated_range(v) & finite
+    if calib.v_min is not None and calib.v_max is not None:
+        lo, hi = min(calib.v_min, calib.v_max), max(calib.v_min, calib.v_max)
+        above = float(np.sum(s_pos[finite & (v < lo) & ~in_rng]))   # раньше тяжелейшего стандарта
+        below = float(np.sum(s_pos[finite & (v > hi) & ~in_rng]))   # позже легчайшего стандарта
+    else:
+        above = below = 0.0
+    s_in = s_pos[in_rng]
+    tot = float(np.sum(s_in))
+    res["SEC_Excluded_Area_pct"] = round(100.0 * (tot_all - tot) / tot_all, 2)
+    res["SEC_Above_Cal_Range_pct"] = round(100.0 * above / tot_all, 2)
+    res["SEC_Below_Cal_Range_pct"] = round(100.0 * below / tot_all, 2)
+    if tot <= 1e-12:
+        return res
 
-    # Интегральные молекулярные средние
-    # Mn = sum(S) / sum(S / M)
-    sum_s_over_m = np.sum(s_pos / mw_arr)
-    mn = tot_s / sum_s_over_m if sum_s_over_m > 1e-12 else 0.0
+    # Массив молекулярных масс M(i) внутри калиброванного окна
+    mw_in = np.clip(np.asarray(calib.v_to_mw(v[in_rng]), dtype=float), 50.0, 1e7)
 
-    # Mw = sum(S * M) / sum(S)
-    sum_s_m = np.sum(s_pos * mw_arr)
-    mw = sum_s_m / tot_s
+    # Mn = sum(S) / sum(S / M); Mw = sum(S * M) / sum(S); Mz = sum(S * M^2) / sum(S * M)
+    sum_s_over_m = float(np.sum(s_in / mw_in))
+    mn = tot / sum_s_over_m if sum_s_over_m > 0 else float("nan")
+    sum_s_m = float(np.sum(s_in * mw_in))
+    mw = sum_s_m / tot
+    mz = float(np.sum(s_in * mw_in ** 2)) / sum_s_m if sum_s_m > 0 else float("nan")
 
-    # Mz = sum(S * M^2) / sum(S * M)
-    sum_s_m2 = np.sum(s_pos * (mw_arr ** 2))
-    mz = sum_s_m2 / sum_s_m if sum_s_m > 1e-12 else mw
+    # Mp = MW в точке глобального максимума сигнала (NaN, если максимум вне калиброванного окна)
+    max_idx = int(np.argmax(s_pos))
+    mp = float(np.clip(calib.v_to_mw(v[max_idx]), 50.0, 1e7)) if in_rng[max_idx] else float("nan")
 
-    # Mp = MW в точке максимума сигнала
-    max_idx = np.argmax(s_pos)
-    mp = float(mw_arr[max_idx])
+    pdi = mw / mn if (np.isfinite(mn) and mn > 0) else float("nan")
 
-    # Полидисперсность
-    pdi = mw / mn if mn > 1e-6 else 1.0
-    pdi = max(1.0, pdi)
-
-    # Расчет долей фракций
+    # Доли фракций (в % от площади внутри калиброванного окна)
     lim_high, lim_mid, lim_low = mw_fraction_limits
-    mask_f1 = (mw_arr >= lim_high)
-    mask_f2 = (mw_arr >= lim_mid) & (mw_arr < lim_high)
-    mask_f3 = (mw_arr >= lim_low) & (mw_arr < lim_mid)
-    mask_f4 = (mw_arr < lim_low)
+    m_cal_lo, m_cal_hi = _calibrated_mass_bounds(calib, v[in_rng], mw_in)
+    frac_defs = [
+        (lim_high, np.inf),
+        (lim_mid, lim_high),
+        (lim_low, lim_mid),
+        (0.0, lim_low),
+    ]
+    fracs: List[float] = []
+    for f_lo, f_hi in frac_defs:
+        overlaps = (m_cal_hi > f_lo) and (m_cal_lo < f_hi)
+        if not overlaps:
+            fracs.append(float("nan"))
+            continue
+        mask = (mw_in >= f_lo) & (mw_in < f_hi)
+        fracs.append(float(np.sum(s_in[mask]) / tot * 100.0))
+    f1_pct, f2_pct, f3_pct, f4_pct = fracs
 
-    f1_pct = (np.sum(s_pos[mask_f1]) / tot_s) * 100.0
-    f2_pct = (np.sum(s_pos[mask_f2]) / tot_s) * 100.0
-    f3_pct = (np.sum(s_pos[mask_f3]) / tot_s) * 100.0
-    f4_pct = (np.sum(s_pos[mask_f4]) / tot_s) * 100.0
+    hmw = f1_pct + f2_pct  # NaN, если одна из фракций не измерима
+    hmw_lmw_ratio = hmw / f4_pct if (np.isfinite(f4_pct) and f4_pct > 0 and np.isfinite(hmw)) else float("nan")
 
-    hmw = f1_pct + f2_pct
-    lmw = max(f4_pct, 1e-4)
-    hmw_lmw_ratio = hmw / lmw
-
-    return {
+    res.update({
         "SEC_Mn": round(float(mn), 1),
         "SEC_Mw": round(float(mw), 1),
         "SEC_Mz": round(float(mz), 1),
@@ -329,36 +458,82 @@ def calculate_sec_indices(
         "SEC_HMW_pct": round(float(hmw), 2),
         "SEC_LMW_pct": round(float(f4_pct), 2),
         "SEC_HMW_LMW_ratio": round(float(hmw_lmw_ratio), 3),
-    }
+    })
+    return res
+
+
+def _resolve_calibration(
+    calibration: Optional[Union["SECCalibration", Sequence[float]]],
+    calibration_preset: str,
+    calibration_v_range: Optional[Tuple[float, float]],
+) -> Tuple[SECCalibration, List[str]]:
+    """Выбирает калибровку: пользовательскую (объект или коэффициенты) либо пресет."""
+    notes: List[str] = []
+    if isinstance(calibration, SECCalibration):
+        calib = dataclasses.replace(calibration, coefficients=list(calibration.coefficients))
+    elif calibration is not None:
+        coeffs = [float(c) for c in calibration]
+        if len(coeffs) < 2 or not all(np.isfinite(coeffs)):
+            raise ValueError("Calibration coefficients must be at least [c0, c1] (log10(M) = c0 + c1*V + ...).")
+        calib = SECCalibration(
+            calibration_type="User_Coefficients",
+            coefficients=coeffs,
+            degree=len(coeffs) - 1,
+            r_squared=float("nan"),
+            mw_min=float("nan"),
+            mw_max=float("nan"),
+            v_min=None,
+            v_max=None,
+        )
+    else:
+        calib = calibration_from_preset(calibration_preset)
+    if calibration_v_range is not None:
+        calib.v_min, calib.v_max = float(min(calibration_v_range)), float(max(calibration_v_range))
+    if calib.v_min is None or calib.v_max is None:
+        notes.append(
+            "Calibrated elution-volume range unknown: masses cannot be checked for extrapolation "
+            "beyond the standards (pass calibration_v_range)."
+        )
+    return calib, notes
 
 
 def parse_sec_file(
     file_content: Union[str, bytes],
     sample_id: str = "SEC_Sample",
     flow_rate_ml_min: float = 1.0,
-    calibration_preset: str = "PSS_Sodium_Sulfonate"
+    calibration_preset: str = "PSS_Sodium_Sulfonate",
+    calibration: Optional[Union[SECCalibration, Sequence[float]]] = None,
+    calibration_v_range: Optional[Tuple[float, float]] = None,
 ) -> SECSample:
     """
     Универсальный парсер файлов гель-проникающей хроматографии (SEC/GPC):
     - Распознает колонки времени (Time, RT) или объема (Volume, VR);
     - Распознает сигналы детектора (Signal, UV254, UV280, RI, Absorbance);
-    - Выполняет коррекцию базовой линии ALS;
-    - Применяет калибровочную кривую и рассчитывает дифференциальное/интегральное ММР;
+    - Выполняет коррекцию базовой линии AsLS (Eilers & Boelens 2005);
+    - Применяет калибровочную кривую и рассчитывает дифференциальное/интегральное ММР
+      (только внутри диапазона объёмов стандартов, без экстраполяции);
     - Находит характерные пики и вычисляет хемометрические индексы.
+
+    calibration — пользовательская калибровка: объект SECCalibration (например, из
+    fit_sec_calibration) или коэффициенты [c0, c1, ...] для log10(M) = sum(c_k * V^k).
+    Если задана, имеет приоритет над calibration_preset. calibration_v_range — диапазон
+    объёмов стандартов (мл) для пользовательских коэффициентов.
     """
+    calib, calib_notes = _resolve_calibration(calibration, calibration_preset, calibration_v_range)
+
+    def _empty() -> SECSample:
+        return SECSample(
+            sample_id=sample_id,
+            calibration=calib,
+            indices=calculate_sec_indices(np.array([]), np.array([]), calib),
+            metadata={"calibration_notes": list(calib_notes), "calibration_type": calib.calibration_type},
+        )
+
     text = decode_bytes(file_content) if isinstance(file_content, bytes) else file_content
     lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
 
-    calib_dict = CALIBRATION_PRESETS.get(calibration_preset, CALIBRATION_PRESETS["PSS_Sodium_Sulfonate"])
-    calib = SECCalibration(
-        calibration_type=calibration_preset,
-        coefficients=calib_dict["default_coeffs"],
-        mw_min=calib_dict["mw_range"][0],
-        mw_max=calib_dict["mw_range"][1]
-    )
-
     if not lines:
-        return SECSample(sample_id=sample_id, calibration=calib, indices=calculate_sec_indices(np.array([]), np.array([]), calib))
+        return _empty()
 
     # Распознаем разделитель таблицы
     first_line = lines[0]
@@ -374,7 +549,7 @@ def parse_sec_file(
             pass
 
     if df_raw is None or df_raw.empty:
-        return SECSample(sample_id=sample_id, calibration=calib, indices=calculate_sec_indices(np.array([]), np.array([]), calib))
+        return _empty()
 
     # Карта колонок
     col_map = {c: str(c).strip().lower() for c in df_raw.columns}
@@ -394,22 +569,27 @@ def parse_sec_file(
                 is_volume = False
                 break
 
-    # Ищем колонку сигнала Y
+    # Ищем колонку сигнала Y (предпочитаем сырой сигнал, а не чужую «скорректированную» колонку)
     y_col = None
-    for orig, low in col_map.items():
-        if orig != x_col and any(k in low for k in ["uv", "abs", "signal", "intensity", "сигнал", "ri", "mau", "mv", "dabs", "resp"]):
-            y_col = orig
-            break
+    y_candidates = [
+        orig for orig, low in col_map.items()
+        if orig != x_col and any(k in low for k in ["uv", "abs", "signal", "intensity", "сигнал", "ri", "mau", "mv", "dabs", "resp"])
+    ]
+    if y_candidates:
+        raw_first = [c for c in y_candidates if "corr" not in col_map[c] and "baseline" not in col_map[c]]
+        y_col = (raw_first or y_candidates)[0]
 
     # Если эвристика не нашла, берем числовые колонки
     num_cols = [c for c in df_raw.columns if pd.to_numeric(df_raw[c], errors="coerce").notnull().sum() > len(df_raw) * 0.5]
     if x_col is None and len(num_cols) > 0:
         x_col = num_cols[0]
-    if y_col is None and len(num_cols) > 1:
-        y_col = num_cols[1]
+    if y_col is None:
+        rest = [c for c in num_cols if c != x_col]
+        if rest:
+            y_col = rest[0]
 
     if x_col is None or y_col is None:
-        return SECSample(sample_id=sample_id, calibration=calib, indices=calculate_sec_indices(np.array([]), np.array([]), calib))
+        return _empty()
 
     df_clean = df_raw.dropna(subset=[x_col, y_col]).copy()
     df_clean[x_col] = pd.to_numeric(df_clean[x_col], errors="coerce")
@@ -420,7 +600,7 @@ def parse_sec_file(
     y_vals = df_clean[y_col].values.astype(float)
 
     if len(x_vals) < 5:
-        return SECSample(sample_id=sample_id, calibration=calib, indices=calculate_sec_indices(np.array([]), np.array([]), calib))
+        return _empty()
 
     if is_volume:
         vol_arr = x_vals
@@ -429,33 +609,36 @@ def parse_sec_file(
         rt_arr = x_vals
         vol_arr = rt_arr * flow_rate_ml_min
 
-    # Базовая линия ALS
-    base = baseline_als_sec(y_vals, lam=1e5, p=0.005)
+    # Базовая линия AsLS (Eilers & Boelens 2005)
+    base = baseline_als_sec(y_vals)
     sig_corr = np.clip(y_vals - base, 0.0, None)
 
-    # Расчет молекулярных масс
-    mw_arr = calib.v_to_mw(vol_arr)
-    log_mw = np.log10(np.clip(mw_arr, 1.0, None))
+    # Расчет молекулярных масс — только внутри калиброванного окна (без экстраполяции)
+    in_rng = calib.in_calibrated_range(vol_arr)
+    log_mw_full = np.log10(np.clip(np.asarray(calib.v_to_mw(vol_arr), dtype=float), 1.0, None))
+    mw_arr = np.where(in_rng, 10.0 ** log_mw_full, np.nan)
+    log_mw = np.where(in_rng, log_mw_full, np.nan)
 
-    # Дифференциальная кривая ММР: dw/d(logM)
-    # Знак минус, так как чем больше объем V, тем меньше масса M (dV/dlogM отрицателен)
-    d_log_m = np.gradient(log_mw)
-    d_log_m_safe = np.where(np.abs(d_log_m) < 1e-9, -1e-9, d_log_m)
-    mwd_diff = np.abs(sig_corr / d_log_m_safe)
-    # Нормализация площади ММР к 100%
-    if np.sum(mwd_diff) > 0:
-        mwd_diff = (mwd_diff / np.sum(mwd_diff)) * 100.0
+    # Дифференциальная кривая ММР: w(log M) = h(V) / |d logM / dV|
+    with np.errstate(divide="ignore", invalid="ignore"):
+        d_log_m_dv = np.gradient(log_mw_full, vol_arr) if len(np.unique(vol_arr)) == len(vol_arr) else np.gradient(log_mw_full)
+        mwd_raw = np.where(np.abs(d_log_m_dv) > 1e-12, np.abs(sig_corr / d_log_m_dv), np.nan)
+    mwd_raw = np.where(in_rng, mwd_raw, np.nan)
+    mwd_sum = float(np.nansum(mwd_raw))
+    mwd_diff = (mwd_raw / mwd_sum) * 100.0 if mwd_sum > 0 else mwd_raw
 
-    # Интегральное ММР
-    mwd_cum = np.cumsum(mwd_diff)
+    # Интегральное ММР (в порядке элюирования, только внутри калиброванного окна)
+    mwd_cum = np.cumsum(np.nan_to_num(mwd_diff, nan=0.0))
     if len(mwd_cum) > 0 and mwd_cum[-1] > 0:
         mwd_cum = (mwd_cum / mwd_cum[-1]) * 100.0
+    mwd_cum = np.where(in_rng, mwd_cum, np.nan)
 
     # Пик-пикер на хроматограмме
     prom = max(np.max(sig_corr) * 0.05, 1e-3)
     p_indices, _ = scipy.signal.find_peaks(sig_corr, prominence=prom, distance=max(1, int(len(sig_corr) / 60)))
     peaks_list: List[SECPeak] = []
     tot_area = np.sum(sig_corr)
+    v_lo = min(calib.v_min, calib.v_max) if (calib.v_min is not None and calib.v_max is not None) else None
 
     for idx_num, pi in enumerate(p_indices, start=1):
         p_rt = float(rt_arr[pi])
@@ -468,7 +651,12 @@ def parse_sec_file(
         p_area = _trapz_integrate(sig_corr[li:ri+1], vol_arr[li:ri+1]) if ri > li else p_h
         p_area_pct = round((p_area / tot_area) * 100.0, 2) if tot_area > 0 else 0.0
 
-        if p_mw >= 20000.0:
+        if not np.isfinite(p_mw):
+            if v_lo is not None and p_vr < v_lo:
+                f_name = "Above calibration range (M > M_max std)"
+            else:
+                f_name = "Below calibration range (M < M_min std)"
+        elif p_mw >= 20000.0:
             f_name = "HMW (>20 kDa)"
         elif p_mw >= 5000.0:
             f_name = "MHMW (5-20 kDa)"
@@ -504,7 +692,15 @@ def parse_sec_file(
         mwd_cum=mwd_cum,
         peaks=peaks_list,
         indices=indices,
-        metadata={"flow_rate": flow_rate_ml_min, "n_peaks": len(peaks_list)}
+        metadata={
+            "flow_rate": flow_rate_ml_min,
+            "n_peaks": len(peaks_list),
+            "calibration_type": calib.calibration_type,
+            "calibrated_volume_range": (calib.v_min, calib.v_max),
+            "excluded_area_pct": indices.get("SEC_Excluded_Area_pct", float("nan")),
+            "signal_column": str(y_col),
+            "calibration_notes": list(calib_notes),
+        }
     )
 
 
@@ -531,14 +727,13 @@ def generate_synthetic_sec_dataset(
 ) -> Tuple[Dict[str, SECSample], pd.DataFrame]:
     """
     Генерирует согласованный эксклюзионный бенчмарк (SEC / GPC хроматограммы):
-    - Класс 1: Фоновое РОВ оз. Байкал (Pristine Baikal NOM)
-      -> умеренные молекулярные массы (Mw: 2500 - 4200 Да, Mn: 1400 - 2000 Да),
-         низкая полидисперсность (PDI: 1.8 - 2.2), доминирование фракций 1-5 кДа и <1 кДа (LMW),
-         доля HMW (>20 кДа) < 8%.
-    - Класс 2: Техногенный шлам-лигнин БЦБК (BPPM Sludge-Lignin)
-      -> высокомолекулярные конденсированные агрегаты (Mw: 14000 - 22000 Да, Mn: 3500 - 5500 Да),
-         высокая полидисперсность (PDI: 3.5 - 4.8), выраженный ранний пик исключения (HMW > 35%),
-         высокий индекс HMW/LMW (> 2.5).
+    - Класс 1: Фоновое РОВ оз. Байкал (Pristine Baikal NOM): основной пик ~3.7 кДа,
+      малый HMW-след и низкомолекулярный пик, частично элюирующий позже самого лёгкого
+      стандарта PSS (учитывается в SEC_Below_Cal_Range_pct, без экстраполяции массы).
+    - Класс 2: Техногенный шлам-лигнин БЦБК (BPPM Sludge-Lignin): мощный ранний пик
+      агрегатов HMW и промежуточный пик ~10-15 кДа, более высокие Mw и PDI.
+    Конкретные значения Mn/Mw/PDI определяются калибровкой пресета PSS и коррекцией
+    базовой линии AsLS — они вычисляются, а не задаются.
     """
     rng = np.random.RandomState(random_state)
     samples: Dict[str, SECSample] = {}
@@ -550,14 +745,8 @@ def generate_synthetic_sec_dataset(
     flow_rate = 0.5
     rt_grid = v_grid / flow_rate
 
-    # Эталонная калибровка PSS
-    calib = SECCalibration(
-        calibration_type="PSS_Sodium_Sulfonate",
-        coefficients=[7.38, -0.428],
-        degree=1,
-        mw_min=500.0,
-        mw_max=150000.0
-    )
+    # Эталонная калибровка PSS (МНК-подгонка по стандартам пресета)
+    calib = calibration_from_preset("PSS_Sodium_Sulfonate")
 
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)

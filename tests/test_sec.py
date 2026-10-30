@@ -81,14 +81,19 @@ def test_calculate_sec_indices_and_fractions():
     assert indices["SEC_Mw"] <= indices["SEC_Mz"]
     assert indices["SEC_PDI"] >= 1.0
 
-    # Сумма фракций должна составлять около 100%
-    frac_sum = (
-        indices["SEC_Fraction_I_pct"] +
-        indices["SEC_Fraction_II_pct"] +
-        indices["SEC_Fraction_III_pct"] +
-        indices["SEC_Fraction_IV_pct"]
-    )
+    # Доли фракций считаются внутри калиброванного окна (без экстраполяции) и в сумме дают ~100%;
+    # фракция IV (< 1 кДа) вне диапазона стандартов PSS (самый лёгкий 1.1 кДа) -> NaN, а не 0.
+    frac_sum = np.nansum([
+        indices["SEC_Fraction_I_pct"],
+        indices["SEC_Fraction_II_pct"],
+        indices["SEC_Fraction_III_pct"],
+        indices["SEC_Fraction_IV_pct"],
+    ])
     assert abs(frac_sum - 100.0) < 1.0
+    assert np.isnan(indices["SEC_Fraction_IV_pct"])
+    # Пик при V = 10.5 мл элюирует позже самого лёгкого стандарта (10.25 мл) и исключён из интегрирования
+    assert indices["SEC_Below_Cal_Range_pct"] > 10.0
+    assert abs(indices["SEC_Excluded_Area_pct"] - indices["SEC_Below_Cal_Range_pct"] - indices["SEC_Above_Cal_Range_pct"]) < 0.05
 
 
 def test_synthetic_sec_dataset_and_class_distinction():
@@ -106,8 +111,11 @@ def test_synthetic_sec_dataset_and_class_distinction():
     # 2. Шлам-лигнин обогащен высокомолекулярной фракцией I (> 20 кДа)
     assert lignin_rows["SEC_Fraction_I_pct"].mean() > nom_rows["SEC_Fraction_I_pct"].mean() * 2.0
 
-    # 3. Шлам-лигнин имеет намного более высокое отношение HMW / LMW
-    assert lignin_rows["SEC_HMW_LMW_ratio"].mean() > nom_rows["SEC_HMW_LMW_ratio"].mean() * 2.0
+    # 3. Шлам-лигнин обогащён HMW (I + II), а у фона Байкала больше сигнала элюирует позже самого
+    #    лёгкого стандарта PSS (< 1.1 кДа). HMW/LMW для PSS не вычисляется (фракция < 1 кДа вне калибровки).
+    assert lignin_rows["SEC_HMW_pct"].mean() > nom_rows["SEC_HMW_pct"].mean() * 1.4
+    assert nom_rows["SEC_Below_Cal_Range_pct"].mean() > lignin_rows["SEC_Below_Cal_Range_pct"].mean() * 2.0
+    assert df_matrix["SEC_HMW_LMW_ratio"].isna().all()
 
     # 4. Фоновое РОВ Байкала обогащено средне-низкомолекулярными фракциями III и IV
     assert nom_rows["SEC_Fraction_III_pct"].mean() > lignin_rows["SEC_Fraction_III_pct"].mean()
@@ -171,15 +179,16 @@ def test_adversarial_sec_degraded_inputs():
     s_empty = sec_core.parse_sec_file("", sample_id="Empty_SEC")
     assert s_empty.sample_id == "Empty_SEC"
     assert len(s_empty.elution_volume) == 0
-    assert s_empty.indices["SEC_Mw"] == 0.0
+    # Нечего вычислять -> NaN, а не правдоподобные константы
+    assert np.isnan(s_empty.indices["SEC_Mw"])
 
     # 2. Данные без сигнала (все нули)
     v_arr = np.linspace(5.0, 11.0, 100)
     df_zeros = pd.DataFrame({"Volume_mL": v_arr, "Signal": np.zeros(100)})
     s_zeros = sec_core.parse_sec_file(df_zeros.to_csv(index=False), sample_id="Zeros_SEC")
-    assert s_zeros.indices["SEC_PDI"] == 1.0
+    assert np.isnan(s_zeros.indices["SEC_PDI"])
 
     # 3. Шум вокруг нуля
     df_noise = pd.DataFrame({"Volume_mL": v_arr, "Signal": np.random.normal(0, 0.001, size=100)})
     s_noise = sec_core.parse_sec_file(df_noise.to_csv(index=False), sample_id="Noise_SEC")
-    assert s_noise.indices["SEC_Mw"] >= 0.0
+    assert np.isnan(s_noise.indices["SEC_Mw"]) or s_noise.indices["SEC_Mw"] >= 0.0

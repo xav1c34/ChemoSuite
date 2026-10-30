@@ -16,6 +16,24 @@ try:
     from modules import sec_core
 except ImportError:
     sec_core = None
+try:
+    from modules.report_generator import sanitize_excel_df
+except ImportError:  # pragma: no cover
+    def sanitize_excel_df(df):
+        return df
+
+_CUSTOM_CALIB_KEY = "__custom_fit__"
+
+
+def _fmt(val, spec: str = ",.0f", suffix: str = "", na: str = "n/a") -> str:
+    """Форматирует число; NaN/None показывается как n/a (никаких подставных значений)."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return na
+    if not np.isfinite(v):
+        return na
+    return f"{v:{spec}}{suffix}"
 
 
 def render_sec_studio(T: dict, lang: str):
@@ -91,15 +109,58 @@ def render_sec_studio(T: dict, lang: str):
             st.session_state["sec_samples"] = {}
 
         # Настройки хроматографической колонки
+        custom_calib = None
         with st.expander("⚙️ " + ("Параметры колонки и калибровки" if lang == "ru" else "Column & Calibration Settings"), expanded=False):
-            calib_preset_choices = list(sec_core.CALIBRATION_PRESETS.keys())
+            calib_preset_choices = list(sec_core.CALIBRATION_PRESETS.keys()) + [_CUSTOM_CALIB_KEY]
             calib_preset = st.selectbox(
                 T[lang]["sec_calib_preset_label"],
                 calib_preset_choices,
                 index=0,
-                format_func=lambda k: sec_core.CALIBRATION_PRESETS[k]["name_ru" if lang == "ru" else "name_en"],
+                format_func=lambda k: (
+                    ("Своя калибровка (по стандартам)" if lang == "ru" else "Custom calibration (fit from standards)")
+                    if k == _CUSTOM_CALIB_KEY
+                    else sec_core.CALIBRATION_PRESETS[k]["name_ru" if lang == "ru" else "name_en"]
+                ),
                 key="sec_calib_preset_select"
             )
+            if calib_preset == _CUSTOM_CALIB_KEY:
+                std_text = st.text_area(
+                    "Стандарты: V (мл), M (Да) — по одному на строку" if lang == "ru" else "Standards: V (mL), M (Da) — one per line",
+                    value="10.25, 1100\n9.40, 3600\n8.55, 8200\n7.75, 17800\n7.15, 32000\n6.45, 65400\n5.85, 122000",
+                    key="sec_custom_standards_text",
+                )
+                custom_deg = st.selectbox(
+                    "Степень полинома log10(M) = f(V)" if lang == "ru" else "Polynomial degree log10(M) = f(V)",
+                    [1, 2, 3], index=2, key="sec_custom_degree",
+                )
+                try:
+                    pairs = []
+                    for line in std_text.strip().splitlines():
+                        parts = [p for p in line.replace(";", ",").replace("\t", ",").split(",") if p.strip()]
+                        if len(parts) >= 2:
+                            pairs.append((float(parts[0]), float(parts[1])))
+                    custom_calib = sec_core.fit_sec_calibration([p[0] for p in pairs], [p[1] for p in pairs], degree=int(custom_deg))
+                    st.caption(
+                        (f"R² = {custom_calib.r_squared:.4f}; диапазон V = {custom_calib.v_min:.2f}–{custom_calib.v_max:.2f} мл "
+                         f"({custom_calib.mw_min:,.0f}–{custom_calib.mw_max:,.0f} Да). Вне диапазона масса не экстраполируется.")
+                        if lang == "ru" else
+                        (f"R² = {custom_calib.r_squared:.4f}; V range = {custom_calib.v_min:.2f}–{custom_calib.v_max:.2f} mL "
+                         f"({custom_calib.mw_min:,.0f}–{custom_calib.mw_max:,.0f} Da). No extrapolation outside this range.")
+                    )
+                    if custom_calib.calibration_type.endswith("NonMonotonic"):
+                        st.warning("Калибровочная кривая немонотонна в диапазоне стандартов — уменьшите степень полинома." if lang == "ru" else "The calibration curve is not monotonic within the standards' range — lower the polynomial degree.")
+                except Exception as e_cal:
+                    # Не подменяем пользовательскую калибровку пресетом — без калибровки массы не считаются
+                    st.error((f"Не удалось построить калибровку: {e_cal}") if lang == "ru" else (f"Could not fit calibration: {e_cal}"))
+                    st.stop()
+            else:
+                p_cal = sec_core.CALIBRATION_PRESETS[calib_preset]
+                v_lo, v_hi = p_cal["v_range"]
+                st.caption(
+                    f"Калиброванный диапазон: V = {v_lo:.2f}–{v_hi:.2f} мл ({p_cal['mw_range'][0]:,.0f}–{p_cal['mw_range'][1]:,.0f} Да); сигнал вне диапазона исключается."
+                    if lang == "ru" else
+                    f"Calibrated range: V = {v_lo:.2f}–{v_hi:.2f} mL ({p_cal['mw_range'][0]:,.0f}–{p_cal['mw_range'][1]:,.0f} Da); signal outside it is excluded."
+                )
             flow_rate = st.number_input(
                 T[lang]["sec_flow_rate_label"],
                 min_value=0.1,
@@ -108,6 +169,16 @@ def render_sec_studio(T: dict, lang: str):
                 step=0.1,
                 key="sec_flow_rate_input"
             )
+
+        # Пересчёт образцов при смене калибровки/скорости потока (иначе показываются массы старой калибровки)
+        calib_sig = (
+            calib_preset,
+            tuple(custom_calib.coefficients) if custom_calib is not None else None,
+            float(flow_rate),
+        )
+        if st.session_state.get("_prev_sec_calib_sig") != calib_sig:
+            st.session_state["_prev_sec_calib_sig"] = calib_sig
+            st.session_state["sec_samples"] = {}
 
         if sec_src == T[lang]["sec_src_upload"]:
             up_sec_files = st.file_uploader(
@@ -125,7 +196,8 @@ def render_sec_studio(T: dict, lang: str):
                             b_content,
                             sample_id=s_id,
                             flow_rate_ml_min=flow_rate,
-                            calibration_preset=calib_preset
+                            calibration_preset=calib_preset,
+                            calibration=custom_calib,
                         )
                         st.session_state["sec_samples"][s_id] = s_obj
                     except Exception as e_sec:
@@ -147,7 +219,8 @@ def render_sec_studio(T: dict, lang: str):
                             b_content,
                             sample_id=s_id,
                             flow_rate_ml_min=flow_rate,
-                            calibration_preset=calib_preset
+                            calibration_preset=calib_preset,
+                            calibration=custom_calib,
                         )
                     st.session_state["sec_samples"] = sample_map
                 else:
@@ -178,16 +251,36 @@ def render_sec_studio(T: dict, lang: str):
         active_sample = st.session_state["sec_samples"][active_s_id]
 
         with col_sel2:
-            mw_val = active_sample.indices.get("SEC_Mw", 0.0)
-            pdi_val = active_sample.indices.get("SEC_Polydispersity", active_sample.indices.get("SEC_PDI", 1.0))
+            mw_val = active_sample.indices.get("SEC_Mw", np.nan)
+            pdi_val = active_sample.indices.get("SEC_Polydispersity", active_sample.indices.get("SEC_PDI", np.nan))
             n_peaks = len(active_sample.peaks)
             st.markdown(
                 f"<div style='padding-top: 28px;'>"
-                f"<span style='background: #008080; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Mw: {mw_val:,.0f} Da</span>"
-                f"<span style='background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Đ: {pdi_val:.2f}</span>"
+                f"<span style='background: #008080; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Mw: {_fmt(mw_val, ',.0f', ' Da')}</span>"
+                f"<span style='background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px;'>Đ: {_fmt(pdi_val, '.2f')}</span>"
                 f"<span style='background: #2980b9; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;'>Peaks: {n_peaks}</span>"
                 f"</div>",
                 unsafe_allow_html=True
+            )
+
+        # Калиброванный диапазон и исключённая площадь (без экстраполяции за пределы стандартов)
+        excl_pct = active_sample.indices.get("SEC_Excluded_Area_pct", np.nan)
+        above_pct = active_sample.indices.get("SEC_Above_Cal_Range_pct", np.nan)
+        below_pct = active_sample.indices.get("SEC_Below_Cal_Range_pct", np.nan)
+        cal_obj = active_sample.calibration
+        for note in active_sample.metadata.get("calibration_notes", []):
+            st.warning(note)
+        if excl_pct is not None and np.isfinite(excl_pct) and excl_pct > 0.05:
+            st.info(
+                (f"Калибровка «{cal_obj.calibration_type}» действительна для V = {_fmt(cal_obj.v_min, '.2f')}–{_fmt(cal_obj.v_max, '.2f')} мл. "
+                 f"{excl_pct:.1f}% площади сигнала вне этого диапазона исключено из Mn/Mw/Mz и долей фракций "
+                 f"(раньше самого тяжёлого стандарта: {_fmt(above_pct, '.1f', '%')}; позже самого лёгкого: {_fmt(below_pct, '.1f', '%')}). "
+                 "Фракции, чей интервал масс не покрыт стандартами, показаны как n/a.")
+                if lang == "ru" else
+                (f"Calibration «{cal_obj.calibration_type}» is valid for V = {_fmt(cal_obj.v_min, '.2f')}–{_fmt(cal_obj.v_max, '.2f')} mL. "
+                 f"{excl_pct:.1f}% of the signal area lies outside it and is excluded from Mn/Mw/Mz and fraction shares "
+                 f"(earlier than the heaviest standard: {_fmt(above_pct, '.1f', '%')}; later than the lightest: {_fmt(below_pct, '.1f', '%')}). "
+                 "Fractions whose mass interval is not covered by the standards are shown as n/a.")
             )
 
         tab_sec1, tab_sec2, tab_sec3, tab_sec4 = st.tabs([
@@ -267,14 +360,14 @@ def render_sec_studio(T: dict, lang: str):
                         y=[p.height],
                         mode="markers+text",
                         marker=dict(size=10, color=p_color, symbol="diamond", line=dict(width=1, color="black")),
-                        text=[f"P{p.peak_id}: {p.peak_mw:,.0f} Da"],
+                        text=[f"P{p.peak_id}: {_fmt(p.peak_mw, ',.0f', ' Da')}"],
                         textposition="top center",
                         name=p.fraction_name,
                         hoverinfo="text",
                         hovertext=(
                             f"Peak {p.peak_id} ({p.fraction_name})<br>"
                             f"Ve: {p.elution_volume:.3f} mL | tR: {p.retention_time:.2f} min<br>"
-                            f"Mp: {p.peak_mw:,.1f} Da<br>"
+                            f"Mp: {_fmt(p.peak_mw, ',.1f', ' Da')}<br>"
                             f"Area: {p.area:.2f} ({p.area_pct:.1f}%)"
                         )
                     ))
@@ -394,34 +487,44 @@ def render_sec_studio(T: dict, lang: str):
             st.write(f"#### {T[lang]['sec_tab3_title']}")
 
             col_km1, col_km2, col_km3, col_km4 = st.columns(4)
-            col_km1.metric(T[lang]["sec_kpi_mn"], f"{active_sample.indices.get('SEC_Mn', 0.0):,.0f} Da", help="Среднечисловая масса")
-            col_km2.metric(T[lang]["sec_kpi_mw"], f"{active_sample.indices.get('SEC_Mw', 0.0):,.0f} Da", help="Среднемассовая масса")
-            col_km3.metric(T[lang]["sec_kpi_mz"], f"{active_sample.indices.get('SEC_Mz', 0.0):,.0f} Da", help="z-Средняя масса")
-            col_km4.metric(T[lang]["sec_kpi_mp"], f"{active_sample.indices.get('SEC_Mp', 0.0):,.0f} Da", help="Пиковая масса главного пика")
+            col_km1.metric(T[lang]["sec_kpi_mn"], _fmt(active_sample.indices.get('SEC_Mn'), ',.0f', ' Da'), help="Среднечисловая масса (только калиброванный диапазон)" if lang == "ru" else "Number-average MW (calibrated range only)")
+            col_km2.metric(T[lang]["sec_kpi_mw"], _fmt(active_sample.indices.get('SEC_Mw'), ',.0f', ' Da'), help="Среднемассовая масса (только калиброванный диапазон)" if lang == "ru" else "Weight-average MW (calibrated range only)")
+            col_km3.metric(T[lang]["sec_kpi_mz"], _fmt(active_sample.indices.get('SEC_Mz'), ',.0f', ' Da'), help="z-Средняя масса (только калиброванный диапазон)" if lang == "ru" else "z-average MW (calibrated range only)")
+            col_km4.metric(T[lang]["sec_kpi_mp"], _fmt(active_sample.indices.get('SEC_Mp'), ',.0f', ' Da'), help="Пиковая масса главного пика (n/a, если максимум вне калибровки)" if lang == "ru" else "Peak MW of the main peak (n/a if the maximum is outside the calibration)")
 
             col_kp1, col_kp2, col_kp3, col_kp4 = st.columns(4)
-            col_kp1.metric(T[lang]["sec_kpi_pdi"], f"{active_sample.indices.get('SEC_Polydispersity', active_sample.indices.get('SEC_PDI', 1.0)):.2f}", help="Đ = Mw / Mn")
-            col_kp2.metric(T[lang]["sec_kpi_hmw_ratio"], f"{active_sample.indices.get('SEC_HMW_LMW_ratio', 0.0):.2f}", help="(Frac I + II) / Frac IV")
-            col_kp3.metric(T[lang]["sec_kpi_frac1"], f"{active_sample.indices.get('SEC_Fraction_I_pct', 0.0):.1f}%", help="Высокомолекулярная фракция (>20 кДа)")
-            col_kp4.metric(T[lang]["sec_kpi_frac4"], f"{active_sample.indices.get('SEC_Fraction_IV_pct', 0.0):.1f}%", help="Низкомолекулярная фракция (<1 кДа)")
+            col_kp1.metric(T[lang]["sec_kpi_pdi"], _fmt(active_sample.indices.get('SEC_Polydispersity', active_sample.indices.get('SEC_PDI')), '.2f'), help="Đ = Mw / Mn")
+            col_kp2.metric(T[lang]["sec_kpi_hmw_ratio"], _fmt(active_sample.indices.get('SEC_HMW_LMW_ratio'), '.2f'), help="(Frac I + II) / Frac IV; n/a, если фракция IV вне калибровки" if lang == "ru" else "(Frac I + II) / Frac IV; n/a if Fraction IV is outside the calibration")
+            col_kp3.metric(T[lang]["sec_kpi_frac1"], _fmt(active_sample.indices.get('SEC_Fraction_I_pct'), '.1f', '%'), help="Высокомолекулярная фракция (>20 кДа)" if lang == "ru" else "High-MW fraction (>20 kDa)")
+            col_kp4.metric(T[lang]["sec_kpi_frac4"], _fmt(active_sample.indices.get('SEC_Fraction_IV_pct'), '.1f', '%'), help="Низкомолекулярная фракция (<1 кДа)" if lang == "ru" else "Low-MW fraction (<1 kDa)")
 
             st.markdown("---")
 
             col_diag1, col_diag2 = st.columns(2)
             with col_diag1:
                 st.write("##### " + ("Распределение молекулярных фракций (Активный образец)" if lang == "ru" else "Molecular Fraction Distribution (Active Sample)"))
-                labels_frac = ["HMW (>20 kDa)", "MHMW (5-20 kDa)", "MMW (1-5 kDa)", "LMW (<1 kDa)"]
-                vals_frac = [
-                    active_sample.indices.get("SEC_Fraction_I_pct", 0.0),
-                    active_sample.indices.get("SEC_Fraction_II_pct", 0.0),
-                    active_sample.indices.get("SEC_Fraction_III_pct", 0.0),
-                    active_sample.indices.get("SEC_Fraction_IV_pct", 0.0),
+                labels_all = ["HMW (>20 kDa)", "MHMW (5-20 kDa)", "MMW (1-5 kDa)", "LMW (<1 kDa)"]
+                colors_all = ["#e74c3c", "#e67e22", "#3498db", "#2ecc71"]
+                vals_all = [
+                    active_sample.indices.get("SEC_Fraction_I_pct", np.nan),
+                    active_sample.indices.get("SEC_Fraction_II_pct", np.nan),
+                    active_sample.indices.get("SEC_Fraction_III_pct", np.nan),
+                    active_sample.indices.get("SEC_Fraction_IV_pct", np.nan),
                 ]
+                keep = [i for i, v in enumerate(vals_all) if v is not None and np.isfinite(v)]
+                labels_frac = [labels_all[i] for i in keep]
+                vals_frac = [vals_all[i] for i in keep]
+                if len(keep) < len(vals_all):
+                    st.caption(
+                        "Доли — в пределах калиброванного окна; фракции вне диапазона стандартов не показаны (n/a)."
+                        if lang == "ru" else
+                        "Shares are within the calibrated window; fractions outside the standards' range are not shown (n/a)."
+                    )
                 fig_donut_sec = go.Figure(data=[go.Pie(
                     labels=labels_frac,
                     values=vals_frac,
                     hole=0.45,
-                    marker=dict(colors=["#e74c3c", "#e67e22", "#3498db", "#2ecc71"]),
+                    marker=dict(colors=[colors_all[i] for i in keep]),
                 )])
                 fig_donut_sec.update_layout(height=360, margin=dict(l=20, r=20, t=20, b=20))
                 st_plotly(fig_donut_sec)
@@ -480,7 +583,7 @@ def render_sec_studio(T: dict, lang: str):
             with c_sd2:
                 excel_sec_buf = io.BytesIO()
                 with pd.ExcelWriter(excel_sec_buf, engine="openpyxl") as writer:
-                    df_sec_desc.to_excel(writer, index=False, sheet_name="SEC_Descriptors")
+                    sanitize_excel_df(df_sec_desc).to_excel(writer, index=False, sheet_name="SEC_Descriptors")
                 st.download_button(
                     label=T[lang]["sec_dl_excel"],
                     data=excel_sec_buf.getvalue(),

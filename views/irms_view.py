@@ -18,6 +18,30 @@ try:
 except ImportError:
     irms_core = None
 
+try:
+    from modules.report_generator import sanitize_excel_df
+except ImportError:  # pragma: no cover
+    def sanitize_excel_df(df):
+        return df
+
+
+def _fmt(val, spec=".2f", suffix="", na="n/a"):
+    """Formats a number; NaN/None -> 'n/a' (missing isotopes are never shown as defaults)."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return na
+    if not np.isfinite(v):
+        return na
+    return f"{v:{spec}}{suffix}"
+
+
+def _finite(val) -> bool:
+    try:
+        return val is not None and bool(np.isfinite(float(val)))
+    except (TypeError, ValueError):
+        return False
+
 
 def render_irms_studio(T: dict, lang: str):
     """Render Module 9: Isotope Ratio Mass Spectrometry Studio (IRMS)."""
@@ -77,17 +101,24 @@ def render_irms_studio(T: dict, lang: str):
 
     with col_sel2:
         chips = [
-            f'<span class="sample-chip"><b>δ¹³C</b>: {active_sample.d13C:.2f} ‰</span>',
-            f'<span class="sample-chip"><b>δ¹⁵N</b>: {active_sample.d15N:.2f} ‰</span>',
+            f'<span class="sample-chip"><b>δ¹³C</b>: {_fmt(active_sample.d13C, ".2f", " ‰")}</span>',
+            f'<span class="sample-chip"><b>δ¹⁵N</b>: {_fmt(active_sample.d15N, ".2f", " ‰")}</span>',
         ]
-        if active_sample.d34S is not None:
+        if _finite(active_sample.d34S):
             color = "orange" if active_sample.d34S >= 4.0 else "green"
             chips.append(f'<span class="sample-chip {color}"><b>δ³⁴S</b>: {active_sample.d34S:.2f} ‰</span>')
-        if active_sample.d2H is not None and active_sample.d18O is not None:
+        if _finite(active_sample.deuterium_excess):
             chips.append(f'<span class="sample-chip"><b>d-excess</b>: {active_sample.deuterium_excess:+.1f} ‰</span>')
 
-        p_color = "red" if active_sample.kraft_lignin_prob > 0.6 else ("orange" if active_sample.kraft_lignin_prob > 0.3 else "green")
-        chips.append(f'<span class="sample-chip {p_color}"><b>Kraft Prob</b>: {active_sample.kraft_lignin_prob*100:.0f}%</span>')
+        kp = active_sample.kraft_lignin_prob
+        if _finite(kp):
+            p_color = "red" if kp > 0.6 else ("orange" if kp > 0.3 else "green")
+            kp_txt = f"{kp*100:.0f}%"
+            if getattr(active_sample, "kraft_prob_basis", None) and len(active_sample.kraft_prob_basis) < 3:
+                kp_txt += " (" + "+".join(active_sample.kraft_prob_basis) + ")"
+        else:
+            p_color, kp_txt = "orange", "n/a"
+        chips.append(f'<span class="sample-chip {p_color}"><b>Kraft Prob</b>: {kp_txt}</span>')
 
         st.markdown(
             f'<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 26px;">{"".join(chips)}</div>',
@@ -105,11 +136,13 @@ def render_irms_studio(T: dict, lang: str):
     with tab1:
         st.subheader(f"{'Изотопный профиль образца' if lang == 'ru' else 'Isotope Profile'} — {active_id}")
         kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-        kpi1.metric("δ¹³C (VPDB)", f"{active_sample.d13C:.2f} ‰")
-        kpi2.metric("δ¹⁵N (AIR)", f"{active_sample.d15N:.2f} ‰")
-        kpi3.metric("δ³⁴S (VCDT)", f"{active_sample.d34S:.2f} ‰" if active_sample.d34S is not None else "N/A")
-        kpi4.metric("δ²H (VSMOW)", f"{active_sample.d2H:.1f} ‰" if active_sample.d2H is not None else "N/A")
-        kpi5.metric("δ¹⁸O (VSMOW)", f"{active_sample.d18O:.2f} ‰" if active_sample.d18O is not None else "N/A")
+        kpi1.metric("δ¹³C (VPDB)", _fmt(active_sample.d13C, ".2f", " ‰", na="N/A"))
+        kpi2.metric("δ¹⁵N (AIR)", _fmt(active_sample.d15N, ".2f", " ‰", na="N/A"))
+        kpi3.metric("δ³⁴S (VCDT)", _fmt(active_sample.d34S, ".2f", " ‰", na="N/A"))
+        kpi4.metric("δ²H (VSMOW)", _fmt(active_sample.d2H, ".1f", " ‰", na="N/A"))
+        kpi5.metric("δ¹⁸O (VSMOW)", _fmt(active_sample.d18O, ".2f", " ‰", na="N/A"))
+        for note in getattr(active_sample, "notes", []):
+            st.caption("ℹ️ " + note)
 
         st.markdown("---")
         c_plot1, c_plot2 = st.columns(2)
@@ -129,16 +162,21 @@ def render_irms_studio(T: dict, lang: str):
                 "Sample_Type": s.sample_type,
             })
         plot_df = pd.DataFrame(df_all)
+        for _c in ("d13C", "d15N", "d34S", "d2H", "d18O", "d_excess", "Kraft_Prob"):
+            plot_df[_c] = pd.to_numeric(plot_df[_c], errors="coerce")
+        # Marker size only (not a reported value): samples without a Kraft score get the minimum size
+        plot_df["Marker_Size"] = plot_df["Kraft_Prob"].where(plot_df["Kraft_Prob"].notna(), 0.0) + 0.05
 
         with c_plot1:
             st.write("#### " + ("Диаграмма δ¹³C vs δ¹⁵N (Генезис углерода и азота)" if lang == "ru" else "δ¹³C vs δ¹⁵N Biplot"))
             fig_cn = px.scatter(
-                plot_df,
+                plot_df.dropna(subset=["d13C", "d15N"]),
                 x="d13C",
                 y="d15N",
                 color="Sample_Type",
                 hover_name="Sample_ID",
-                size="Kraft_Prob",
+                hover_data={"Kraft_Prob": True, "Marker_Size": False},
+                size="Marker_Size",
                 size_max=14,
                 template="plotly_white",
                 labels={"d13C": "δ¹³C (‰ VPDB)", "d15N": "δ¹⁵N (‰ AIR)"},
@@ -167,12 +205,13 @@ def render_irms_studio(T: dict, lang: str):
             st.write("#### " + ("Диаграмма δ¹³C vs δ³⁴S (Трассировка сульфатного шлам-лигнина)" if lang == "ru" else "δ¹³C vs δ³⁴S (Kraft Lignin Tracing)"))
             if plot_df["d34S"].notna().sum() > 0:
                 fig_cs = px.scatter(
-                    plot_df.dropna(subset=["d34S"]),
+                    plot_df.dropna(subset=["d13C", "d34S"]),
                     x="d13C",
                     y="d34S",
                     color="Sample_Type",
                     hover_name="Sample_ID",
-                    size="Kraft_Prob",
+                    hover_data={"Kraft_Prob": True, "Marker_Size": False},
+                    size="Marker_Size",
                     size_max=14,
                     template="plotly_white",
                     labels={"d13C": "δ¹³C (‰ VPDB)", "d34S": "δ³⁴S (‰ VCDT)"},
@@ -201,15 +240,20 @@ def render_irms_studio(T: dict, lang: str):
 
         mixing_results = []
         for s in curr_samples.values():
-            if s.d34S is not None:
-                f_kraft = irms_core.calculate_two_source_mixing(s.d34S, em_kraft_s, em_baikal_s)
+            if _finite(s.d34S):
+                f_kraft, mix_flag = irms_core.calculate_two_source_mixing(s.d34S, em_kraft_s, em_baikal_s, with_flag=True)
+                if not _finite(f_kraft):
+                    status = "⚪ n/a"
+                else:
+                    status = "⚠️ Техногенный шлам" if f_kraft > 0.5 else ("🟡 Смешанный сток" if f_kraft > 0.15 else "🟢 Природный фон")
                 mixing_results.append({
                     "Sample_ID": s.sample_id,
                     "Sample_Type": s.sample_type,
                     "d34S": s.d34S,
-                    "Kraft_Lignin_Pct": round(f_kraft * 100.0, 1),
-                    "Natural_Baikal_Pct": round((1.0 - f_kraft) * 100.0, 1),
-                    "Status": "⚠️ Техногенный шлам" if f_kraft > 0.5 else ("🟡 Смешанный сток" if f_kraft > 0.15 else "🟢 Природный фон"),
+                    "Kraft_Lignin_Pct": round(f_kraft * 100.0, 1) if _finite(f_kraft) else np.nan,
+                    "Natural_Baikal_Pct": round((1.0 - f_kraft) * 100.0, 1) if _finite(f_kraft) else np.nan,
+                    "Status": status,
+                    "Flag": mix_flag,
                 })
 
         if mixing_results:
@@ -223,6 +267,7 @@ def render_irms_studio(T: dict, lang: str):
                     "⚠️ Техногенный шлам": "#e11d48",
                     "🟡 Смешанный сток": "#d97706",
                     "🟢 Природный фон": "#0ea5e9",
+                    "⚪ n/a": "#94a3b8",
                 },
                 template="plotly_white",
                 title="Доля шлам-лигнина БЦБК в исследованных пробах (%):" if lang == "ru" else "Kraft Sludge Lignin Contribution (%):",
@@ -230,6 +275,12 @@ def render_irms_studio(T: dict, lang: str):
             )
             fig_bar.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=380)
             st_plotly(fig_bar)
+            if (mix_df["Flag"] == "outside_endmember_range").any():
+                st.caption(
+                    "Пробы с флагом outside_endmember_range лежат вне интервала эндмемберов; доля обрезана до 0/100 %."
+                    if lang == "ru" else
+                    "Samples flagged outside_endmember_range lie outside the end-member interval; the fraction is clipped to 0/100 %."
+                )
             st_df(mix_df)
         else:
             st.info("Нет данных δ³⁴S для расчета модели смешения.")
@@ -282,5 +333,5 @@ def render_irms_studio(T: dict, lang: str):
         with c_exp_xlsx:
             out_buf = io.BytesIO()
             with pd.ExcelWriter(out_buf, engine="openpyxl") as writer:
-                desc_df.to_excel(writer, sheet_name="IRMS_Data")
+                sanitize_excel_df(desc_df.reset_index()).to_excel(writer, sheet_name="IRMS_Data", index=False)
             st.download_button("📊 Скачать Excel", out_buf.getvalue(), "irms_descriptors.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)

@@ -17,7 +17,8 @@ from modules.irms_core import (
 
 
 def test_irms_sample_metrics():
-    # Test Dansgaard deuterium excess: d = d2H - 8 * d18O
+    # Organic matter (NOM): delta2H/delta18O of solids are not on the meteoric water line,
+    # so the Dansgaard d-excess is not defined -> NaN plus a note (previously -243.6 was reported).
     sample = IRMSSample(
         sample_id="Baikal_Pelagic",
         d13C=-30.5,
@@ -29,10 +30,21 @@ def test_irms_sample_metrics():
         sample_type="Pristine",
     ).compute_metrics()
 
-    expected_d_excess = -154.0 - 8.0 * 11.2  # -243.6
-    assert abs(sample.deuterium_excess - expected_d_excess) < 1e-4
+    assert np.isnan(sample.deuterium_excess)
+    assert any("d-excess" in n for n in sample.notes)
     # Pristine background should have low Kraft probability
     assert sample.kraft_lignin_prob < 0.2
+
+    # Water sample: Dansgaard deuterium excess d = d2H - 8 * d18O (Dansgaard 1964)
+    water = IRMSSample(
+        sample_id="Baikal_Water",
+        d13C=float("nan"),
+        d15N=float("nan"),
+        d2H=-123.0,
+        d18O=-15.8,
+        sample_type="Lake_Water",
+    ).compute_metrics()
+    assert abs(water.deuterium_excess - (-123.0 - 8.0 * -15.8)) < 1e-9
 
 
 def test_kraft_lignin_probability_detection():
