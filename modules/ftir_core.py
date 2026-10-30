@@ -5,6 +5,7 @@ ftir_core.py — Математическое ядро колебательно�
 """
 from dataclasses import dataclass, field
 import io
+import re
 import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
@@ -42,28 +43,63 @@ def decode_bytes(b: bytes) -> str:
 # ==============================================================================
 # ПАРСИНГ СПЕКТРОВ (CSV, DPT, TXT, XY)
 # ==============================================================================
+# Метки столбца/заголовка, указывающие на пропускание (%T) или поглощение (A)
+_TRANSMITTANCE_LABEL_RE = re.compile(r"%\s*T\b|\bT\s*%|transmitt|transmission|пропуск", re.IGNORECASE)
+_ABSORBANCE_LABEL_RE = re.compile(r"absorb|\babs\b|поглощ|оптическ", re.IGNORECASE)
+
+
+def transmittance_to_absorbance(values: np.ndarray, percent: bool = True) -> Tuple[np.ndarray, int]:
+    """
+    A = −log10(T) (T в долях) или A = 2 − log10(%T). Без сдвига минимума к нулю.
+    Значения T ≤ 0 (A → ∞) ограничиваются снизу 1e-3 % / 1e-5; возвращает (A, число ограниченных точек).
+    """
+    t = np.asarray(values, dtype=np.float64)
+    floor = 1e-3 if percent else 1e-5
+    n_clipped = int(np.sum(t < floor))
+    t_c = np.maximum(t, floor)
+    absorb = (2.0 - np.log10(t_c)) if percent else -np.log10(t_c)
+    return absorb, n_clipped
+
+
 def parse_ftir_file(
     file_content: Union[str, bytes],
-    sample_id: str = "FTIR_Sample"
+    sample_id: str = "FTIR_Sample",
+    signal_type: str = "auto"
 ) -> FTIRSample:
     """
-    Универсальный парсер текстовых спектров FTIR/Raman (.csv, .dpt, .txt, .xy).
+    Универсальный парсер текстовых спектров FTIR (.csv, .dpt, .txt, .xy).
     Поддерживает спектры приборов Bruker (OPUS), Thermo (OMNIC), PerkinElmer, Shimadzu.
-    
+
     Автоматически:
     1. Игнорирует текстовые заголовки и метаданные.
     2. Извлекает числовые столбцы (волновое число и интенсивность).
-    3. Распознает пропускание (%T) и пересчитывает его в поглощение (A = 2 - log10(%T)).
-    4. Сортирует волновые числа по строгому возрастанию.
+    3. Сортирует волновые числа по строгому возрастанию.
+
+    Пересчет пропускания в поглощение выполняется ЯВНО:
+    - signal_type="transmittance": A = 2 − log10(%T) (или −log10(T) для долей 0–1);
+    - signal_type="absorbance": значения используются как есть;
+    - signal_type="auto" (по умолчанию): пересчет только если заголовок/метаданные файла
+      указывают на пропускание (%T, Transmittance, …) И все значения лежат в 0–110.
+      Значения 0–100 без такой метки остаются поглощением; в metadata["warnings"] добавляется
+      предупреждение (данные могут быть %T, Raman-счетами и т.п.).
+    Поглощение не сдвигается так, чтобы минимум был 0.
     """
     text = decode_bytes(file_content) if isinstance(file_content, bytes) else file_content
     lines = text.strip().splitlines()
-    
+    mode = (signal_type or "auto").strip().lower()
+    if mode not in ("auto", "absorbance", "transmittance"):
+        raise ValueError(f"signal_type must be 'auto', 'absorbance' or 'transmittance', got '{signal_type}'")
+
     data_rows: List[Tuple[float, float]] = []
-    
+    header_lines: List[str] = []
+
     for line in lines:
         line_clean = line.strip()
-        if not line_clean or line_clean.startswith(("#", ";", "/", "!", "Spectrum", "Date", "Wavenumber")):
+        if not line_clean:
+            continue
+        if line_clean.startswith(("#", ";", "/", "!", "Spectrum", "Date", "Wavenumber")):
+            if len(header_lines) < 200:
+                header_lines.append(line_clean)
             continue
         # Определение разделителя колонок
         if ";" in line_clean:
@@ -85,15 +121,19 @@ def parse_ftir_file(
                 val = float(t1)
                 data_rows.append((wn, val))
             except ValueError:
+                if len(header_lines) < 200:
+                    header_lines.append(line_clean)
                 continue
-                
+        elif len(header_lines) < 200:
+            header_lines.append(line_clean)
+
     if not data_rows:
         raise ValueError(f"Не удалось извлечь спектральные данные из файла '{sample_id}'. Требуются 2 числовые колонки (см^-1 и интенсивность).")
-        
+
     arr = np.array(data_rows, dtype=np.float64)
     # Сортируем по волновому числу
     arr = arr[np.argsort(arr[:, 0])]
-    
+
     # Удаляем возможные дубликаты волновых чисел усреднением
     unique_wn, inverse_indices = np.unique(np.round(arr[:, 0], 2), return_inverse=True)
     accum_vals = np.zeros_like(unique_wn)
@@ -101,36 +141,61 @@ def parse_ftir_file(
     np.add.at(accum_vals, inverse_indices, arr[:, 1])
     np.add.at(counts, inverse_indices, 1)
     averaged_vals = accum_vals / np.maximum(counts, 1)
-    
+
     wn_vec = unique_wn
     raw_vec = averaged_vals
-    
-    # Эвристика: пропускание (%T) или поглощение (A)
-    # Если медиана > 10 или максимум > 25, это процентное пропускание (%T)
+
     median_val = float(np.median(raw_vec))
     max_val = float(np.max(raw_vec))
-    
-    if median_val > 10.0 or max_val > 25.0:
-        signal_type = "transmittance"
-        # Пересчет %T в A: A = 2 - log10(%T)
-        # Клиппируем от 0.01 до 105% во избежание log10(<=0)
-        clipped_t = np.clip(raw_vec, 0.05, 105.0)
-        absorbance = 2.0 - np.log10(clipped_t)
-        # Если базовый уровень выше нуля, сдвигаем минимум к 0
-        min_abs = np.min(absorbance)
-        if min_abs < 0:
-            absorbance = absorbance - min_abs
+    min_val = float(np.min(raw_vec))
+    header_text = "\n".join(header_lines)
+    label_says_t = bool(_TRANSMITTANCE_LABEL_RE.search(header_text))
+    label_says_a = bool(_ABSORBANCE_LABEL_RE.search(header_text))
+    in_t_range = min_val >= 0.0 and max_val <= 110.0
+    warnings: List[str] = []
+
+    if mode == "transmittance":
+        is_t = True
+        source = "explicit"
+        if min_val < 0.0 or max_val > 110.0:
+            raise ValueError(
+                f"'{sample_id}': values {min_val:g}…{max_val:g} are not a transmittance scale (expected 0–100 %T or 0–1)"
+            )
+    elif mode == "absorbance":
+        is_t = False
+        source = "explicit"
     else:
-        signal_type = "absorbance"
+        is_t = label_says_t and not label_says_a and in_t_range
+        source = "header" if is_t else "default"
+        if not is_t and in_t_range and median_val > 10.0 and not label_says_a:
+            warnings.append(
+                "Values lie in 0–100 without a transmittance/absorbance label; treated as absorbance. "
+                "Select 'transmittance' explicitly if this is a %T spectrum."
+            )
+
+    if is_t:
+        signal_type_out = "transmittance"
+        percent = max_val > 1.5  # 0–1 → доли, иначе проценты
+        absorbance, n_clipped = transmittance_to_absorbance(raw_vec, percent=percent)
+        if n_clipped:
+            warnings.append(f"{n_clipped} point(s) with T ≤ 0 were limited (absorbance capped)")
+    else:
+        signal_type_out = "absorbance"
         absorbance = raw_vec.copy()
-        
+
     return FTIRSample(
         sample_id=sample_id,
         wavenumbers=wn_vec,
         absorbance=absorbance,
         raw_signal=raw_vec,
-        signal_type=signal_type,
-        metadata={"raw_points": len(data_rows), "median_raw": median_val, "max_raw": max_val}
+        signal_type=signal_type_out,
+        metadata={
+            "raw_points": len(data_rows),
+            "median_raw": median_val,
+            "max_raw": max_val,
+            "signal_type_source": source,
+            "warnings": warnings,
+        }
     )
 
 
@@ -337,15 +402,49 @@ def integrate_band_area(
     return float(simpson(absorbance[mask], x=wavenumbers[mask]))
 
 
+def estimate_noise_sigma(absorbance: np.ndarray) -> float:
+    """
+    Робастная оценка шума σ по второй разности: для белого шума Var(Δ²y) = 6σ²,
+    σ ≈ 1.4826·MAD(Δ²y)/√6. Медленно меняющиеся полосы на вторую разность почти не влияют.
+    """
+    y = np.asarray(absorbance, dtype=np.float64)
+    if len(y) < 5:
+        return 0.0
+    d2 = np.diff(y, n=2)
+    mad = float(np.median(np.abs(d2 - np.median(d2))))
+    return 1.4826 * mad / math.sqrt(6.0)
+
+
+def band_detection_threshold(
+    absorbance: np.ndarray,
+    snr_k: float = 3.0,
+    min_band_fraction: float = 0.01
+) -> float:
+    """
+    Порог «полоса присутствует»: max(snr_k·σ_шума, min_band_fraction·max|A|).
+    Относительный порог нужен для гладких (синтетических / сильно сглаженных) спектров с σ ≈ 0.
+    """
+    y = np.asarray(absorbance, dtype=np.float64)
+    if len(y) == 0:
+        return float("inf")
+    peak = float(np.max(np.abs(y)))
+    return max(snr_k * estimate_noise_sigma(y), min_band_fraction * peak)
+
+
 def calculate_ftir_indices(
     wavenumbers: np.ndarray,
     absorbance: np.ndarray,
-    sample_id: str = "Sample"
+    sample_id: str = "Sample",
+    snr_k: float = 3.0,
+    min_band_fraction: float = 0.01
 ) -> Dict[str, Union[str, float]]:
     """
     Вычисляет полный набор хемометрических дескрипторов ИК-спектроскопии
     для природного органического вещества (РОВ/DOM) и шлам-лигнина.
-    
+
+    Ожидается поглощение ПОСЛЕ коррекции базовой линии и БЕЗ SNV/min-max: эти нормировки
+    аффинны (y → (y − m)/s), и отношения полос I_a/I_b при них не сохраняются.
+
     Ключевые полосы:
     - 3400 см^-1: OH / NH (спирты, фенолы, водородные связи)
     - 2960 см^-1: CH3 асимметричные (разветвления алифатики)
@@ -354,12 +453,17 @@ def calculate_ftir_indices(
     - 1720 см^-1: C=O карбонилы/карбоксилы (карбоновые кислоты, кетоны)
     - 1650 см^-1: сопряженные C=O, хиноиды, амид I
     - 1600 см^-1: C=C ароматические скелетные колебания
-    - 1510 см^-1: маркер лигнина (гваяцильное ароматическое кольцо)
+    - 1510 см^-1: скелетные колебания ароматического кольца лигнина (C=C; все H/G/S-звенья,
+      у G-богатых лигнинов интенсивнее — Faix 1991, Holzforschung 45, 21; Pandey 1999)
     - 1450 см^-1: деформационные колебания CH2 / CH3
-    - 1330 см^-1: сирингильное кольцо лигнина (S-тип)
-    - 1270 см^-1: гваяцильное кольцо лигнина (G-тип, C-O фенолов)
+    - 1330 см^-1: сирингильное кольцо (S) + конденсированные G-звенья
+    - 1270 см^-1: гваяцильное кольцо (G) + C=O валентные
     - 1220 см^-1: C-C / C-O эфирные связи лигнина
     - 1030 см^-1: C-O спиртов, полисахариды, целлюлоза, метоксилы
+
+    Отношения возвращаются как NaN, если полоса-знаменатель ниже порога обнаружения
+    band_detection_threshold (snr_k·σ_шума или min_band_fraction от максимума спектра):
+    при отсутствующей полосе отношение не имеет смысла (напр., G/S → 70 при отсутствии 1330 см^-1).
     """
     i_3400 = get_intensity_at(wavenumbers, absorbance, 3400.0, window=30.0)
     i_2960 = get_intensity_at(wavenumbers, absorbance, 2960.0, window=10.0)
@@ -374,43 +478,50 @@ def calculate_ftir_indices(
     i_1270 = get_intensity_at(wavenumbers, absorbance, 1270.0, window=10.0)
     i_1220 = get_intensity_at(wavenumbers, absorbance, 1220.0, window=12.0)
     i_1030 = get_intensity_at(wavenumbers, absorbance, 1030.0, window=15.0)
-    
-    eps = 1e-9
-    
+
+    threshold = band_detection_threshold(absorbance, snr_k=snr_k, min_band_fraction=min_band_fraction)
+
+    def _ratio(num: float, den: float) -> float:
+        if not (np.isfinite(num) and np.isfinite(den)) or den <= threshold:
+            return float("nan")
+        return float(num / den)
+
     # 1. Индекс ароматичности (Aromaticity Index)
     # Отношение ароматического скелета к алифатике
-    aromaticity_index = i_1600 / (i_2920 + eps)
-    
+    aromaticity_index = _ratio(i_1600, i_2920)
+
     # 2. Индекс окисленности / карбоксилирования (Carbonylation Index)
     # Отношение карбоксилов к ароматике
-    oxidation_index = i_1720 / (i_1600 + eps)
-    
+    oxidation_index = _ratio(i_1720, i_1600)
+
     # 3. Индекс алифатического разветвления (CH3 / CH2)
-    branching_index = i_2960 / (i_2920 + eps)
-    
-    # 4. Специфический маркер лигнина (Lignin Index)
-    # Доля гваяцильного кольца в общем ароматическом пуле
-    lignin_index = i_1510 / (i_1600 + eps)
-    
-    # 5. Соотношение гваяцильных и сирингильных колец лигнина (G/S ratio)
-    gs_ratio = i_1270 / (i_1330 + eps)
-    
+    branching_index = _ratio(i_2960, i_2920)
+
+    # 4. Лигниновый индекс: скелетная ароматика лигнина (1510) к общему ароматическому пулу (1600)
+    lignin_index = _ratio(i_1510, i_1600)
+
+    # 5. Ориентировочное отношение G/S (1270 / 1330); NaN, если полоса 1330 не обнаружена
+    gs_ratio = _ratio(i_1270, i_1330)
+
     # 6. Полисахаридный / углеводный индекс
-    polysaccharide_index = i_1030 / (i_1600 + eps)
-    
+    polysaccharide_index = _ratio(i_1030, i_1600)
+
     # 7. Фенольно-эфирный индекс
-    phenolic_ether_index = i_1220 / (i_1600 + eps)
-    
+    phenolic_ether_index = _ratio(i_1220, i_1600)
+
     # Интегральные площади ключевых областей
     area_oh = integrate_band_area(wavenumbers, absorbance, 3000.0, 3600.0)
     area_aliph = integrate_band_area(wavenumbers, absorbance, 2800.0, 3000.0)
     area_carbonyl_arom = integrate_band_area(wavenumbers, absorbance, 1500.0, 1800.0)
     area_fingerprint = integrate_band_area(wavenumbers, absorbance, 900.0, 1500.0)
     area_poly = integrate_band_area(wavenumbers, absorbance, 950.0, 1180.0)
-    
-    # Отношение площадей (Carbonyl/Aromatic Area to Aliphatic Area)
-    area_ratio_carb_aliph = area_carbonyl_arom / (area_aliph + eps)
-    
+
+    # Отношение площадей (Carbonyl/Aromatic Area to Aliphatic Area); NaN, если полоса CH2 2920 не обнаружена
+    area_ratio_carb_aliph = (
+        float(area_carbonyl_arom / area_aliph)
+        if i_2920 > threshold and area_aliph > 0.0 else float("nan")
+    )
+
     return {
         "Sample_ID": sample_id,
         "FTIR_Aromaticity_Idx": round(aromaticity_index, 4),
@@ -454,6 +565,9 @@ def multi_gaussian(x: np.ndarray, *params) -> np.ndarray:
     return y
 
 
+FTIR_DECONV_MIN_R2 = 0.95  # ниже — подгонка помечается как неудовлетворительная
+
+
 def deconvolve_carbonyl_region(
     wavenumbers: np.ndarray,
     absorbance: np.ndarray,
@@ -465,55 +579,64 @@ def deconvolve_carbonyl_region(
     """
     Деконволюция сложного карбонильно-ароматического диапазона 1500–1800 см^-1
     на сумму перекрывающихся Гауссовых полос методом нелинейной оптимизации.
-    
+
     Идентифицируемые полосы по умолчанию:
-    1. ~1510 см^-1: Гваяцильное кольцо лигнина (Lignin G-ring)
+    1. ~1510 см^-1: скелетные колебания ароматического кольца лигнина (C=C; все H/G/S-звенья)
     2. ~1605 см^-1: Ароматический каркас C=C (Aromatic C=C)
     3. ~1655 см^-1: Сопряженные карбонилы / хиноиды (Quinones / Conj C=O)
     4. ~1715 см^-1: Свободные карбоксилы (Carboxylic COOH)
     5. ~1740 см^-1: Сложные эфиры и лактоны (Esters / Lactones)
+
+    Returns dict с ключами wavenumbers, observed, fitted, residuals, r2, rmse, peaks_df,
+    individual_curves, templates, а также:
+    - success (bool): curve_fit сошелся. При неудаче fitted/residuals/r2/rmse = NaN,
+      числовые столбцы peaks_df = NaN, individual_curves = [] — начальные приближения
+      НЕ выдаются за результат подгонки.
+    - fit_ok (bool): success, R² ≥ FTIR_DECONV_MIN_R2 и ни один центр/ширина не на границе.
+    - message (str), warnings (list[str]); столбец peaks_df["At_Bound"].
     """
     mask = (wavenumbers >= wn_min) & (wavenumbers <= wn_max)
     if np.sum(mask) < 20:
         raise ValueError(f"Недостаточно спектральных точек в диапазоне {wn_min}–{wn_max} см^-1 для деконволюции.")
-        
+
     sub_wn = wavenumbers[mask]
     sub_abs = absorbance[mask]
-    
+
     # Базовая конфигурация полос по умолчанию
     default_templates = [
-        {"name": "Lignin (1510)", "center": 1510.0, "c_min": 1495.0, "c_max": 1525.0, "sigma": 15.0},
+        {"name": "Aromatic skeletal C=C, lignin (1510)", "center": 1510.0, "c_min": 1495.0, "c_max": 1525.0, "sigma": 15.0},
         {"name": "Aromatic C=C (1605)", "center": 1605.0, "c_min": 1585.0, "c_max": 1625.0, "sigma": 18.0},
         {"name": "Quinone/Conj C=O (1655)", "center": 1655.0, "c_min": 1635.0, "c_max": 1680.0, "sigma": 18.0},
         {"name": "Carboxylic COOH (1715)", "center": 1715.0, "c_min": 1695.0, "c_max": 1735.0, "sigma": 18.0},
         {"name": "Esters/Lactones (1740)", "center": 1740.0, "c_min": 1730.0, "c_max": 1765.0, "sigma": 15.0},
     ]
-    
+
     if custom_initial_peaks and len(custom_initial_peaks) > 0:
         templates = custom_initial_peaks[:n_peaks]
     else:
         templates = default_templates[:min(n_peaks, len(default_templates))]
-        
+
     p0: List[float] = []
     bounds_lower: List[float] = []
     bounds_upper: List[float] = []
-    
+
     max_a = max(float(np.max(sub_abs)), 0.01)
-    
+
     for t in templates:
         center_init = float(t.get("center", 1600.0))
         # Оценка амплитуды по сигналу в точке
         idx_c = int(np.argmin(np.abs(sub_wn - center_init)))
         amp_init = max(float(sub_abs[idx_c]) * 0.7, max_a * 0.1)
         sigma_init = float(t.get("sigma", 15.0))
-        
+
         c_min = float(t.get("c_min", center_init - 15.0))
         c_max = float(t.get("c_max", center_init + 15.0))
-        
+
         p0.extend([amp_init, center_init, sigma_init])
         bounds_lower.extend([0.0, c_min, 5.0])
         bounds_upper.extend([max_a * 2.5, c_max, 50.0])
-        
+
+    warnings: List[str] = []
     try:
         popt, _ = curve_fit(
             multi_gaussian,
@@ -523,24 +646,52 @@ def deconvolve_carbonyl_region(
             bounds=(bounds_lower, bounds_upper),
             maxfev=5000
         )
+        success = bool(np.all(np.isfinite(popt)))
+        message = "" if success else "curve_fit returned non-finite parameters"
     except Exception as e:
-        # Fallback: аппроксимация без жестких ограничений или с начальными параметрами
-        popt = np.array(p0)
-        
+        success = False
+        message = f"Fit did not converge: {e}"
+
+    names = [t.get("name", f"Band {float(t.get('center', 0.0)):.1f}") for t in templates]
+    if not success:
+        nan_arr = np.full_like(sub_abs, np.nan, dtype=float)
+        peaks_df = pd.DataFrame([{
+            "Peak_ID": f"Peak_{k+1}", "Assignment": names[k],
+            "Center_cm1": np.nan, "Amplitude": np.nan, "Sigma_cm1": np.nan,
+            "FWHM_cm1": np.nan, "Area": np.nan, "Relative_Area_pct": np.nan, "At_Bound": False,
+        } for k in range(len(templates))])
+        return {
+            "success": False,
+            "fit_ok": False,
+            "message": message,
+            "warnings": [message],
+            "wavenumbers": sub_wn,
+            "observed": sub_abs,
+            "fitted": nan_arr,
+            "residuals": nan_arr.copy(),
+            "r2": float("nan"),
+            "rmse": float("nan"),
+            "peaks_df": peaks_df,
+            "individual_curves": [],
+            "templates": templates,
+        }
+
     fitted_curve = multi_gaussian(sub_wn, *popt)
     residuals = sub_abs - fitted_curve
-    
+
     # Расчет метрик качества
     ss_res = float(np.sum(residuals ** 2))
     ss_tot = float(np.sum((sub_abs - np.mean(sub_abs)) ** 2))
-    r2 = 1.0 - (ss_res / (ss_tot + 1e-12))
+    r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
     rmse = math.sqrt(ss_res / len(sub_abs))
-    
+    if not np.isfinite(r2) or r2 < FTIR_DECONV_MIN_R2:
+        warnings.append(f"Low fit quality: R² = {r2:.3f} < {FTIR_DECONV_MIN_R2}")
+
     # Извлечение параметров индивидуальных пиков
     peak_rows = []
     individual_curves = []
     total_area = 0.0
-    
+
     for k in range(len(templates)):
         amp = float(popt[3 * k])
         center = float(popt[3 * k + 1])
@@ -549,28 +700,42 @@ def deconvolve_carbonyl_region(
         area = amp * sigma * math.sqrt(2.0 * math.pi)
         # FWHM = 2 * sqrt(2 * ln(2)) * sigma ≈ 2.355 * sigma
         fwhm = 2.35482 * sigma
-        
+        lo_c, hi_c = bounds_lower[3 * k + 1], bounds_upper[3 * k + 1]
+        tol_c = 1e-3 * max(hi_c - lo_c, 1e-6)
+        at_bound = bool(
+            abs(center - lo_c) <= tol_c or abs(center - hi_c) <= tol_c
+            or abs(sigma - 5.0) <= 1e-3 or abs(sigma - 50.0) <= 1e-3
+        )
+        if at_bound:
+            warnings.append(f"'{names[k]}': centre or width at its bound — band not identifiable")
+
         total_area += area
         curve_k = gaussian_peak(sub_wn, amp, center, sigma)
         individual_curves.append(curve_k)
-        
+
         peak_rows.append({
             "Peak_ID": f"Peak_{k+1}",
-            "Assignment": templates[k].get("name", f"Band {center:.1f}"),
+            "Assignment": names[k],
             "Center_cm1": round(center, 1),
             "Amplitude": round(amp, 4),
             "Sigma_cm1": round(sigma, 2),
             "FWHM_cm1": round(fwhm, 2),
             "Area": round(area, 4),
+            "At_Bound": at_bound,
         })
-        
+
     # Добавляем процент относительной площади
     for row in peak_rows:
-        row["Relative_Area_pct"] = round((row["Area"] / (total_area + 1e-12)) * 100.0, 2)
-        
+        row["Relative_Area_pct"] = round((row["Area"] / total_area) * 100.0, 2) if total_area > 0 else float("nan")
+
     peaks_df = pd.DataFrame(peak_rows)
-    
+    fit_ok = bool(np.isfinite(r2) and r2 >= FTIR_DECONV_MIN_R2 and not any(r["At_Bound"] for r in peak_rows))
+
     return {
+        "success": True,
+        "fit_ok": fit_ok,
+        "message": "" if fit_ok else "; ".join(warnings),
+        "warnings": warnings,
         "wavenumbers": sub_wn,
         "observed": sub_abs,
         "fitted": fitted_curve,
@@ -594,6 +759,13 @@ def batch_process_ftir_samples(
     """
     Пакетная обработка списка образцов FTIR с извлечением дескрипторов
     в единый DataFrame для передачи в Модуль ML (Data Fusion).
+
+    Индексы и интенсивности всегда рассчитываются по поглощению после коррекции базовой линии
+    БЕЗ нормировки. SNV и min-max — аффинные преобразования, не сохраняющие отношения полос
+    (напр., лигниновый индекс 0.207 → 0.056 на одном и том же спектре), а масштабирующие
+    нормировки (vector/area/max) на отношения не влияют. Параметр norm_method сохранен для
+    обратной совместимости и на дескрипторы не влияет; нормировку применяйте только к
+    спектральным векторам для визуализации / ML (normalize_spectrum).
     """
     rows = []
     for s in samples:
@@ -601,16 +773,10 @@ def batch_process_ftir_samples(
         if s.corrected_absorbance is None:
             subtract_baseline(s, method=baseline_method)
         abs_to_use = s.corrected_absorbance if s.corrected_absorbance is not None else s.absorbance
-        
-        # Нормировка
-        if norm_method != "none":
-            abs_norm = normalize_spectrum(abs_to_use, method=norm_method)
-        else:
-            abs_norm = abs_to_use
-            
-        desc = calculate_ftir_indices(s.wavenumbers, abs_norm, sample_id=s.sample_id)
+
+        desc = calculate_ftir_indices(s.wavenumbers, abs_to_use, sample_id=s.sample_id)
         rows.append(desc)
-        
+
     return pd.DataFrame(rows)
 
 
@@ -623,7 +789,7 @@ def generate_synthetic_ftir_dataset(
     Генерирует согласованный синтетический набор эталонных спектров ATR-FTIR
     для двух контрастных экологических типов проб:
     - Baikal_Pristine (чистая вода оз. Байкал): высокая алифатика (2920), полисахариды (1030), минимальный лигнин (1510).
-    - Sludge_Lignin (техногенный шлам-лигнин БЦБК): доминирующий гваяцильный лигнин (1510), карбоксилы (1720), эфирные связи (1220, 1270).
+    - Sludge_Lignin (техногенный шлам-лигнин БЦБК): интенсивная скелетная ароматика лигнина (1510), карбоксилы (1720), эфирные связи (1220, 1270).
     """
     rng = np.random.RandomState(random_state)
     wn = np.linspace(650.0, 4000.0, 1676)  # шаг ~2 см^-1
@@ -769,11 +935,11 @@ CHARACTERISTIC_IR_BANDS = [
     {
         "min_wn": 1500.0,
         "max_wn": 1525.0,
-        "name": "guaiacyl lignin C=C",
-        "assignment_ru": "Гваяцильное ароматическое кольцо лигнина (C=C маркер)",
-        "assignment_en": "Guaiacyl aromatic ring vibration (Lignin marker)",
-        "compound_class_ru": "Шлам-лигнин БЦБК, сульфатный крафт-лигнин",
-        "compound_class_en": "BCBK sludge lignin, kraft lignin",
+        "name": "aromatic skeletal C=C (lignin)",
+        "assignment_ru": "Скелетные колебания ароматического кольца лигнина (C=C; все H/G/S-звенья, сильнее у G-богатых)",
+        "assignment_en": "Aromatic skeletal ring vibration of lignin (C=C; all H/G/S units, stronger in G-rich lignins)",
+        "compound_class_ru": "Лигнины всех типов: шлам-лигнин БЦБК, крафт-лигнин, лигнины древесины",
+        "compound_class_en": "All lignin types: BCBK sludge lignin, kraft lignin, wood lignins",
     },
     {
         "min_wn": 1445.0,
@@ -918,9 +1084,24 @@ def find_and_annotate_peaks(
 # СПЕКТРАЛЬНАЯ БИБЛИОТЕКА ЭТАЛОНОВ И СОПОСТАВЛЕНИЕ (SPECTRAL LIBRARY MATCHING)
 # ==============================================================================
 
+# Пометка для пользовательского интерфейса: библиотека состоит из синтетических моделей
+FTIR_LIBRARY_DISCLAIMER_RU = (
+    "Встроенная библиотека — приближенные СИНТЕТИЧЕСКИЕ модели (суммы гауссовых полос по литературным "
+    "положениям полос), а не измеренные эталонные спектры IHSS/лигнинов. HQI показывает сходство с моделью, "
+    "а не идентификацию."
+)
+FTIR_LIBRARY_DISCLAIMER_EN = (
+    "The built-in library holds approximate SYNTHETIC models (sums of Gaussian bands at literature band "
+    "positions), not measured IHSS/lignin reference spectra. HQI expresses similarity to a model, not an identification."
+)
+FTIR_LIBRARY_TYPE = "Synthetic Gaussian model (approximate, not a measured spectrum)"
+
+
 def get_ftir_reference_library() -> Dict[str, Dict[str, Any]]:
     """
-    Возвращает встроенную спектральную библиотеку эталонов ChemoSuite:
+    Возвращает встроенную ПРИБЛИЖЕННУЮ СИНТЕТИЧЕСКУЮ библиотеку ChemoSuite: каждый «эталон» —
+    сумма гауссовых полос (profile_func) с типичными для класса положениями, а не измеренный
+    спектр стандарта. Записи (названия соответствуют моделируемому классу):
     1. IHSS Suwannee River FA (Фульвокислоты)
     2. IHSS Suwannee River HA (Гуминовые кислоты)
     3. IHSS Elliott Soil HA (Почвенные гуминовые кислоты)
@@ -999,9 +1180,9 @@ def get_ftir_reference_library() -> Dict[str, Dict[str, Any]]:
             "name_en": "Kraft Lignin / BCBK Pulp Sludge Lignin",
             "class_ru": "Техногенный лигнин (Pulp & Paper Sludge)",
             "class_en": "Industrial Sludge Lignin",
-            "key_markers": "1510 (Guaiacyl C=C), 1602 (Aromatic), 1270 (G-ring), 1220 (Ether)",
-            "description_ru": "Сульфатный шлам-лигнин целлюлозного производства. Доминирует острый маркерный пик гваяцильного кольца 1510 см^-1 и ароматика 1602 см^-1.",
-            "description_en": "Pulp mill sludge lignin. Dominated by sharp guaiacyl ring marker at 1510 cm^-1, 1602 cm^-1 aromatics and 1270 cm^-1 ether bonds.",
+            "key_markers": "1510 (lignin aromatic skeletal C=C), 1602 (Aromatic), 1270 (G-ring), 1220 (Ether)",
+            "description_ru": "Синтетическая модель сульфатного шлам-лигнина: острая полоса скелетной ароматики лигнина 1510 см^-1, ароматика 1602 см^-1 и гваяцильная полоса 1270 см^-1.",
+            "description_en": "Synthetic model of pulp mill sludge lignin: sharp lignin aromatic skeletal band at 1510 cm^-1, 1602 cm^-1 aromatics and 1270 cm^-1 guaiacyl band.",
             "profile_func": lambda w: (
                 0.08 + 0.22 * np.exp(-((w - 650.0) / 1000.0) ** 2) +
                 0.48 * np.exp(-0.5 * ((w - 3410.0) / 140.0) ** 2) +
@@ -1021,7 +1202,7 @@ def get_ftir_reference_library() -> Dict[str, Dict[str, Any]]:
             "name_en": "Hydrolysis Technical Lignin",
             "class_ru": "Технический гидролизный лигнин",
             "class_en": "Hydrolysis Lignin Byproduct",
-            "key_markers": "1512 (Guaiacyl), 1600 (Arom C=C), 1425 (Arom), 1215 (C-C/C-O)",
+            "key_markers": "1512 (lignin aromatic skeletal C=C), 1600 (Arom C=C), 1425 (Arom), 1215 (C-C/C-O)",
             "description_ru": "Продукт кислотного гидролиза древесины. Высокая степень конденсации, развитая фенольная сетка, минимум углеводов.",
             "description_en": "Acid hydrolysis wood byproduct. Highly condensed aromatic network, pronounced phenolic OH, low carbohydrates.",
             "profile_func": lambda w: (
@@ -1132,9 +1313,10 @@ def match_spectrum_against_library(
     lang: str = "ru"
 ) -> pd.DataFrame:
     """
-    Сопоставление исследуемого спектра с эталонной спектральной библиотекой FTIR
+    Сопоставление исследуемого спектра с приближенной синтетической библиотекой FTIR
     методом спектрального косинусного сходства (Cosine Similarity),
     корреляции Пирсона (Pearson r) и Hit Quality Index (HQI, %).
+    Столбец Library_Type напоминает, что эталоны — синтетические модели, а не измеренные спектры.
     """
     if library is None:
         library = get_ftir_reference_library()
@@ -1193,6 +1375,7 @@ def match_spectrum_against_library(
             "Pearson_r": round(pearson_r, 4),
             "Key_Markers": std_data["key_markers"],
             "Description": std_data["description_en"] if is_en else std_data["description_ru"],
+            "Library_Type": FTIR_LIBRARY_TYPE,
         })
         
     df_res = pd.DataFrame(results)

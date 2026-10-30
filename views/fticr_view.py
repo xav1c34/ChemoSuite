@@ -92,6 +92,21 @@ except ImportError:
     OPEN_FORMATS_AVAILABLE = False
 
 
+def _show_pubchem_status(res, lang: str) -> None:
+    """Показывает ошибку сети PubChem или пометку офлайн-справочника (атрибуты PubChemResult)."""
+    err = getattr(res, "error", None)
+    if err:
+        st.warning(("PubChem недоступен: " if lang == "ru" else "PubChem unavailable: ") + str(err))
+    if getattr(res, "offline_fallback", False):
+        st.info(
+            "Показана запись встроенного офлайн-справочника, а не результат поиска изомеров в PubChem."
+            if lang == "ru" else
+            "Showing an entry from the built-in offline reference table, not a PubChem isomer search."
+        )
+    elif res is not None and len(res) == 0 and not err:
+        st.caption("PubChem: соединений с такой формулой не найдено." if lang == "ru" else "PubChem: no compounds with this formula.")
+
+
 def render_fticr_studio(T: dict, lang: str):
     """Render Module 1: FT-ICR MS Studio."""
     with st.sidebar:
@@ -115,17 +130,35 @@ def render_fticr_studio(T: dict, lang: str):
 
                 parsed_custom_df = None
                 fn_lower = uf.name.lower()
+                is_open_format = fn_lower.endswith((".mzml", ".mzxml", ".jdx", ".dx"))
+                if is_open_format and not OPEN_FORMATS_AVAILABLE:
+                    st.error(f"{uf.name}: модуль открытых форматов недоступен" if lang == "ru" else f"{uf.name}: open-format parser unavailable")
+                    continue
                 if OPEN_FORMATS_AVAILABLE:
+                    # Парсеры возвращают dict с массивами; переводим в таблицу пиков mass / intensity / norm_intensity.
+                    # При ошибке файл пропускается: двоичный/XML-файл не передается табличному парсеру.
+                    from modules.open_spectrometry_formats import mass_spectrum_to_peak_df, jcamp_is_mass_spectrum, jcamp_metadata_value
                     if fn_lower.endswith((".mzml", ".mzxml")) and parse_mzml_content is not None:
                         try:
-                            parsed_custom_df = parse_mzml_content(b_content)
+                            mz_res = parse_mzml_content(b_content)
+                            parsed_custom_df = mass_spectrum_to_peak_df(mz_res["mz"], mz_res["intensity"])
                         except Exception as e_mz:
-                            st.warning(f"Ошибка mzML {uf.name}: {e_mz}")
+                            st.error(f"Ошибка mzML/mzXML {uf.name}: {e_mz}" if lang == "ru" else f"mzML/mzXML error {uf.name}: {e_mz}")
+                            continue
                     elif fn_lower.endswith((".jdx", ".dx")) and parse_jcamp_dx is not None:
                         try:
-                            parsed_custom_df = parse_jcamp_dx(b_content)
+                            jx_res = parse_jcamp_dx(b_content)
+                            if not jcamp_is_mass_spectrum(jx_res):
+                                dt = jcamp_metadata_value(jx_res.get("metadata", {}) or {}, "DATA TYPE") or "?"
+                                raise ValueError(
+                                    f"не масс-спектр (##DATA TYPE={dt})" if lang == "ru" else f"not a mass spectrum (##DATA TYPE={dt})"
+                                )
+                            for w_jx in jx_res.get("warnings", []) or []:
+                                st.warning(f"JCAMP {uf.name}: {w_jx}")
+                            parsed_custom_df = mass_spectrum_to_peak_df(jx_res["x"], jx_res["y"])
                         except Exception as e_jx:
-                            st.warning(f"Ошибка JCAMP {uf.name}: {e_jx}")
+                            st.error(f"Ошибка JCAMP {uf.name}: {e_jx}" if lang == "ru" else f"JCAMP error {uf.name}: {e_jx}")
+                            continue
 
                 with open(save_path, "wb") as f:
                     f.write(b_content)
@@ -134,7 +167,7 @@ def render_fticr_studio(T: dict, lang: str):
                     "file_bytes": b_content,
                     "parsed_peaks": parsed_custom_df,
                     "assigned_df": None,
-                    "raw_df": parsed_custom_df,
+                    "raw_df": parsed_custom_df[["mass", "intensity"]].copy() if parsed_custom_df is not None else None,
                 }
                 if parsed_custom_df is None:
                     ensure_sample_peaks(s_new)
@@ -221,7 +254,7 @@ def render_fticr_studio(T: dict, lang: str):
             b_mz_max = st.number_input("m/z max:", min_value=200.0, max_value=3000.0, value=1000.0, step=50.0, key="batch_mz_max_key")
 
             if batch_zip_file is not None:
-                if st.button(T[lang]["batch_run_btn"], type="primary", key="btn_run_batch_zip"):
+                if st.button(T[lang]["batch_zip_run_btn"], type="primary", key="btn_run_batch_zip"):
                     with st.spinner("Выполняется пакетная обработка спектров..." if lang == "ru" else "Batch processing spectra..."):
                         summary_df, processed_dict = batch_process_fticr_spectra(
                             batch_zip_file.getvalue(),
@@ -245,6 +278,19 @@ def render_fticr_studio(T: dict, lang: str):
 
                             st.session_state["fticr_batch_summary"] = summary_df
                             st.success(T[lang]["batch_success"].format(n=len(summary_df)))
+                        # Файлы, которые не удалось обработать, и переименованные дубликаты имён
+                        for err_item in summary_df.attrs.get("errors", []) or []:
+                            if isinstance(err_item, dict):
+                                err_txt = f"{err_item.get('file', '?')} ({err_item.get('stage', '')}): {err_item.get('error', '')}"
+                            else:
+                                err_txt = str(err_item)
+                            st.warning(("Не обработан: " if lang == "ru" else "Not processed: ") + err_txt)
+                        renamed = summary_df.attrs.get("renamed", {}) or {}
+                        if renamed:
+                            st.info(
+                                ("Повторяющиеся имена файлов переименованы: " if lang == "ru" else "Duplicate file names renamed: ")
+                                + ", ".join(f"{k} → {v}" for k, v in (renamed.items() if isinstance(renamed, dict) else enumerate(renamed)))
+                            )
                         else:
                             st.warning("В архиве не найдено подходящих спектральных файлов или не удалось приписать формулы." if lang == "ru" else "No valid spectra found in archive or formula assignment failed.")
 
@@ -585,10 +631,13 @@ def render_fticr_studio(T: dict, lang: str):
                         if search_clicked or (target_f and target_f != cached_target):
                             with st.spinner(T[lang]["pubchem_searching"]):
                                 pc_matches = chemo_pubchem.lookup_formula_in_pubchem(target_f, max_records=4, timeout=4.0)
-                                st.session_state[f"pc_res_list_{active_spectrum_name}"] = pc_matches if pc_matches else []
+                                # PubChemResult (list) хранит error/offline_fallback даже при пустом результате
+                                st.session_state[f"pc_res_list_{active_spectrum_name}"] = pc_matches
                                 st.session_state[f"pc_last_f_{active_spectrum_name}"] = target_f
 
                         pc_matches_list = st.session_state.get(f"pc_res_list_{active_spectrum_name}", [])
+                        if f"pc_last_f_{active_spectrum_name}" in st.session_state:
+                            _show_pubchem_status(pc_matches_list, lang)
                         if pc_matches_list:
                             st.caption(f"{T[lang]['pubchem_isomers_label']} **{len(pc_matches_list)}**")
                             clean_t_f = chemo_pubchem.clean_formula(target_f) if hasattr(chemo_pubchem, "clean_formula") else target_f
@@ -714,6 +763,8 @@ def render_fticr_studio(T: dict, lang: str):
                                 st.session_state[f"vk_last_f_{active_spectrum_name}"] = sel_vk_f
 
                         vk_saved_res = st.session_state.get(f"vk_res_{active_spectrum_name}", [])
+                        if f"vk_last_f_{active_spectrum_name}" in st.session_state:
+                            _show_pubchem_status(vk_saved_res, lang)
                         if vk_saved_res:
                             clean_vk_str = chemo_pubchem.clean_formula(sel_vk_f) if hasattr(chemo_pubchem, "clean_formula") else sel_vk_f
                             vk_chembl_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(clean_vk_str)}"
@@ -764,7 +815,7 @@ def render_fticr_studio(T: dict, lang: str):
                 fig_dbe.update_layout(xaxis=dict(title="Carbon (C)", gridcolor="#f1f3f5"), yaxis=dict(title="DBE", gridcolor="#f1f3f5"), plot_bgcolor="white", height=560)
                 st_plotly(fig_dbe)
             else:
-                avail_cols = [c for c in ["mass", "intensity", "norm_intensity", "C", "H", "O", "N", "S", "H/C", "O/C", "DBE", "AI"] if c in assigned_data.columns]
+                avail_cols = [c for c in ["mass", "intensity", "norm_intensity", "C", "H", "O", "N", "S", "H/C", "O/C", "DBE", "AI", "AI_mod"] if c in assigned_data.columns]
                 c1, c2, c3 = st.columns(3)
                 with c1: cx = st.selectbox("X:", avail_cols, index=0, key=f"cust_x_{active_spectrum_name}")
                 with c2: cy = st.selectbox("Y:", avail_cols, index=min(1, len(avail_cols)-1), key=f"cust_y_{active_spectrum_name}")

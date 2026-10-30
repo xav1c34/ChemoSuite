@@ -16,6 +16,19 @@ import scipy.signal
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
+try:
+    from open_spectrometry_formats import (
+        parse_jcamp_dx as _parse_jcamp_generic,
+        jcamp_nmr_x_to_ppm,
+        jcamp_metadata_value,
+    )
+except ImportError:  # импорт как modules.nmr_core
+    from .open_spectrometry_formats import (
+        parse_jcamp_dx as _parse_jcamp_generic,
+        jcamp_nmr_x_to_ppm,
+        jcamp_metadata_value,
+    )
+
 
 @dataclass
 class NMRSample:
@@ -45,118 +58,43 @@ def decode_bytes(b: bytes) -> str:
 # 1. ПАРСИНГ СПЕКТРОВ ЯМР (CSV, TXT, TSV, XY, JCAMP-DX .JDX)
 # ==============================================================================
 
-def parse_jcamp_dx(text: str, sample_id: str = "NMR_Sample") -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+def parse_jcamp_dx(text: Union[str, bytes], sample_id: str = "NMR_Sample") -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    Парсер международного формата IUPAC JCAMP-DX для спектров ЯМР.
-    Поддерживает Bruker TopSpin, Varian/Agilent, Mnova, JEOL экспорты.
-    Обрабатывает метаданные (##XUNITS, ##FIRSTX, ##LASTX, ##NPOINTS)
-    и блоки данных (##PEAK TABLE=, ##XYDATA=).
+    Парсер IUPAC JCAMP-DX для спектров ЯМР (Bruker TopSpin, Varian/Agilent, Mnova, JEOL).
+
+    Декодирование выполняет общий парсер open_spectrometry_formats.parse_jcamp_dx
+    (JCAMP-DX 4.24: AFFN, SQZ/DIF/DUP с Y-check, (XY..XY)/PEAK TABLE, XFACTOR/YFACTOR).
+    Абсцисса в Hz переводится в ppm по ##$SF / ##.OBSERVE FREQUENCY с учетом
+    ##.SHIFT REFERENCE (Davies & Lancashire, Pure Appl. Chem. 1993, 65, 1085).
+
+    Returns (ppm по возрастанию, интенсивность, метаданные). В метаданных:
+    'JCAMP_WARNINGS' — список предупреждений декодера, 'JCAMP_DATA_FORM' — форма таблицы.
+    Raises ValueError, если данные извлечь не удалось.
     """
-    lines = text.splitlines()
-    meta: Dict[str, Any] = {}
-    x_vals: List[float] = []
-    y_vals: List[float] = []
-    
-    in_data_block = False
-    data_format = ""
-    first_x = None
-    last_x = None
-    n_points = None
-    x_factor = 1.0
-    y_factor = 1.0
-    
-    for line in lines:
-        line_s = line.strip()
-        if not line_s:
-            continue
-            
-        if line_s.startswith("##"):
-            # Строка метаданных или директивы
-            parts = line_s[2:].split("=", 1)
-            key = parts[0].strip().upper()
-            val = parts[1].strip() if len(parts) > 1 else ""
-            meta[key] = val
-            
-            if key == "FIRSTX":
-                try:
-                    first_x = float(val)
-                except ValueError:
-                    pass
-            elif key == "LASTX":
-                try:
-                    last_x = float(val)
-                except ValueError:
-                    pass
-            elif key == "NPOINTS":
-                try:
-                    n_points = int(val)
-                except ValueError:
-                    pass
-            elif key == "XFACTOR":
-                try:
-                    x_factor = float(val)
-                except ValueError:
-                    pass
-            elif key == "YFACTOR":
-                try:
-                    y_factor = float(val)
-                except ValueError:
-                    pass
-            elif "XYDATA" in key or "PEAK TABLE" in key or "DATA TABLE" in key:
-                in_data_block = True
-                data_format = val
-                continue
-            elif key == "END":
-                in_data_block = False
-                continue
-        elif in_data_block:
-            # Чтение точек данных
-            # Строки могут иметь формат: X Y1 Y2 Y3 ... или X, Y
-            clean_l = line_s.replace(";", " ").replace(",", " ")
-            tokens = clean_l.split()
-            if not tokens:
-                continue
-                
-            try:
-                # Чтение точек данных: форматы (XY..XY) и (X++(Y..Y))
-                if len(tokens) == 2:
-                    cur_x = float(tokens[0]) * x_factor
-                    cur_y = float(tokens[1]) * y_factor
-                    x_vals.append(cur_x)
-                    y_vals.append(cur_y)
-                elif len(tokens) > 2:
-                    if "XY" in data_format or len(tokens) % 2 == 0:
-                        # Парные значения X1 Y1 X2 Y2 ...
-                        for i in range(0, len(tokens) - 1, 2):
-                            cx = float(tokens[i]) * x_factor
-                            cy = float(tokens[i + 1]) * y_factor
-                            x_vals.append(cx)
-                            y_vals.append(cy)
-                    else:
-                        # Формат X++(Y..Y): первый токен X, далее Y с шагом dx
-                        cur_x = float(tokens[0]) * x_factor
-                        dx = 1.0
-                        if first_x is not None and last_x is not None and n_points and n_points > 1:
-                            dx = ((last_x - first_x) / (n_points - 1)) * x_factor
-                        for i, y_tok in enumerate(tokens[1:]):
-                            cx = cur_x + i * dx
-                            cy = float(y_tok) * y_factor
-                            x_vals.append(cx)
-                            y_vals.append(cy)
-            except ValueError:
-                continue
-                
-    if not x_vals or not y_vals:
+    try:
+        parsed = _parse_jcamp_generic(text)
+        x_ppm, notes = jcamp_nmr_x_to_ppm(parsed["x"], parsed["metadata"], parsed.get("x_units", ""))
+    except ValueError as exc:
+        raise ValueError(f"JCAMP-DX '{sample_id}': {exc}") from exc
+
+    meta: Dict[str, Any] = dict(parsed["metadata"])
+    meta["JCAMP_WARNINGS"] = list(parsed.get("warnings", [])) + list(notes)
+    meta["JCAMP_DATA_FORM"] = parsed.get("data_form", "")
+
+    y_arr = np.asarray(parsed["y"], dtype=np.float64)
+    finite = np.isfinite(x_ppm) & np.isfinite(y_arr)
+    if not np.any(finite):
         raise ValueError(f"Не удалось извлечь спектральные координаты из JCAMP-DX файла '{sample_id}'.")
-        
-    x_arr = np.array(x_vals, dtype=np.float64)
-    y_arr = np.array(y_vals, dtype=np.float64)
-    
+    if not np.all(finite):
+        meta["JCAMP_WARNINGS"].append(f"{int(np.sum(~finite))} missing ('?') ordinates dropped")
+    x_arr = x_ppm[finite]
+    y_arr = y_arr[finite]
+
     # Сортировка по возрастанию химсдвигов ppm
-    sort_idx = np.argsort(x_arr)
+    sort_idx = np.argsort(x_arr, kind="stable")
     x_sorted = x_arr[sort_idx]
     y_sorted = y_arr[sort_idx]
-    
+
     # Удаление дубликатов с усреднением
     u_x, inv = np.unique(np.round(x_sorted, 4), return_inverse=True)
     u_y = np.zeros_like(u_x)
@@ -164,7 +102,7 @@ def parse_jcamp_dx(text: str, sample_id: str = "NMR_Sample") -> Tuple[np.ndarray
     np.add.at(u_y, inv, y_sorted)
     np.add.at(counts, inv, 1.0)
     u_y = u_y / np.maximum(counts, 1.0)
-    
+
     return u_x, u_y, meta
 
 
@@ -177,7 +115,7 @@ def parse_nmr_file(
     Универсальный парсер файлов спектров ЯМР (.csv, .txt, .tsv, .xy, .jdx, .dx).
     
     Поддерживает:
-    1. Формат IUPAC JCAMP-DX.
+    1. Формат IUPAC JCAMP-DX (AFFN/ASDF-сжатие, (XY..XY), Hz → ppm). Ошибки JCAMP пробрасываются как ValueError.
     2. Табличные спектры приборов Bruker (TopSpin), Varian, JEOL, Mestrelab Mnova.
     3. Автоматически распознает десятичные запятые, разделители (запятая, точка с запятой, табуляция, пробел).
     4. Автоматически сортирует шкалу химических сдвигов ppm по возрастанию.
@@ -185,29 +123,26 @@ def parse_nmr_file(
     text = decode_bytes(file_content) if isinstance(file_content, bytes) else file_content
     text_clean = text.strip()
     
-    # 1. Проверка на формат JCAMP-DX
-    if text_clean.startswith("##TITLE") or "##JCAMP-DX" in text_clean:
-        try:
-            x_arr, y_arr, meta = parse_jcamp_dx(text_clean, sample_id=sample_id)
-            # Определение ядра из метаданных, если указано
-            nuc = nucleus
-            if ".OBSERVENUCLEUS" in meta:
-                raw_nuc = meta[".OBSERVENUCLEUS"].upper()
-                if "13C" in raw_nuc or "C13" in raw_nuc:
-                    nuc = "13C"
-                elif "1H" in raw_nuc or "H1" in raw_nuc:
-                    nuc = "1H"
-            return NMRSample(
-                sample_id=sample_id,
-                nucleus=nuc,
-                chemical_shifts=x_arr,
-                intensity=y_arr,
-                corrected_intensity=y_arr.copy(),
-                metadata=meta
-            )
-        except Exception:
-            pass  # Fallback к обычному табличному парсеру
-            
+    # 1. Проверка на формат JCAMP-DX. Ошибки декодирования JCAMP не маскируются табличным
+    #    парсером: он прочитал бы сжатые строки (X++(Y..Y)) как бессмысленные пары (X, Y).
+    if text_clean.startswith("##") or "##JCAMP-DX" in text_clean:
+        x_arr, y_arr, meta = parse_jcamp_dx(text_clean, sample_id=sample_id)
+        # Определение ядра из метаданных, если указано (##.OBSERVE NUCLEUS=^13C)
+        nuc = nucleus
+        raw_nuc = str(jcamp_metadata_value(meta, ".OBSERVE NUCLEUS") or "").upper()
+        if "13C" in raw_nuc or "C13" in raw_nuc:
+            nuc = "13C"
+        elif "1H" in raw_nuc or "H1" in raw_nuc:
+            nuc = "1H"
+        return NMRSample(
+            sample_id=sample_id,
+            nucleus=nuc,
+            chemical_shifts=x_arr,
+            intensity=y_arr,
+            corrected_intensity=y_arr.copy(),
+            metadata=meta
+        )
+
     # 2. Табличный парсинг (CSV, TSV, TXT, XY)
     lines = text_clean.splitlines()
     data_rows: List[Tuple[float, float]] = []
@@ -328,20 +263,32 @@ def recalibrate_chemical_shifts(
 ) -> np.ndarray:
     """
     Калибровка шкалы химических сдвигов ppm (zero shift / internal reference calibration).
-    Например, юстировка по TMS / DSS (0.0 ppm) или остаточному DMSO-d6 (39.5 ppm в 13C).
+    Например, юстировка по TMS / DSS (0.0 ppm) или остаточному DMSO-d6 (39.5 ppm в 13C, 2.50 ppm в 1H).
     """
     delta = target_ref_ppm - current_ref_ppm
     return chemical_shifts + delta
 
 
+# Остаточный сигнал растворителя DMSO-d6: δC = 39.52 ppm (септет), δH = 2.50 ppm (квинтет DMSO-d5)
+# (Gottlieb, Kotlyar & Nudelman, J. Org. Chem. 1997, 62, 7512–7515). TMS/DSS = 0.00 ppm для обоих ядер.
+DMSO_REFERENCE_PPM = {"13C": 39.5, "1H": 2.50}
+
+
+def _normalize_nucleus(nucleus: str) -> str:
+    nuc = str(nucleus or "13C").upper().replace("^", "")
+    return "1H" if ("1H" in nuc or "H1" in nuc) else "13C"
+
+
 def auto_recalibrate_nmr_shifts(
     chemical_shifts: np.ndarray,
     intensity: np.ndarray,
-    mode: str = "none"
+    mode: str = "none",
+    nucleus: str = "13C"
 ) -> Tuple[np.ndarray, float]:
     """
     Автоматическая калибровка шкалы химических сдвигов ppm по внутреннему стандарту:
-    - 'dmso': поиск максимума DMSO-d6 (~39.5 ppm в окне 38.0–41.0 ppm)
+    - 'dmso': поиск остаточного сигнала DMSO-d6 — 39.5 ppm для 13C (окно 38.0–41.0 ppm)
+      или 2.50 ppm для 1H (окно 2.0–3.0 ppm), см. DMSO_REFERENCE_PPM
     - 'tms': поиск пика TMS / DSS (~0.0 ppm в окне -1.5–1.5 ppm)
     - 'none': без калибровки
 
@@ -353,9 +300,16 @@ def auto_recalibrate_nmr_shifts(
     if mode == "none" or len(chemical_shifts) == 0:
         return chemical_shifts.copy(), 0.0
 
-    target_ppm = 39.5 if mode == "dmso" else 0.0
-    win_min = 38.0 if mode == "dmso" else -1.5
-    win_max = 41.0 if mode == "dmso" else 1.5
+    nuc = _normalize_nucleus(nucleus)
+    if mode == "dmso":
+        target_ppm = DMSO_REFERENCE_PPM[nuc]
+        half_win = 0.5 if nuc == "1H" else 1.5
+        win_min, win_max = target_ppm - half_win, target_ppm + half_win
+        max_delta = half_win
+    else:
+        target_ppm = 0.0
+        win_min, win_max = -1.5, 1.5
+        max_delta = 2.5
 
     mask = (chemical_shifts >= win_min) & (chemical_shifts <= win_max)
     if np.sum(mask) < 2:
@@ -377,8 +331,8 @@ def auto_recalibrate_nmr_shifts(
     found_ppm = float(x_sub[pk_idx])
     delta = target_ppm - found_ppm
 
-    # Защита от ошибочной калибровки: если пик слишком далеко (> 2.5 ppm), считаем стандарт отсутствующим
-    if abs(delta) > 2.5:
+    # Защита от ошибочной калибровки: если пик слишком далеко, считаем стандарт отсутствующим
+    if abs(delta) > max_delta:
         return chemical_shifts.copy(), 0.0
 
     return chemical_shifts + delta, float(delta)
@@ -490,23 +444,56 @@ def normalize_nmr_spectrum(
 # 3. ИНТЕГРИРОВАНИЕ ПО ЗОНАМ И РАСЧЕТ ИНДЕКСОВ 13C ЯМР (IHSS & ПЕРМИНОВА)
 # ==============================================================================
 
-# Канонические границы химических сдвигов 13C ЯМР для природного органического вещества
-# (IHSS, Perminova et al., Malcolm, Kögel-Knabner, Keeler & Maciel)
+# Схема интегрирования 13C ЯМР природного органического вещества.
+# Границы (ppm) — общепринятые для почвенного/водного ОВ и гуминовых веществ
+# (Kögel-Knabner, Soil Biol. Biochem. 2002, 34, 139–162; Baldock et al., Aust. J. Soil Res. 1997,
+# 35, 1061–1083). У разных авторов границы ароматической/О-арильной/карбоксильной зон
+# смещены на ±5 ppm (напр., у Kögel-Knabner 110–140 / 140–160 / 160–220 ppm).
+#
+# Тонкие (непересекающиеся) интервалы; сумма = 100 % углерода 0–220 ppm:
+NMR_13C_FINE_BINS = {
+    "alkyl": (0.0, 45.0),          # Алкильный C (метил, метилен, метин; липиды, кутин)
+    "n_o_alkyl": (45.0, 60.0),     # N-алкил / метоксил (-OCH3 лигнина, Cα аминокислот)
+    "o_alkyl": (60.0, 90.0),       # O-алкил (C2–C6 углеводов, спирты)
+    "acetal": (90.0, 110.0),       # Ди-O-алкил / ацетальный, аномерный C1 углеводов
+    "aromatic": (110.0, 145.0),    # Протонированный и C-замещенный ароматический C
+    "phenolic": (145.0, 165.0),    # O-арил (фенольный / эфирный ароматический C)
+    "carboxyl": (165.0, 190.0),    # Карбоксильный / амидный / сложноэфирный C
+    "carbonyl": (190.0, 220.0),    # Кетонный / альдегидный C
+}
+
+# Шесть интегральных зон IHSS-типа (README): C-O алкилы = 45–90 ppm (включая подзону 45–60),
+# карбоксилы = 165–220 ppm (включая карбонилы 190–220).
+NMR_13C_IHSS_6BIN = {
+    "Alkyl C (0–45)": ("alkyl",),
+    "C-O alkyl C (45–90)": ("n_o_alkyl", "o_alkyl"),
+    "Acetal / anomeric C (90–110)": ("acetal",),
+    "Aromatic C (110–145)": ("aromatic",),
+    "Phenolic / O-aryl C (145–165)": ("phenolic",),
+    "Carboxyl / carbonyl C (165–220)": ("carboxyl", "carbonyl"),
+}
+
+# Агрегированные зоны (ключи-дескрипторы сохранены для совместимости)
 NMR_13C_REGIONS = {
-    "C_aliph_0_48": (0.0, 48.0),          # Алифатический углерод без гетероатомов (метилы, метилены, липиды)
-    "C_O_alkyl_48_108": (48.0, 108.0),    # Углерод при O/N гетероатомах (метоксилы, углеводы, аномерные)
-    "C_aromatic_108_165": (108.0, 165.0), # Суммарный ароматический углерод
-    "C_carboxyl_165_190": (165.0, 190.0), # Карбоксильный, сложноэфирный, амидный углерод
-    "C_carbonyl_190_220": (190.0, 220.0), # Карбонильный углерод (кетоны, хиноны, альдегиды)
+    "C_aliph_0_45": (0.0, 45.0),
+    "C_O_alkyl_45_110": (45.0, 110.0),
+    "C_aromatic_110_165": (110.0, 165.0),
+    "C_carboxyl_165_190": (165.0, 190.0),
+    "C_carbonyl_190_220": (190.0, 220.0),
 }
 
 # Подзоны для детального функционального анализа
 NMR_13C_SUBREGIONS = {
-    "C_methoxy_48_60": (48.0, 60.0),         # Метоксильные группы лигнина (-OCH3)
-    "C_carbohydrate_60_108": (60.0, 108.0),  # Спиртовые группы сахаров и аномерные C
-    "C_ar_HC_108_145": (108.0, 145.0),       # Протонированный и C-замещенный ароматический углерод
-    "C_phenolic_145_165": (145.0, 165.0),    # Фенольный и эфирный ароматический углерод (лигнин!)
+    "C_methoxy_45_60": (45.0, 60.0),
+    "C_O_alkyl_60_90": (60.0, 90.0),
+    "C_acetal_90_110": (90.0, 110.0),
+    "C_carbohydrate_60_110": (60.0, 110.0),
+    "C_ar_HC_110_145": (110.0, 145.0),
+    "C_phenolic_145_165": (145.0, 165.0),
 }
+
+# Минимальная доля пула (% от общего C), ниже которой отношение считается невычислимым (NaN)
+NMR_MIN_DENOMINATOR_PCT = 1e-4
 
 
 def integrate_nmr_region(
@@ -528,6 +515,13 @@ def integrate_nmr_region(
     return float(max(0.0, val))
 
 
+def _safe_ratio(num: float, den: float, min_den: float = NMR_MIN_DENOMINATOR_PCT) -> float:
+    """Отношение пулов; NaN, если знаменатель не определен или пренебрежимо мал."""
+    if not (np.isfinite(num) and np.isfinite(den)) or den < min_den:
+        return float("nan")
+    return float(num / den)
+
+
 def calculate_13c_nmr_descriptors(
     chemical_shifts: np.ndarray,
     intensity: np.ndarray,
@@ -535,85 +529,69 @@ def calculate_13c_nmr_descriptors(
 ) -> Dict[str, float]:
     """
     Количественный расчет функционального состава углеродного скелета по 13C CP/MAS ЯМР.
-    
-    Вычисляет:
-    1. Интегральные процентные доли углерода в 5 главных областях (сумма = 100%):
-       - % C_aliph (0–48 ppm)
-       - % C_O_alkyl (48–108 ppm)
-       - % C_aromatic (108–165 ppm)
-       - % C_carboxyl (165–190 ppm)
-       - % C_carbonyl (190–220 ppm)
-    2. Дополнительные функциональные доли:
-       - % C_methoxy (48–60 ppm, лигнин)
-       - % C_carbohydrate (60–108 ppm, полисахариды)
-       - % C_phenolic (145–165 ppm, фенольный углерод лигнина)
-       - % C_ar_HC (108–145 ppm, углеводородная ароматика)
-    3. Структурно-хемометрические индексы:
-       - fa_aromaticity (%): степень ароматичности = C_aromatic / Total * 100
-       - hb_hi_index: гидрофобно-гидрофильный баланс = (C_aliph + C_aromatic) / (C_O_alkyl + C_carboxyl + C_carbonyl)
-       - alkyl_o_alkyl: отношение алкил / O-алкил = C_aliph / C_O_alkyl (индекс микробной деградации/диагенеза)
-       - phenolic_carbon_pct: доля фенольного углерода
-       - lignin_signature_index: комплексный индекс лигнина = (% C_phenolic + % C_methoxy)
-       - coo_ar_ratio: отношение карбоксил / ароматика = C_carboxyl / C_aromatic
-       - estimated_mw: оценка Mw по калибровке Перминовой на основе ароматичности
+
+    Схема интегрирования (NMR_13C_FINE_BINS; Kögel-Knabner 2002; Baldock et al. 1997):
+    alkyl 0–45, N-alkyl/methoxyl 45–60, O-alkyl 60–90, acetal/anomeric 90–110,
+    aromatic 110–145, phenolic/O-aryl 145–165, carboxyl 165–190, carbonyl 190–220 ppm.
+    Шесть зон IHSS-типа (alkyl, C-O alkyl 45–90, acetal, aromatic, phenolic, carboxyl 165–220)
+    получаются суммированием — см. ihss_6bin_fractions().
+
+    Ключи (% от общего C 0–220 ppm):
+    - NMR_C_aliph_pct (0–45), NMR_C_methoxy_pct (45–60), NMR_C_O_alkyl_60_90_pct,
+      NMR_C_acetal_pct (90–110), NMR_C_ar_HC_pct (110–145), NMR_C_phenolic_pct (145–165),
+      NMR_C_carboxyl_pct (165–190), NMR_C_carbonyl_pct (190–220)
+    - агрегаты: NMR_C_O_alkyl_pct (45–110), NMR_C_carbohydrate_pct (60–110),
+      NMR_C_aromatic_pct (110–165)
+    Индексы:
+    - NMR_fa_aromaticity: ароматичность fa = C(110–165) / C(0–220) × 100
+    - NMR_hb_hi_index: HB/HI = [C(0–45) + C(110–165)] / [C(45–110) + C(165–220)]
+      (гидрофобные / гидрофильные пулы; ср. Spaccini & Piccolo 2009, где карбонилы 190–220 не учитываются)
+    - NMR_alkyl_o_alkyl: A/O-A = C(0–45) / C(45–110) (Baldock et al. 1997)
+    - NMR_lignin_signature: C(145–165) + C(45–60), %
+    - NMR_coo_ar_ratio: C(165–190) / C(110–165)
+
+    Невычислимые величины возвращаются как NaN: все доли — для пустого спектра
+    (суммарный интеграл ≤ 0), отношения — при знаменателе < NMR_MIN_DENOMINATOR_PCT %.
+    Оценка Mw по ароматичности (ключ NMR_estimated_mw) удалена: регрессия
+    «Mw = 1250·exp(0.023·fa)» не имеет проверяемого источника.
     """
     res: Dict[str, float] = {"Sample_ID": sample_id}
-    
-    # Расчет абсолютных интегралов 5 главных зон
-    int_aliph = integrate_nmr_region(chemical_shifts, intensity, 0.0, 48.0)
-    int_o_alkyl = integrate_nmr_region(chemical_shifts, intensity, 48.0, 108.0)
-    int_aromatic = integrate_nmr_region(chemical_shifts, intensity, 108.0, 165.0)
-    int_carboxyl = integrate_nmr_region(chemical_shifts, intensity, 165.0, 190.0)
-    int_carbonyl = integrate_nmr_region(chemical_shifts, intensity, 190.0, 220.0)
-    
-    total_int = int_aliph + int_o_alkyl + int_aromatic + int_carboxyl + int_carbonyl
-    if total_int <= 1e-9:
-        total_int = 1.0  # Защита от деления на ноль при пустом спектре
-        
-    # Процентные доли главных углеродных пулов (нормированы к 100%)
-    pct_aliph = (int_aliph / total_int) * 100.0
-    pct_o_alkyl = (int_o_alkyl / total_int) * 100.0
-    pct_aromatic = (int_aromatic / total_int) * 100.0
-    pct_carboxyl = (int_carboxyl / total_int) * 100.0
-    pct_carbonyl = (int_carbonyl / total_int) * 100.0
-    
-    # Расчет подзон
-    int_methoxy = integrate_nmr_region(chemical_shifts, intensity, 48.0, 60.0)
-    int_carbohydrate = integrate_nmr_region(chemical_shifts, intensity, 60.0, 108.0)
-    int_ar_hc = integrate_nmr_region(chemical_shifts, intensity, 108.0, 145.0)
-    int_phenolic = integrate_nmr_region(chemical_shifts, intensity, 145.0, 165.0)
-    
-    pct_methoxy = (int_methoxy / total_int) * 100.0
-    pct_carbohydrate = (int_carbohydrate / total_int) * 100.0
-    pct_ar_hc = (int_ar_hc / total_int) * 100.0
-    pct_phenolic = (int_phenolic / total_int) * 100.0
-    
-    # 1. Степень ароматичности fa (%)
+
+    ints = {
+        name: integrate_nmr_region(chemical_shifts, intensity, lo, hi)
+        for name, (lo, hi) in NMR_13C_FINE_BINS.items()
+    }
+    total_int = float(sum(ints.values()))
+    if not np.isfinite(total_int) or total_int <= 0.0:
+        pct = {k: float("nan") for k in ints}  # пустой спектр: доли не определены
+    else:
+        pct = {k: (v / total_int) * 100.0 for k, v in ints.items()}
+
+    pct_aliph = pct["alkyl"]
+    pct_methoxy = pct["n_o_alkyl"]
+    pct_o_alkyl_60_90 = pct["o_alkyl"]
+    pct_acetal = pct["acetal"]
+    pct_ar_hc = pct["aromatic"]
+    pct_phenolic = pct["phenolic"]
+    pct_carboxyl = pct["carboxyl"]
+    pct_carbonyl = pct["carbonyl"]
+
+    pct_o_alkyl = pct_methoxy + pct_o_alkyl_60_90 + pct_acetal     # 45–110 ppm
+    pct_carbohydrate = pct_o_alkyl_60_90 + pct_acetal              # 60–110 ppm
+    pct_aromatic = pct_ar_hc + pct_phenolic                        # 110–165 ppm
+
     fa = pct_aromatic
-    
-    # 2. Индекс гидрофобности HB/HI
-    hydrophobic = pct_aliph + pct_aromatic
-    hydrophilic = pct_o_alkyl + pct_carboxyl + pct_carbonyl
-    hb_hi = hydrophobic / max(hydrophilic, 1e-4) if hydrophilic > 0 else (hydrophobic if hydrophobic > 0 else 1.0)
-    
-    # 3. Отношение алкил / O-алкил (A/OA ratio)
-    alkyl_o_alkyl = pct_aliph / max(pct_o_alkyl, 1e-4) if pct_o_alkyl > 0 else (pct_aliph if pct_aliph > 0 else 1.0)
-    
-    # 4. Комплексный лигниновый маркер (Lignin Signature)
+    hb_hi = _safe_ratio(pct_aliph + pct_aromatic, pct_o_alkyl + pct_carboxyl + pct_carbonyl)
+    alkyl_o_alkyl = _safe_ratio(pct_aliph, pct_o_alkyl)
     lignin_sig = pct_phenolic + pct_methoxy
-    
-    # 5. Отношение Карбоксил / Ароматика
-    coo_ar = pct_carboxyl / max(pct_aromatic, 1e-4) if pct_aromatic > 0 else 0.0
-    
-    # 6. Оценка молекулярной массы Mw (Да) по регрессии Перминовой: Mw ~ 1250 * exp(0.023 * fa)
-    # Защита от переполнения exp при аномальных значениях fa
-    fa_clipped = min(100.0, max(0.0, float(fa)))
-    mw_est = 1250.0 * math.exp(0.023 * fa_clipped)
-    
+    coo_ar = _safe_ratio(pct_carboxyl, pct_aromatic)
+
     res.update({
         "NMR_C_aliph_pct": round(pct_aliph, 2),
         "NMR_C_O_alkyl_pct": round(pct_o_alkyl, 2),
         "NMR_C_methoxy_pct": round(pct_methoxy, 2),
+        "NMR_C_O_alkyl_60_90_pct": round(pct_o_alkyl_60_90, 2),
+        "NMR_C_acetal_pct": round(pct_acetal, 2),
         "NMR_C_carbohydrate_pct": round(pct_carbohydrate, 2),
         "NMR_C_aromatic_pct": round(pct_aromatic, 2),
         "NMR_C_ar_HC_pct": round(pct_ar_hc, 2),
@@ -621,13 +599,29 @@ def calculate_13c_nmr_descriptors(
         "NMR_C_carboxyl_pct": round(pct_carboxyl, 2),
         "NMR_C_carbonyl_pct": round(pct_carbonyl, 2),
         "NMR_fa_aromaticity": round(fa, 2),
-        "NMR_hb_hi_index": round(float(np.nan_to_num(hb_hi, nan=1.0)), 3),
-        "NMR_alkyl_o_alkyl": round(float(np.nan_to_num(alkyl_o_alkyl, nan=1.0)), 3),
+        "NMR_hb_hi_index": round(hb_hi, 3),
+        "NMR_alkyl_o_alkyl": round(alkyl_o_alkyl, 3),
         "NMR_lignin_signature": round(lignin_sig, 2),
-        "NMR_coo_ar_ratio": round(float(np.nan_to_num(coo_ar, nan=0.0)), 3),
-        "NMR_estimated_mw": round(float(np.nan_to_num(mw_est, nan=1250.0)), 0),
+        "NMR_coo_ar_ratio": round(coo_ar, 3),
     })
     return res
+
+
+def ihss_6bin_fractions(descriptors: Dict[str, float]) -> Dict[str, float]:
+    """
+    Шесть интегральных зон IHSS-типа (% общего C) из словаря calculate_13c_nmr_descriptors:
+    Alkyl 0–45, C-O alkyl 45–90, Acetal 90–110, Aromatic 110–145, Phenolic 145–165,
+    Carboxyl/carbonyl 165–220 ppm. NaN, если доли не определены.
+    """
+    key_of = {
+        "alkyl": "NMR_C_aliph_pct", "n_o_alkyl": "NMR_C_methoxy_pct", "o_alkyl": "NMR_C_O_alkyl_60_90_pct",
+        "acetal": "NMR_C_acetal_pct", "aromatic": "NMR_C_ar_HC_pct", "phenolic": "NMR_C_phenolic_pct",
+        "carboxyl": "NMR_C_carboxyl_pct", "carbonyl": "NMR_C_carbonyl_pct",
+    }
+    out: Dict[str, float] = {}
+    for label, parts in NMR_13C_IHSS_6BIN.items():
+        out[label] = float(sum(float(descriptors.get(key_of[p], float("nan"))) for p in parts))
+    return out
 
 
 # ==============================================================================
@@ -645,16 +639,22 @@ NMR_13C_PEAK_ANNOTATIONS = [
     (72.5, 4.0, "Углероды C2, C3, C5 кольца целлюлозы и полисахаридов", "Cellulose/hemicellulose C2,C3,C5"),
     (83.0, 4.0, "Углерод C4 полисахаридов (кристаллическая/аморфная целлюлоза)", "Carbohydrate C4 (cellulose)"),
     (105.0, 4.5, "Аномерный углерод C1 полисахаридов / танинов (O-CH-O)", "Anomeric carbohydrate C1 / Tannins"),
-    (115.5, 3.5, "Гваяцил C5 / замещенные фенолы (протонированная ароматика)", "Guaiacyl C5 / Protonated aromatic C"),
+    (115.5, 3.5, "Протонированный ароматический C-H (напр., C5 гваяцила в лигнине)", "Protonated aromatic C-H (e.g. guaiacyl C5 in lignin)"),
     (129.5, 4.0, "Алкил-ароматический углерод / конденсированные полиароматические кольца", "Alkyl-aromatic / condensed rings"),
     (138.0, 3.5, "Непротонированный ароматический углерод (C-1 лигнина)", "Non-protonated aromatic C-1"),
-    (148.0, 3.0, "Гваяцил C3, C4 (фенольный углерод с метоксилами)", "Guaiacyl C3/C4 phenolic C"),
-    (153.0, 3.0, "Сирингил C3, C5 (эфирный/фенольный углерод лигнина)", "Syringyl C3/C5 etherified C"),
+    (148.0, 3.0, "O-арильный C (фенолы/эфиры; напр., C3/C4 гваяцила, танины)", "O-aryl C (phenols/ethers; e.g. guaiacyl C3/C4, tannins)"),
+    (153.0, 3.0, "O-арильный C (напр., C3/C5 сирингила в лигнине, флороглюцинол танинов)", "O-aryl C (e.g. syringyl C3/C5 in lignin, tannin rings)"),
     (174.5, 4.0, "Карбоксильные группы алифатических и ароматических кислот (-COOH)", "Carboxylic acid carbonyls (-COOH)"),
     (181.0, 3.5, "Амидный карбонил / карбоксилат-анионы (-COO-)", "Amide carbonyl / carboxylate salts"),
     (198.0, 5.0, "Хиноидный карбонил / α,β-ненасыщенные кетоны", "Quinoid carbonyl / conjugated ketones"),
     (206.0, 5.0, "Кетоны и альдегиды (несопряженный карбонил)", "Ketones / aldehydes (non-conjugated)"),
 ]
+
+
+_NMR_FINE_BIN_LABELS = (
+    "Alkyl C", "N-Alkyl / Methoxyl C", "O-Alkyl C", "Acetal / Anomeric C",
+    "Aromatic C", "Phenolic / O-Aryl C", "Carboxyl C", "Carbonyl C",
+)
 
 
 def find_and_annotate_nmr_peaks(
@@ -697,19 +697,13 @@ def find_and_annotate_nmr_peaks(
                 min_d = d
                 best_assign = desc_ru if lang == "ru" else desc_en
                 
-        # Определение главного региона
-        region = "Другое"
-        if 0.0 <= pk_ppm < 48.0:
-            region = "Aliphatic C"
-        elif 48.0 <= pk_ppm < 108.0:
-            region = "O/N-Alkyl C"
-        elif 108.0 <= pk_ppm < 165.0:
-            region = "Aromatic C"
-        elif 165.0 <= pk_ppm < 190.0:
-            region = "Carboxyl C"
-        elif 190.0 <= pk_ppm <= 220.0:
-            region = "Carbonyl C"
-            
+        # Определение главного региона (тонкие зоны NMR_13C_FINE_BINS)
+        region = "Другое" if lang == "ru" else "Other"
+        for (lo, hi), lbl in zip(NMR_13C_FINE_BINS.values(), _NMR_FINE_BIN_LABELS):
+            if lo <= pk_ppm < hi or (hi == 220.0 and pk_ppm == hi):
+                region = lbl
+                break
+
         records.append({
             "Peak_Index": int(pk),
             "Chemical_Shift_ppm": round(pk_ppm, 2),
@@ -726,7 +720,7 @@ def find_and_annotate_nmr_peaks(
 
 
 # ==============================================================================
-# 5. ДЕКОНВОЛЮЦИЯ АРОМАТИКО-ФЕНОЛЬНОЙ ЗОНЫ (108–165 ppm)
+# 5. РАЗЛОЖЕНИЕ АРОМАТИЧЕСКОЙ / O-АРИЛЬНОЙ ЗОНЫ (110–165 ppm)
 # ==============================================================================
 
 def gaussian(x: np.ndarray, amp: float, cen: float, wid: float) -> np.ndarray:
@@ -746,55 +740,101 @@ def multi_gaussian_nmr(x: np.ndarray, *params) -> np.ndarray:
     return y
 
 
+# Полосы разложения 110–165 ppm. Окна центров НЕ перекрываются (идентифицируемость модели).
+# Отнесения намеренно обобщенные: в 13C спектрах ПОВ/гуминовых веществ зона 145–165 ppm содержит
+# фенольный, эфирный (O-арильный) C лигнина, танинов и других полифенолов, поэтому разделение
+# на сирингил/гваяцил/п-гидроксифенил (S/G/H) по 1D 13C спектру ПОВ не обосновано.
+NMR_AROMATIC_SUBBANDS = {
+    4: [
+        {"label": "Protonated aromatic C-H (110–122 ppm)", "center": 116.0, "lo": 110.0, "hi": 122.0},
+        {"label": "C-substituted / condensed aromatic C (122–140 ppm)", "center": 130.0, "lo": 122.0, "hi": 140.0},
+        {"label": "O-aryl C, 140–151 ppm (phenolic / ether)", "center": 147.0, "lo": 140.0, "hi": 151.0},
+        {"label": "O-aryl C, 151–165 ppm (di-O-substituted / ether)", "center": 155.0, "lo": 151.0, "hi": 165.0},
+    ],
+    3: [
+        {"label": "Protonated aromatic C-H (110–122 ppm)", "center": 116.0, "lo": 110.0, "hi": 122.0},
+        {"label": "C-substituted / condensed aromatic C (122–140 ppm)", "center": 130.0, "lo": 122.0, "hi": 140.0},
+        {"label": "O-aryl C (140–165 ppm; phenolic / ether)", "center": 150.0, "lo": 140.0, "hi": 165.0},
+    ],
+}
+NMR_DECONV_MIN_R2 = 0.95       # ниже — подгонка помечается как неудовлетворительная
+NMR_DECONV_WIDTH_BOUNDS = (1.5, 12.0)  # σ, ppm
+
+
 def deconvolve_aromatic_region(
     chemical_shifts: np.ndarray,
     intensity: np.ndarray,
     n_peaks: int = 4
 ) -> Dict[str, Any]:
     """
-    Математическая деконволюция сложной перекрывающейся ароматико-фенольной зоны (108–165 ppm)
-    в спектре 13C ЯМР на индивидуальные гауссовы компоненты.
-    
-    Компоненты отражают:
-    - ~115 ppm: протонированный C5 (гваяцил)
-    - ~130 ppm: алкил-ароматический / конденсированный C
-    - ~148 ppm: гваяцил-фенольный C3/C4
-    - ~153 ppm: сирингил-эфирный C3/C5
+    Эмпирическое разложение ароматической / O-арильной зоны 13C ЯМР (110–165 ppm) на 3 или 4
+    гауссовы подполосы (NMR_AROMATIC_SUBBANDS) с непересекающимися окнами центров:
+    протонированный ароматический C-H, C-замещенный/конденсированный ароматический C и
+    O-арильный C (одна полоса 140–165 ppm или две: 140–151 и 151–165 ppm).
+
+    Это НЕ определение мономерного состава лигнина: S/G/H-соотношения по 1D 13C спектру
+    природного ОВ не вычисляются, так как 145–165 ppm перекрывается с сигналами танинов,
+    фенолов и других O-арильных структур.
+
+    Returns dict:
+    - success (bool) — curve_fit сошелся; message — причина неудачи
+    - fit_ok (bool) — success и R² ≥ NMR_DECONV_MIN_R2 и ни один центр/ширина не на границе
+    - warnings (list[str]) — флаги качества (низкий R², параметры на границах)
+    - x, y, y_fit, r2, rmse, components (label, center_ppm, width_ppm, amplitude, area, area_pct,
+      at_bound, curve), method_note
+    При неудаче: components = [], y_fit = NaN, r2 = rmse = NaN.
     """
-    mask = (chemical_shifts >= 108.0) & (chemical_shifts <= 165.0)
+    method_note = (
+        "Empirical Gaussian sub-band decomposition of 110–165 ppm. Bands are generic aromatic / "
+        "O-aryl classes; no S/G/H lignin-unit ratios are derived from 1D 13C spectra of NOM."
+    )
+    mask = (chemical_shifts >= 110.0) & (chemical_shifts <= 165.0)
     x_sub = chemical_shifts[mask]
     y_sub = intensity[mask]
-    
-    if len(x_sub) < 15 or np.max(y_sub) <= 1e-6:
+
+    def _fail(msg: str) -> Dict[str, Any]:
         return {
             "success": False,
-            "message": "Недостаточно спектральных точек в диапазоне 108–165 ppm",
+            "fit_ok": False,
+            "message": msg,
+            "warnings": [msg],
             "x": x_sub,
             "y": y_sub,
-            "y_fit": np.zeros_like(x_sub),
+            "y_fit": np.full_like(x_sub, np.nan, dtype=float),
             "components": [],
-            "r2": 0.0,
-            "rmse": 0.0,
+            "r2": float("nan"),
+            "rmse": float("nan"),
+            "method_note": method_note,
         }
+
+    if len(x_sub) < 15 or np.max(y_sub) <= 1e-6:
+        return _fail("Недостаточно спектральных точек или сигнала в диапазоне 110–165 ppm")
 
     # Гарантируем строгий возрастающий порядок по ppm для корректного интегрирования simpson и curve_fit
     if len(x_sub) >= 2 and x_sub[0] > x_sub[-1]:
         x_sub = x_sub[::-1]
         y_sub = y_sub[::-1]
-        
-    y_norm = y_sub / np.max(y_sub)
-    
-    # Начальные приближения центров полос
-    initial_centers = [116.0, 130.0, 148.0, 154.0][:n_peaks]
-    p0 = []
-    bounds_lower = []
-    bounds_upper = []
-    
-    for cen in initial_centers:
-        p0.extend([0.6, cen, 4.0])  # amp, cen, wid
-        bounds_lower.extend([0.0, cen - 5.0, 1.5])
-        bounds_upper.extend([2.0, cen + 5.0, 12.0])
-        
+
+    warnings: List[str] = []
+    n_used = int(n_peaks)
+    if n_used not in NMR_AROMATIC_SUBBANDS:
+        n_used = 4 if n_used > 4 else 3
+        warnings.append(f"n_peaks={n_peaks} not supported; {n_used} sub-bands used")
+    templates = NMR_AROMATIC_SUBBANDS[n_used]
+
+    y_scale = float(np.max(y_sub))
+    y_norm = y_sub / y_scale
+    w_lo, w_hi = NMR_DECONV_WIDTH_BOUNDS
+
+    p0: List[float] = []
+    bounds_lower: List[float] = []
+    bounds_upper: List[float] = []
+    for t in templates:
+        idx_c = int(np.argmin(np.abs(x_sub - t["center"])))
+        p0.extend([float(np.clip(y_norm[idx_c], 0.05, 1.5)), t["center"], 4.0])
+        bounds_lower.extend([0.0, t["lo"], w_lo])
+        bounds_upper.extend([2.0, t["hi"], w_hi])
+
     try:
         popt, _ = curve_fit(
             multi_gaussian_nmr,
@@ -804,74 +844,62 @@ def deconvolve_aromatic_region(
             bounds=(bounds_lower, bounds_upper),
             maxfev=5000
         )
-        y_fit = multi_gaussian_nmr(x_sub, *popt)
-        
-        # Качество подгонки R2 и RMSE
-        ss_res = np.sum((y_norm - y_fit) ** 2)
-        ss_tot = np.sum((y_norm - np.mean(y_norm)) ** 2)
-        r2 = max(0.0, float(1.0 - (ss_res / max(ss_tot, 1e-9))))
-        rmse = float(np.sqrt(np.mean((y_norm - y_fit) ** 2)))
-        
-        components = []
-        total_comp_area = 0.0
-        comp_areas = []
-        
-        for i in range(len(popt) // 3):
-            amp_val = popt[3 * i]
-            cen_val = popt[3 * i + 1]
-            wid_val = popt[3 * i + 2]
-            c_curve = gaussian(x_sub, amp_val, cen_val, wid_val)
-            area_val = float(simpson(c_curve, x=x_sub))
-            total_comp_area += area_val
-            comp_areas.append(area_val)
-            
-        for i in range(len(popt) // 3):
-            cen_val = popt[3 * i + 1]
-            c_curve = gaussian(x_sub, popt[3 * i], cen_val, popt[3 * i + 2])
-            pct_area = (comp_areas[i] / max(total_comp_area, 1e-9)) * 100.0
-            
-            # Назначение полосы
-            lbl = f"Полоса {i+1} ({cen_val:.1f} ppm)"
-            if 112.0 <= cen_val <= 120.0:
-                lbl = "Guaiacyl C5 (115 ppm)"
-            elif 125.0 <= cen_val <= 135.0:
-                lbl = "Alkyl-Aromatic C (130 ppm)"
-            elif 145.0 <= cen_val <= 150.0:
-                lbl = "Guaiacyl Phenolic C3/C4 (148 ppm)"
-            elif 151.0 <= cen_val <= 158.0:
-                lbl = "Syringyl Ether C3/C5 (154 ppm)"
-                
-            components.append({
-                "band_id": i + 1,
-                "label": lbl,
-                "center_ppm": round(cen_val, 2),
-                "amplitude": round(popt[3 * i], 3),
-                "width_ppm": round(popt[3 * i + 2], 2),
-                "area": round(comp_areas[i], 3),
-                "area_pct": round(pct_area, 1),
-                "curve": c_curve * np.max(y_sub),
-            })
-            
-        return {
-            "success": True,
-            "x": x_sub,
-            "y": y_sub,
-            "y_fit": y_fit * np.max(y_sub),
-            "components": components,
-            "r2": round(r2, 4),
-            "rmse": round(rmse, 4),
-        }
     except Exception as e:
-        return {
-            "success": False,
-            "message": str(e),
-            "x": x_sub,
-            "y": y_sub,
-            "y_fit": np.zeros_like(x_sub),
-            "components": [],
-            "r2": 0.0,
-            "rmse": 0.0,
-        }
+        return _fail(f"Подгонка не сошлась: {e}")
+
+    y_fit = multi_gaussian_nmr(x_sub, *popt)
+    ss_res = float(np.sum((y_norm - y_fit) ** 2))
+    ss_tot = float(np.sum((y_norm - np.mean(y_norm)) ** 2))
+    r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
+    rmse = float(np.sqrt(np.mean((y_norm - y_fit) ** 2)))
+    if not np.isfinite(r2) or r2 < NMR_DECONV_MIN_R2:
+        warnings.append(f"Low fit quality: R² = {r2:.3f} < {NMR_DECONV_MIN_R2}")
+
+    comp_areas = []
+    for i in range(len(templates)):
+        c_curve = gaussian(x_sub, popt[3 * i], popt[3 * i + 1], popt[3 * i + 2])
+        comp_areas.append(float(simpson(c_curve, x=x_sub)))
+    total_comp_area = float(sum(comp_areas))
+
+    components = []
+    any_at_bound = False
+    for i, t in enumerate(templates):
+        amp_val, cen_val, wid_val = (float(v) for v in popt[3 * i:3 * i + 3])
+        tol_c = 1e-3 * (t["hi"] - t["lo"])
+        at_bound = bool(
+            abs(cen_val - t["lo"]) <= tol_c or abs(cen_val - t["hi"]) <= tol_c
+            or abs(wid_val - w_lo) <= 1e-3 or abs(wid_val - w_hi) <= 1e-3
+        )
+        if at_bound:
+            any_at_bound = True
+            warnings.append(f"'{t['label']}': centre or width at its bound — band not identifiable")
+        pct_area = (comp_areas[i] / total_comp_area) * 100.0 if total_comp_area > 0 else float("nan")
+        components.append({
+            "band_id": i + 1,
+            "label": t["label"],
+            "center_ppm": round(cen_val, 2),
+            "amplitude": round(amp_val, 3),
+            "width_ppm": round(wid_val, 2),
+            "area": round(comp_areas[i], 3),
+            "area_pct": round(pct_area, 1),
+            "at_bound": at_bound,
+            "curve": gaussian(x_sub, amp_val, cen_val, wid_val) * y_scale,
+        })
+
+    fit_ok = bool(np.isfinite(r2) and r2 >= NMR_DECONV_MIN_R2 and not any_at_bound)
+    return {
+        "success": True,
+        "fit_ok": fit_ok,
+        "message": "" if fit_ok else "; ".join(warnings),
+        "warnings": warnings,
+        "x": x_sub,
+        "y": y_sub,
+        "y_fit": y_fit * y_scale,
+        "components": components,
+        "r2": round(r2, 4),
+        "rmse": round(rmse, 4),
+        "method_note": method_note,
+    }
 
 
 # ==============================================================================

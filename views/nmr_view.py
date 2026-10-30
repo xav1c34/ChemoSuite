@@ -18,6 +18,15 @@ except ImportError:
     nmr_core = None
 
 
+def _fmt_num(v, fmt: str = "{:.2f}", suffix: str = "") -> str:
+    """Форматирует число; NaN/None показывается как «—» (величина не вычислима)."""
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    return "—" if not np.isfinite(fv) else fmt.format(fv) + suffix
+
+
 def render_nmr_studio(T: dict, lang: str):
     """Render Module 5: 13C / 1H NMR Spectroscopy Studio."""
     if nmr_core is None:
@@ -59,6 +68,8 @@ def render_nmr_studio(T: dict, lang: str):
                     try:
                         s_obj = nmr_core.parse_nmr_file(b_content, sample_id=s_id, nucleus="13C")
                         st.session_state["nmr_samples"][s_id] = s_obj
+                        for w_msg in s_obj.metadata.get("JCAMP_WARNINGS", []) or []:
+                            st.caption(f"⚠️ {uf.name}: {w_msg}")
                     except Exception as e_up:
                         st.warning(f"Ошибка чтения {uf.name}: {e_up}")
         else:
@@ -147,7 +158,7 @@ def render_nmr_studio(T: dict, lang: str):
         active_shifts = active_s.chemical_shifts.copy()
         if recal_mode != "none":
             active_shifts, recal_delta = nmr_core.auto_recalibrate_nmr_shifts(
-                active_shifts, active_s.intensity, mode=recal_mode
+                active_shifts, active_s.intensity, mode=recal_mode, nucleus=active_s.nucleus
             )
             if abs(recal_delta) > 1e-4:
                 st.info(
@@ -194,7 +205,7 @@ def render_nmr_studio(T: dict, lang: str):
             for s_name, s_item in current_nmr_samples.items():
                 s_shifts = s_item.chemical_shifts.copy()
                 if recal_mode != "none":
-                    s_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(s_shifts, s_item.intensity, mode=recal_mode)
+                    s_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(s_shifts, s_item.intensity, mode=recal_mode, nucleus=s_item.nucleus)
                 s_item_c, _ = nmr_core.subtract_baseline(s_item, method=base_method)
                 y_disp = s_item_c.corrected_intensity if base_method != "none" else s_item.intensity
                 if apply_sg_smoothing:
@@ -252,11 +263,12 @@ def render_nmr_studio(T: dict, lang: str):
         # Канонические интегральные зоны IHSS (Цветная полупрозрачная подсветка)
         if show_regions:
             zones = [
-                (0.0, 48.0, "Aliphatic C", "#BEE3F8", "rgba(190, 227, 248, 0.22)"),
-                (48.0, 108.0, "O/N-Alkyl C", "#C6F6D5", "rgba(198, 246, 213, 0.22)"),
-                (108.0, 165.0, "Aromatic C", "#FEEBC8", "rgba(254, 235, 200, 0.25)"),
-                (165.0, 190.0, "Carboxyl C", "#FED7D7", "rgba(254, 215, 215, 0.22)"),
-                (190.0, 220.0, "Carbonyl C", "#E9D8FD", "rgba(233, 216, 253, 0.22)"),
+                (0.0, 45.0, "Alkyl C", "#BEE3F8", "rgba(190, 227, 248, 0.22)"),
+                (45.0, 90.0, "C-O Alkyl C", "#C6F6D5", "rgba(198, 246, 213, 0.22)"),
+                (90.0, 110.0, "Acetal C", "#B2F5EA", "rgba(178, 245, 234, 0.22)"),
+                (110.0, 145.0, "Aromatic C", "#FEEBC8", "rgba(254, 235, 200, 0.25)"),
+                (145.0, 165.0, "Phenolic C", "#FBD38D", "rgba(251, 211, 141, 0.22)"),
+                (165.0, 220.0, "Carboxyl/Carbonyl C", "#FED7D7", "rgba(254, 215, 215, 0.22)"),
             ]
             for z_min, z_max, z_name, z_col, z_fill in zones:
                 fig_nmr.add_vrect(
@@ -293,11 +305,23 @@ def render_nmr_studio(T: dict, lang: str):
         # Расчет и вывод фундаментальных метрик активного образца
         ind_single = nmr_core.calculate_13c_nmr_descriptors(active_shifts, active_y, sample_id=active_name)
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Aromaticity fa (%)", f"{ind_single['NMR_fa_aromaticity']:.1f}%")
-        m2.metric("Hydrophobicity (HB/HI)", f"{ind_single['NMR_hb_hi_index']:.2f}")
-        m3.metric("Alkyl / O-Alkyl", f"{ind_single['NMR_alkyl_o_alkyl']:.2f}")
-        m4.metric("Lignin Signature (%)", f"{ind_single['NMR_lignin_signature']:.1f}%")
-        m5.metric("Estimated Mw (Da)", f"{int(ind_single['NMR_estimated_mw'])} Da")
+        m1.metric("Aromaticity fa (%)", _fmt_num(ind_single["NMR_fa_aromaticity"], "{:.1f}", "%"))
+        m2.metric("Hydrophobicity (HB/HI)", _fmt_num(ind_single["NMR_hb_hi_index"]))
+        m3.metric("Alkyl / O-Alkyl", _fmt_num(ind_single["NMR_alkyl_o_alkyl"]))
+        m4.metric("Lignin Signature (%)", _fmt_num(ind_single["NMR_lignin_signature"], "{:.1f}", "%"))
+        m5.metric("Acetal C 90–110 (%)", _fmt_num(ind_single["NMR_C_acetal_pct"], "{:.1f}", "%"))
+        if not np.isfinite(float(ind_single["NMR_fa_aromaticity"])):
+            st.warning(
+                "Спектр не содержит положительного интегрального сигнала в 0–220 ppm: доли углерода и индексы не вычислимы."
+                if lang == "ru" else
+                "The spectrum has no positive integrated signal in 0–220 ppm: carbon fractions and indices cannot be computed."
+            )
+        elif any(not np.isfinite(float(ind_single[k])) for k in ("NMR_hb_hi_index", "NMR_alkyl_o_alkyl", "NMR_coo_ar_ratio")):
+            st.caption(
+                "«—»: отношение не вычислимо (пул-знаменатель практически отсутствует)."
+                if lang == "ru" else
+                "“—”: ratio not computable (denominator pool essentially absent)."
+            )
 
     # =========================================================================
     # ВКЛАДКА 2: 📊 РАСПРЕДЕЛЕНИЕ УГЛЕРОДНЫХ ПУЛОВ
@@ -311,24 +335,20 @@ def render_nmr_studio(T: dict, lang: str):
 
         col_g1, col_g2 = st.columns([1.2, 1.0])
         with col_g1:
-            # Bar chart 5 канонических областей
+            # Bar chart: 6 интегральных зон IHSS-типа (Kögel-Knabner 2002)
+            six_bins = nmr_core.ihss_6bin_fractions(ind_current)
             df_fractions = pd.DataFrame({
-                "Region": ["Aliphatic C (0-48)", "O/N-Alkyl C (48-108)", "Aromatic C (108-165)", "Carboxyl C (165-190)", "Carbonyl C (190-220)"],
-                "Fraction_Pct": [
-                    ind_current["NMR_C_aliph_pct"],
-                    ind_current["NMR_C_O_alkyl_pct"],
-                    ind_current["NMR_C_aromatic_pct"],
-                    ind_current["NMR_C_carboxyl_pct"],
-                    ind_current["NMR_C_carbonyl_pct"],
-                ],
-                "Color": ["#3182CE", "#38A169", "#DD6B20", "#E53E3E", "#805AD5"]
+                "Region": list(six_bins.keys()),
+                "Fraction_Pct": [float(np.nan_to_num(v, nan=0.0)) for v in six_bins.values()],
             })
+            if not np.isfinite(float(ind_current["NMR_fa_aromaticity"])):
+                st.warning("Доли углерода не вычислимы для пустого спектра." if lang == "ru" else "Carbon fractions are not computable for an empty spectrum.")
             fig_frac = px.bar(
                 df_fractions,
                 x="Region",
                 y="Fraction_Pct",
                 color="Region",
-                color_discrete_sequence=["#3182CE", "#38A169", "#DD6B20", "#E53E3E", "#805AD5"],
+                color_discrete_sequence=["#3182CE", "#38A169", "#319795", "#DD6B20", "#D69E2E", "#E53E3E"],
                 text="Fraction_Pct",
                 title=f"{active_name} — Carbon Distribution (% Total C)",
             )
@@ -344,7 +364,7 @@ def render_nmr_studio(T: dict, lang: str):
                 values="Fraction_Pct",
                 hole=0.45,
                 color="Region",
-                color_discrete_sequence=["#3182CE", "#38A169", "#DD6B20", "#E53E3E", "#805AD5"],
+                color_discrete_sequence=["#3182CE", "#38A169", "#319795", "#DD6B20", "#D69E2E", "#E53E3E"],
                 title=f"{active_name} — Carbon Fractions Donut",
             )
             fig_donut.update_traces(textinfo="label+percent")
@@ -356,14 +376,16 @@ def render_nmr_studio(T: dict, lang: str):
         categories = ["Aromaticity fa", "Hydrophobicity (HB/HI*10)", "Alkyl/O-Alkyl (*10)", "Phenolic C (%)", "Carboxyl C (%)", "Aliphatic C (%)"]
 
         # Значения активного образца с защитой от NaN / inf
-        val_active = [
-            float(np.nan_to_num(ind_current.get("NMR_fa_aromaticity", 0.0), nan=0.0)),
-            float(np.nan_to_num(min(80.0, ind_current.get("NMR_hb_hi_index", 1.0) * 10.0), nan=10.0)),
-            float(np.nan_to_num(min(80.0, ind_current.get("NMR_alkyl_o_alkyl", 1.0) * 10.0), nan=10.0)),
-            float(np.nan_to_num(ind_current.get("NMR_C_phenolic_pct", 0.0), nan=0.0)),
-            float(np.nan_to_num(ind_current.get("NMR_C_carboxyl_pct", 0.0), nan=0.0)),
-            float(np.nan_to_num(ind_current.get("NMR_C_aliph_pct", 0.0), nan=0.0)),
-        ]
+        def _radar_val(key: str, scale: float = 1.0) -> float:
+            v = float(ind_current.get(key, np.nan))
+            return float(min(80.0, v * scale)) if np.isfinite(v) else 0.0
+
+        radar_keys = [("NMR_fa_aromaticity", 1.0), ("NMR_hb_hi_index", 10.0), ("NMR_alkyl_o_alkyl", 10.0),
+                      ("NMR_C_phenolic_pct", 1.0), ("NMR_C_carboxyl_pct", 1.0), ("NMR_C_aliph_pct", 1.0)]
+        val_active = [_radar_val(k, sc) for k, sc in radar_keys]
+        missing_axes = [cat for cat, (k, _) in zip(categories, radar_keys) if not np.isfinite(float(ind_current.get(k, np.nan)))]
+        if missing_axes:
+            st.caption(("Не вычислимо (показано как 0): " if lang == "ru" else "Not computable (drawn as 0): ") + ", ".join(missing_axes))
         val_active.append(val_active[0])
 
         # Эталон Байкал DOM
@@ -389,17 +411,24 @@ def render_nmr_studio(T: dict, lang: str):
     # =========================================================================
     with tab_nmr3:
         sec_tab1, sec_tab2 = st.tabs([
-            "✂️ " + ("Aromatic Zone Deconvolution (108–165 ppm)" if lang == "en" else "Деконволюция ароматической зоны (108–165 ppm)"),
+            "✂️ " + ("Aromatic / O-aryl Sub-band Decomposition (110–165 ppm)" if lang == "en" else "Разложение ароматической / O-арильной зоны (110–165 ppm)"),
             "🏷️ " + ("IHSS Spectral Library Matching" if lang == "en" else "Идентификация по библиотеке эталонов IHSS")
         ])
 
         with sec_tab1:
             st.markdown(
                 "###### " + (
-                    "Resolution Enhancement: Gaussian Component Fitting of Guaiacyl, Syringyl, and Alkyl-Aromatic Resonances"
+                    "Empirical Gaussian sub-bands: protonated aromatic, C-substituted/condensed aromatic and O-aryl carbon"
                     if lang == "en" else
-                    "Разрешение перекрывающихся резонансов: подгонка гауссовых компонент гваяцила, сирингила и алкил-ароматики"
+                    "Эмпирические гауссовы подполосы: протонированный, C-замещенный/конденсированный ароматический и O-арильный углерод"
                 )
+            )
+            st.caption(
+                "Подполосы не являются мономерами лигнина: в 13C спектрах ПОВ зона 145–165 ppm содержит также C танинов, фенолов и "
+                "других O-арильных структур, поэтому отношения S/G и H/G по 1D 13C спектру не вычисляются."
+                if lang == "ru" else
+                "Sub-bands are not lignin monomers: in 13C spectra of NOM the 145–165 ppm region also holds tannin, phenolic and other "
+                "O-aryl carbon, so S/G and H/G ratios are not derived from 1D 13C spectra."
             )
             col_dec1, col_dec2, col_dec3 = st.columns([2.5, 1.5, 2.0])
             with col_dec1:
@@ -413,7 +442,7 @@ def render_nmr_studio(T: dict, lang: str):
             target_dec_s = current_nmr_samples[deconv_target_name]
             target_dec_shifts = target_dec_s.chemical_shifts.copy()
             if recal_mode != "none":
-                target_dec_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(target_dec_shifts, target_dec_s.intensity, mode=recal_mode)
+                target_dec_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(target_dec_shifts, target_dec_s.intensity, mode=recal_mode, nucleus=target_dec_s.nucleus)
             target_dec_s_c, _ = nmr_core.subtract_baseline(target_dec_s, method=base_method)
             y_dec_target = target_dec_s_c.corrected_intensity if base_method != "none" else target_dec_s.intensity
 
@@ -423,8 +452,14 @@ def render_nmr_studio(T: dict, lang: str):
 
             if deconv_res.get("success"):
                 c_q1, c_q2 = st.columns(2)
-                c_q1.metric(T[lang]["nmr_deconv_r2"], f"{deconv_res['r2']:.4f}")
-                c_q2.metric(T[lang]["nmr_deconv_rmse"], f"{deconv_res['rmse']:.4f}")
+                c_q1.metric(T[lang]["nmr_deconv_r2"], _fmt_num(deconv_res["r2"], "{:.4f}"))
+                c_q2.metric(T[lang]["nmr_deconv_rmse"], _fmt_num(deconv_res["rmse"], "{:.4f}"))
+                if not deconv_res.get("fit_ok", False):
+                    st.warning(
+                        ("⚠️ Качество разложения неудовлетворительно — площади подполос не интерпретировать: " if lang == "ru"
+                         else "⚠️ Poor decomposition — do not interpret sub-band areas: ")
+                        + "; ".join(deconv_res.get("warnings", []))
+                    )
 
                 fig_dec = go.Figure()
                 fig_dec.add_trace(go.Scatter(
@@ -452,7 +487,7 @@ def render_nmr_studio(T: dict, lang: str):
                 fig_dec.update_xaxes(title_text="Chemical Shift δ (ppm)", autorange="reversed", gridcolor="#EDF2F7")
                 fig_dec.update_yaxes(title_text="Intensity", gridcolor="#EDF2F7")
                 fig_dec.update_layout(
-                    title=f"{deconv_target_name} — 13C NMR Aromatic Deconvolution",
+                    title=f"{deconv_target_name} — 13C NMR Aromatic / O-aryl Sub-bands",
                     template="plotly_white",
                     height=440
                 )
@@ -464,14 +499,18 @@ def render_nmr_studio(T: dict, lang: str):
                         "Band": c["label"],
                         "Center_ppm": c["center_ppm"],
                         "Width_ppm": c["width_ppm"],
-                        "Fraction_Area_Pct": f"{c['area_pct']}%"
+                        "Fraction_Area_Pct": f"{c['area_pct']}%",
+                        "At_Bound": c.get("at_bound", False),
                     }
                     for c in deconv_res["components"]
                 ])
                 st.markdown(f"###### {T[lang]['nmr_deconv_tbl_title']}")
                 st.dataframe(df_comp, width="stretch", hide_index=True)
             else:
-                st.warning(f"Деконволюция не удалась: {deconv_res.get('message', 'Недостаточно точек')}")
+                st.warning(
+                    (f"Разложение не выполнено: {deconv_res.get('message', 'Недостаточно точек')}" if lang == "ru"
+                     else f"Decomposition failed: {deconv_res.get('message', 'not enough points')}")
+                )
 
         with sec_tab2:
             st.markdown("##### " + T[lang]["nmr_lib_hdr"])
@@ -487,7 +526,7 @@ def render_nmr_studio(T: dict, lang: str):
             target_lib_s = current_nmr_samples[lib_target_name]
             target_lib_shifts = target_lib_s.chemical_shifts.copy()
             if recal_mode != "none":
-                target_lib_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(target_lib_shifts, target_lib_s.intensity, mode=recal_mode)
+                target_lib_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(target_lib_shifts, target_lib_s.intensity, mode=recal_mode, nucleus=target_lib_s.nucleus)
             target_lib_s_c, _ = nmr_core.subtract_baseline(target_lib_s, method=base_method)
             y_lib_target = target_lib_s_c.corrected_intensity if base_method != "none" else target_lib_s.intensity
 
@@ -555,7 +594,7 @@ def render_nmr_studio(T: dict, lang: str):
             )
             if recal_mode != "none":
                 s_copy.chemical_shifts, _ = nmr_core.auto_recalibrate_nmr_shifts(
-                    s_copy.chemical_shifts, s_copy.intensity, mode=recal_mode
+                    s_copy.chemical_shifts, s_copy.intensity, mode=recal_mode, nucleus=s_copy.nucleus
                 )
             processed_samples.append(s_copy)
 
@@ -582,7 +621,10 @@ def render_nmr_studio(T: dict, lang: str):
                 "NMR_C_carbonyl_pct": "{:.1f}%",
                 "NMR_C_methoxy_pct": "{:.1f}%",
                 "NMR_C_phenolic_pct": "{:.1f}%",
-                "NMR_estimated_mw": "{:.0f}",
+                "NMR_C_O_alkyl_60_90_pct": "{:.1f}%",
+                "NMR_C_acetal_pct": "{:.1f}%",
+                "NMR_C_carbohydrate_pct": "{:.1f}%",
+                "NMR_C_ar_HC_pct": "{:.1f}%",
             }, na_rep="—"),
             width="stretch",
             hide_index=True

@@ -17,6 +17,15 @@ except ImportError:
     ftir_core = None
 
 
+def _fmt_idx(v, fmt: str = "{:.3f}") -> str:
+    """Форматирует индекс; NaN (полоса-знаменатель ниже порога шума) показывается как «—»."""
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    return "—" if not np.isfinite(fv) else fmt.format(fv)
+
+
 def render_ftir_studio(T: dict, lang: str):
     """Render Module 4: Vibrational Spectroscopy Studio (FTIR)."""
     st.title(T[lang]["ftir_title"])
@@ -35,8 +44,8 @@ def render_ftir_studio(T: dict, lang: str):
 | **$1725–1710$** | $\nu(\text{C}=\text{O})$ | Карбоксилы ($\text{COOH}$), неконъюгированные кетоны | Индикатор степени окисленности и гумификации |
 | **$1650–1640$** | $\nu(\text{C}=\text{O})_{conj}$ | Хиноны, карбонилы, сопряженные с кольцом, Амид I | Редокс-активные центры природных гуминовых систем |
 | **$1605–1600$** | $\nu(\text{C}=\text{C})_{arom}$ | Скелетные колебания ароматических колец | Степень конденсированности и ароматичности |
-| **$1510$** | $\nu(\text{C}=\text{C})_{lignin}$ | **Гваяцильное кольцо лигнина (G-ring)** | **Критический специфический маркер шлам-лигнина БЦБК** |
-| **$1270, 1220$** | $\nu(\text{C}-\text{O}), \nu(\text{C}-\text{C})$ | Гваяцильные эфирные связи лигнина | Дифференциация лигнина от природных полисахаридов |
+| **$1510$** | $\nu(\text{C}=\text{C})_{arom}$ | **Скелетные колебания ароматического кольца лигнина (все H/G/S-звенья; сильнее у G-богатых)** | **Маркер лигнина (в т.ч. шлам-лигнина БЦБК), не специфичен для гваяцила** |
+| **$1270, 1220$** | $\nu(\text{C}-\text{O}), \nu(\text{C}-\text{C})$ | Гваяцильное кольцо (1270), C-O / C-C эфирные связи лигнина (1220) | Дифференциация лигнина от природных полисахаридов |
 | **$1035–1030$** | $\nu(\text{C}-\text{O})$ | Спирты, полисахариды, целлюлоза, метоксилы | Доля биогенного углеводного и терригенного пула |
 
 ---
@@ -63,12 +72,30 @@ def render_ftir_studio(T: dict, lang: str):
             st.session_state["ftir_samples"] = {}
 
         ftir_files = []
+        ftir_signal_type = "auto"
         if ftir_data_src == T[lang]["ftir_src_upload"]:
             ftir_files = st.file_uploader(
                 T[lang]["ftir_uploader_label"],
                 accept_multiple_files=True,
                 type=["csv", "dpt", "txt", "xy"],
                 key="ftir_files_uploader"
+            )
+            sig_labels = (
+                {"auto": "Авто (по заголовку файла)", "absorbance": "Поглощение A", "transmittance": "Пропускание %T → A"}
+                if lang == "ru" else
+                {"auto": "Auto (from file header)", "absorbance": "Absorbance A", "transmittance": "Transmittance %T → A"}
+            )
+            ftir_signal_type = st.selectbox(
+                "Шкала сигнала:" if lang == "ru" else "Signal scale:",
+                list(sig_labels.keys()),
+                format_func=lambda k: sig_labels[k],
+                index=0,
+                key="ftir_signal_type_choice",
+                help=(
+                    "Пересчет A = 2 − log10(%T) выполняется только при явном выборе или если заголовок файла указывает на пропускание."
+                    if lang == "ru" else
+                    "A = 2 − log10(%T) is applied only when selected explicitly or when the file header states transmittance."
+                ),
             )
 
         st.markdown("---")
@@ -100,8 +127,10 @@ def render_ftir_studio(T: dict, lang: str):
         if ftir_files:
             for f in ftir_files:
                 try:
-                    s_obj = ftir_core.parse_ftir_file(f.getvalue(), sample_id=f.name)
+                    s_obj = ftir_core.parse_ftir_file(f.getvalue(), sample_id=f.name, signal_type=ftir_signal_type)
                     current_ftir_samples[f.name] = s_obj
+                    for w_msg in s_obj.metadata.get("warnings", []) or []:
+                        st.warning(f"{f.name}: {w_msg}")
                 except Exception as e_parse:
                     st.warning(f"Ошибка чтения {f.name}: {e_parse}")
             if current_ftir_samples:
@@ -274,7 +303,7 @@ def render_ftir_studio(T: dict, lang: str):
                 (2920, "Aliph CH2 (2920)"),
                 (1720, "C=O COOH (1720)"),
                 (1600, "C=C Arom (1600)"),
-                (1510, "Lignin G-ring (1510)"),
+                (1510, "Lignin arom. C=C (1510)"),
                 (1030, "C-O Poly (1030)")
             ]
             for wn_val, band_lbl in key_bands:
@@ -294,11 +323,18 @@ def render_ftir_studio(T: dict, lang: str):
         # Экспресс-дескрипторы активного образца
         ind_single = ftir_core.calculate_ftir_indices(active_s.wavenumbers, active_abs, sample_id=active_name)
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Lignin Index (1510/1600)", f"{ind_single['FTIR_Lignin_Idx']:.3f}")
-        m2.metric("Aromaticity (1600/2920)", f"{ind_single['FTIR_Aromaticity_Idx']:.3f}")
-        m3.metric("Oxidation (1720/1600)", f"{ind_single['FTIR_Oxidation_Idx']:.3f}")
-        m4.metric("G/S Ratio (1270/1330)", f"{ind_single['FTIR_GS_Ratio']:.3f}")
-        m5.metric("Polysaccharide Idx", f"{ind_single['FTIR_Polysaccharide_Idx']:.3f}")
+        m1.metric("Lignin Index (1510/1600)", _fmt_idx(ind_single["FTIR_Lignin_Idx"]))
+        m2.metric("Aromaticity (1600/2920)", _fmt_idx(ind_single["FTIR_Aromaticity_Idx"]))
+        m3.metric("Oxidation (1720/1600)", _fmt_idx(ind_single["FTIR_Oxidation_Idx"]))
+        m4.metric("G/S approx. (1270/1330)", _fmt_idx(ind_single["FTIR_GS_Ratio"]))
+        m5.metric("Polysaccharide Idx", _fmt_idx(ind_single["FTIR_Polysaccharide_Idx"]))
+        st.caption(
+            "Индексы рассчитаны по поглощению после коррекции базовой линии, без SNV/min-max (они искажают отношения полос). "
+            "«—»: полоса-знаменатель ниже порога шума — отношение не вычислимо."
+            if lang == "ru" else
+            "Indices use baseline-corrected absorbance without SNV/min-max (which distort band ratios). "
+            "“—”: the denominator band is below the noise threshold, so the ratio is not computable."
+        )
 
     # =========================================================================
     # ВКЛАДКА 2: ДЕКОНВОЛЮЦИЯ ПОЛОС (1500–1800 см⁻¹)
@@ -326,9 +362,21 @@ def render_ftir_studio(T: dict, lang: str):
                 n_peaks=n_gaussians
             )
 
+            if not deconv_res.get("success", False):
+                raise RuntimeError(
+                    ("подгонка не сошлась, результаты не показаны — " if lang == "ru" else "fit did not converge, no results shown — ")
+                    + str(deconv_res.get("message", ""))
+                )
+
             c_q1, c_q2 = st.columns(2)
-            c_q1.metric(T[lang]["ftir_deconv_r2"], f"{deconv_res['r2']:.4f}")
-            c_q2.metric(T[lang]["ftir_deconv_rmse"], f"{deconv_res['rmse']:.4f}")
+            c_q1.metric(T[lang]["ftir_deconv_r2"], _fmt_idx(deconv_res["r2"], "{:.4f}"))
+            c_q2.metric(T[lang]["ftir_deconv_rmse"], _fmt_idx(deconv_res["rmse"], "{:.4f}"))
+            if not deconv_res.get("fit_ok", False):
+                st.warning(
+                    ("⚠️ Качество подгонки неудовлетворительно — площади полос не интерпретировать: " if lang == "ru"
+                     else "⚠️ Poor fit — do not interpret band areas: ")
+                    + "; ".join(deconv_res.get("warnings", []))
+                )
 
             # График деконволюции
             fig_dec = go.Figure()
@@ -408,6 +456,9 @@ def render_ftir_studio(T: dict, lang: str):
         target_s_corr, _ = ftir_core.subtract_baseline(target_s, method=base_method)
         y_target_abs = target_s_corr.corrected_absorbance if base_method != "none" else target_s.absorbance
 
+        st.info(
+            "ℹ️ " + (getattr(ftir_core, "FTIR_LIBRARY_DISCLAIMER_RU", "") if lang == "ru" else getattr(ftir_core, "FTIR_LIBRARY_DISCLAIMER_EN", ""))
+        )
         match_df = ftir_core.match_spectrum_against_library(target_s.wavenumbers, y_target_abs, top_n=lib_top_n, lang=lang)
 
         if not match_df.empty:
@@ -419,15 +470,15 @@ def render_ftir_studio(T: dict, lang: str):
             # Статусная плашка
             if top_hqi >= 85.0:
                 st.success(
-                    f"🏆 **Топ-1 кандидат:** {top_name} (HQI = **{top_hqi:.1f}%**, Cosine = **{top_match['Cosine_Similarity']:.3f}**, Pearson r = **{top_match['Pearson_r']:.3f}**)"
+                    f"🏆 **Ближайшая синтетическая модель:** {top_name} (HQI = **{top_hqi:.1f}%**, Cosine = **{top_match['Cosine_Similarity']:.3f}**, Pearson r = **{top_match['Pearson_r']:.3f}**)"
                     if lang == "ru" else
-                    f"🏆 **Top-1 Match:** {top_name} (HQI = **{top_hqi:.1f}%**, Cosine = **{top_match['Cosine_Similarity']:.3f}**, Pearson r = **{top_match['Pearson_r']:.3f}**)"
+                    f"🏆 **Closest synthetic model:** {top_name} (HQI = **{top_hqi:.1f}%**, Cosine = **{top_match['Cosine_Similarity']:.3f}**, Pearson r = **{top_match['Pearson_r']:.3f}**)"
                 )
             else:
                 st.warning(
-                    f"⚠️ **Наиболее близкий эталон:** {top_name} (HQI = **{top_hqi:.1f}%**). Возможно присутствие сложной смешанной матрицы."
+                    f"⚠️ **Наиболее близкая синтетическая модель:** {top_name} (HQI = **{top_hqi:.1f}%**). Возможно присутствие сложной смешанной матрицы."
                     if lang == "ru" else
-                    f"⚠️ **Closest Reference Standard:** {top_name} (HQI = **{top_hqi:.1f}%**). Complex matrix mixture suspected."
+                    f"⚠️ **Closest synthetic model:** {top_name} (HQI = **{top_hqi:.1f}%**). Complex matrix mixture suspected."
                 )
 
             # Оверлей-график: образец против топ-1 стандарта библиотеки
@@ -463,7 +514,7 @@ def render_ftir_studio(T: dict, lang: str):
 
             # Таблица совпадений
             st.markdown(f"###### {T[lang]['ftir_lib_tbl_title']}")
-            disp_match_df = match_df[["Rank", "Standard_Name", "Compound_Class", "HQI_pct", "Cosine_Similarity", "Pearson_r", "Key_Markers", "Description"]]
+            disp_match_df = match_df[[c for c in ["Rank", "Standard_Name", "Compound_Class", "HQI_pct", "Cosine_Similarity", "Pearson_r", "Key_Markers", "Description", "Library_Type"] if c in match_df.columns]]
             st_df(
                 disp_match_df.style.format({
                     "HQI_pct": "{:.2f}%",
@@ -485,6 +536,13 @@ def render_ftir_studio(T: dict, lang: str):
     # =========================================================================
     with tab_ftir4:
         st.markdown("##### " + ("Сводная матрица дескрипторов колебательной спектроскопии" if lang == "ru" else "Summary Matrix of Vibrational Spectroscopy Descriptors"))
+        st.caption(
+            "Дескрипторы рассчитаны по поглощению после коррекции базовой линии без нормировки (SNV не сохраняет отношения полос); "
+            "«—» — полоса-знаменатель ниже порога шума."
+            if lang == "ru" else
+            "Descriptors use baseline-corrected absorbance without normalisation (SNV does not preserve band ratios); "
+            "“—” marks a denominator band below the noise threshold."
+        )
 
         df_ftir_desc = ftir_core.batch_process_ftir_samples(
             list(current_ftir_samples.values()),

@@ -167,8 +167,15 @@ def test_adversarial_uv_vis_indices_zero_signal():
 # 4. СТРЕСС-ТЕСТЫ ХЕМОИНФОРМАТИКИ (ADVERSARIAL PUBCHEM & CROSS-DB)
 # ==============================================================================
 
-def test_adversarial_pubchem_weird_formulas():
+def test_adversarial_pubchem_weird_formulas(tmp_path, monkeypatch):
     """Проверка очистки и эвристической классификации на заведомо невалидных формулах."""
+    # Без сети и без записи кэша в корень репозитория
+    monkeypatch.setattr(chemo_pubchem, "CACHE_FILE", str(tmp_path / "pubchem_cache.json"))
+
+    def _no_network(*args, **kwargs):
+        raise chemo_pubchem.requests.exceptions.ConnectionError("network disabled in tests")
+
+    monkeypatch.setattr(chemo_pubchem.requests, "get", _no_network)
     assert chemo_pubchem.clean_formula("") == ""
     assert chemo_pubchem.clean_formula("???###$$$") == "???###$$$"
     assert chemo_pubchem.clean_formula("   C12H16O3   ") == "C12H16O3"
@@ -305,10 +312,10 @@ def test_adversarial_nmr_all_zeros_and_flat_noise():
     y_zeros = np.zeros_like(ppm)
 
     desc_zero = nmr_core.calculate_13c_nmr_descriptors(ppm, y_zeros, sample_id="Zero_Spectrum")
-    assert desc_zero["NMR_fa_aromaticity"] == 0.0
-    assert not np.isnan(desc_zero["NMR_hb_hi_index"])
-    assert not np.isinf(desc_zero["NMR_hb_hi_index"])
-    assert desc_zero["NMR_estimated_mw"] == 1250.0
+    # Нулевой спектр: показатели не вычислимы и должны быть NaN, а не правдоподобными константами
+    assert np.isnan(desc_zero["NMR_fa_aromaticity"])
+    assert np.isnan(desc_zero["NMR_hb_hi_index"])
+    assert "NMR_estimated_mw" not in desc_zero
 
     df_peaks_zero = nmr_core.find_and_annotate_nmr_peaks(ppm, y_zeros)
     assert df_peaks_zero.empty

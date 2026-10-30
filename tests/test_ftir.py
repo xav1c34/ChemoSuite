@@ -198,10 +198,12 @@ def test_find_and_annotate_peaks():
     assert len(df_peaks_ru) >= 5
 
     # Проверка обнаружения маркера лигнина 1510 см^-1
-    lignin_peaks = df_peaks_ru[df_peaks_ru["Functional_Group"] == "guaiacyl lignin C=C"]
+    # 1510 см^-1 — скелетная ароматика всех лигнинов (H/G/S), а не «гваяцил-специфичная» полоса
+    lignin_peaks = df_peaks_ru[df_peaks_ru["Functional_Group"] == "aromatic skeletal C=C (lignin)"]
     assert len(lignin_peaks) == 1
     assert pytest.approx(float(lignin_peaks.iloc[0]["Wavenumber_cm1"]), 2.0) == 1510.0
-    assert "Шлам-лигнин" in lignin_peaks.iloc[0]["Compound_Class"]
+    assert "шлам-лигнин" in lignin_peaks.iloc[0]["Compound_Class"]
+    assert "Гваяцильное" not in lignin_peaks.iloc[0]["Molecular_Assignment"]
 
     # Проверка карбонильной полосы 1718 см^-1
     carb_peaks = df_peaks_ru[df_peaks_ru["Functional_Group"] == "carboxylic C=O stretching"]
