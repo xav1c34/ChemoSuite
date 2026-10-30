@@ -4,6 +4,7 @@ eem_core.py — Математическое ядро оптической сп�
 """
 from dataclasses import dataclass
 import io
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
@@ -28,6 +29,10 @@ class EEMSample:
     data: np.ndarray
     doc: Optional[float] = None
     a254: Optional[float] = None
+    # None = нормировка не запрашивалась; False = запрошена, но НЕ выполнена (нет бланка воды);
+    # True = данные в Raman Units (R.U.)
+    raman_normalized: Optional[bool] = None
+    raman_factor: Optional[float] = None
 
 
 @dataclass
@@ -189,13 +194,38 @@ def load_eem_file(file_input: Union[str, bytes, Any], sample_id: str = "Sample")
     return parse_eem_dataframe(df, sample_id=sample_id)
 
 
+WATER_RAMAN_SHIFT_CM1 = 3400.0  # O-H stretching Raman shift of water, cm^-1
+
+
+def raman_emission_wavelength(ex: np.ndarray, shift_cm1: float = WATER_RAMAN_SHIFT_CM1) -> np.ndarray:
+    """
+    Длина волны 1-го порядка комбинационного (Raman) рассеяния воды:
+    1/λ_em = 1/λ_ex − Δν,  Δν = 3400 см⁻¹ = 3.4·10⁻⁴ нм⁻¹  =>  λ_em = 1 / (1/λ_ex − 3.4e-4) [нм]
+    (напр. λ_ex = 350 нм -> λ_em ≈ 397 нм; Lawaetz & Stedmon, 2009).
+    """
+    ex_arr = np.asarray(ex, dtype=float)
+    inv = 1.0 / ex_arr - shift_cm1 * 1e-7
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(inv > 0, 1.0 / inv, np.inf)
+
+
 def remove_scatter_bands(
     eem: np.ndarray,
     ex: np.ndarray,
     em: np.ndarray,
     delta_rayleigh1: float = 12.0,
     delta_rayleigh2: float = 15.0,
+    mask_raman1: bool = True,
+    delta_raman1: float = 10.0,
 ) -> np.ndarray:
+    """
+    Удаление полос рассеяния с последующей линейной интерполяцией по (Em, Ex):
+    - рэлеевское 1-го порядка: |λ_em − λ_ex| <= delta_rayleigh1;
+    - рэлеевское 2-го порядка: |λ_em − 2·λ_ex| <= delta_rayleigh2;
+    - Raman воды 1-го порядка (по умолчанию включено): |λ_em − λ_R(λ_ex)| <= delta_raman1,
+      λ_R = 1/(1/λ_ex − 3.4e-4 нм⁻¹) (сдвиг 3400 см⁻¹);
+    - анти-стоксова область λ_em < λ_ex − 5 нм.
+    """
     ex_g, em_g = np.meshgrid(ex, em)
     proc = eem.copy()
 
@@ -203,6 +233,9 @@ def remove_scatter_bands(
     r2_mask = np.abs(em_g - 2.0 * ex_g) <= delta_rayleigh2
     anti_stokes = em_g < (ex_g - 5.0)
     total_mask = r1_mask | r2_mask | anti_stokes
+    if mask_raman1 and delta_raman1 > 0:
+        raman_em = raman_emission_wavelength(ex_g)
+        total_mask = total_mask | (np.abs(em_g - raman_em) <= delta_raman1)
 
     valid_coords = np.column_stack((em_g[~total_mask], ex_g[~total_mask]))
     valid_vals = proc[~total_mask]
@@ -216,38 +249,93 @@ def remove_scatter_bands(
     return proc
 
 
+RAMAN_EX_NM = 350.0
+RAMAN_EM_WINDOW_NM = (381.0, 426.0)
+
+
 def normalize_to_raman_units(
     eem: np.ndarray,
     ex: np.ndarray,
     em: np.ndarray,
     water_blank: Optional[np.ndarray] = None,
+    ex_tol_nm: float = 2.5,
 ) -> Tuple[np.ndarray, float]:
-    if water_blank is not None:
-        idx_350 = np.argmin(np.abs(ex - 350.0))
-        mask = (em >= 371.0) & (em <= 428.0)
-        area = simpson(water_blank[mask, idx_350], x=em[mask])
-        factor = float(area) if area > 0 else 1.0
-    else:
-        factor = 1.0
-    return eem / factor, factor
+    """
+    Нормировка EEM на площадь пика комбинационного рассеяния воды (Raman Units, R.U.):
+    A_rp = ∫ F_blank(Ex 350 нм, Em) dEm по окну Em 381–426 нм (Lawaetz & Stedmon, 2009,
+    Appl. Spectrosc. 63, 936–940); F_RU = F / A_rp.
+
+    Returns:
+    --------
+    (eem_out, factor). Если бланк воды не передан или площадь не может быть рассчитана
+    (нет Ex≈350 нм, Em не покрывает 381–426 нм, A_rp <= 0), данные возвращаются БЕЗ
+    изменений, factor = NaN (явный признак «не нормировано в R.U.») и выдается RuntimeWarning.
+    Раньше в этом случае молча использовался коэффициент 1.
+    """
+    ex = np.asarray(ex, dtype=float)
+    em = np.asarray(em, dtype=float)
+    if water_blank is None:
+        warnings.warn("Бланк воды не задан: EEM НЕ нормирована в Raman Units (factor = NaN).", RuntimeWarning)
+        return eem, float("nan")
+
+    blank = np.asarray(water_blank, dtype=float)
+    if blank.shape != (len(em), len(ex)):
+        warnings.warn(f"Размер бланка {blank.shape} не совпадает с сеткой EEM {(len(em), len(ex))}: нормировка не выполнена.",
+                      RuntimeWarning)
+        return eem, float("nan")
+    idx_350 = int(np.argmin(np.abs(ex - RAMAN_EX_NM)))
+    mask = (em >= RAMAN_EM_WINDOW_NM[0]) & (em <= RAMAN_EM_WINDOW_NM[1])
+    if abs(ex[idx_350] - RAMAN_EX_NM) > ex_tol_nm or int(np.sum(mask)) < 3:
+        warnings.warn("Сетка бланка не содержит Ex 350 нм или Em 381–426 нм: нормировка в R.U. не выполнена.",
+                      RuntimeWarning)
+        return eem, float("nan")
+    area = float(simpson(blank[mask, idx_350], x=em[mask]))
+    if not np.isfinite(area) or area <= 0:
+        warnings.warn(f"Площадь Raman-пика бланка = {area:.4g} <= 0: нормировка в R.U. не выполнена.", RuntimeWarning)
+        return eem, float("nan")
+    return eem / area, area
+
+
+def _grid_index(axis: np.ndarray, target: float, tol_nm: float = 5.0) -> Optional[int]:
+    """Индекс ближайшей длины волны или None, если сетка не содержит target ± tol_nm."""
+    axis = np.asarray(axis, dtype=float)
+    if axis.size == 0:
+        return None
+    idx = int(np.argmin(np.abs(axis - target)))
+    return idx if abs(axis[idx] - target) <= tol_nm else None
 
 
 def calculate_spectral_indices(sample: EEMSample) -> Dict[str, Any]:
+    """
+    Флуоресцентные индексы РОВ:
+    - FI  = F(Ex370, Em470) / F(Ex370, Em520)            (Cory & McKnight, 2005)
+    - HIX = ∫Em435–480 / ∫Em300–345 при Ex 254 нм          (Zsolnay et al., 1999)
+    - BIX = F(Ex310, Em380) / F(Ex310, Em430)            (Huguet et al., 2009)
+    Индекс = NaN, если сетка EEM не содержит нужных длин волн (±5 нм) или знаменатель ~0.
+    """
     ex, em, d = sample.ex, sample.em, sample.data
 
-    idx_ex_370 = np.argmin(np.abs(ex - 370.0))
-    idx_em_470 = np.argmin(np.abs(em - 470.0))
-    idx_em_520 = np.argmin(np.abs(em - 520.0))
-    denom_fi = d[idx_em_520, idx_ex_370]
-    fi = float(d[idx_em_470, idx_ex_370] / denom_fi) if denom_fi > 1e-6 else np.nan
+    fi = np.nan
+    i_ex370, i_em470, i_em520 = _grid_index(ex, 370.0), _grid_index(em, 470.0), _grid_index(em, 520.0)
+    if None not in (i_ex370, i_em470, i_em520):
+        denom_fi = d[i_em520, i_ex370]
+        fi = float(d[i_em470, i_ex370] / denom_fi) if denom_fi > 1e-6 else np.nan
 
-    idx_ex_254 = np.argmin(np.abs(ex - 254.0))
-    prof_254 = d[:, idx_ex_254]
+    hix = np.nan
+    i_ex254 = _grid_index(ex, 254.0)
     m_hi = (em >= 435.0) & (em <= 480.0)
     m_lo = (em >= 300.0) & (em <= 345.0)
-    int_hi = simpson(prof_254[m_hi], x=em[m_hi])
-    int_lo = simpson(prof_254[m_lo], x=em[m_lo])
-    hix = float(int_hi / int_lo) if int_lo > 1e-6 else np.nan
+    if i_ex254 is not None and np.sum(m_hi) >= 2 and np.sum(m_lo) >= 2:
+        prof_254 = d[:, i_ex254]
+        int_hi = simpson(prof_254[m_hi], x=em[m_hi])
+        int_lo = simpson(prof_254[m_lo], x=em[m_lo])
+        hix = float(int_hi / int_lo) if int_lo > 1e-6 else np.nan
+
+    bix = np.nan
+    i_ex310, i_em380, i_em430 = _grid_index(ex, 310.0), _grid_index(em, 380.0), _grid_index(em, 430.0)
+    if None not in (i_ex310, i_em380, i_em430):
+        denom_bix = d[i_em430, i_ex310]
+        bix = float(d[i_em380, i_ex310] / denom_bix) if denom_bix > 1e-6 else np.nan
 
     suva = np.nan
     if sample.a254 is not None and sample.doc is not None and sample.doc > 0:
@@ -257,6 +345,7 @@ def calculate_spectral_indices(sample: EEMSample) -> Dict[str, Any]:
         "Sample_ID": sample.sample_id,
         "FI": round(fi, 2) if not np.isnan(fi) else np.nan,
         "HIX": round(hix, 2) if not np.isnan(hix) else np.nan,
+        "BIX": round(bix, 2) if not np.isnan(bix) else np.nan,
         "A254": round(sample.a254, 4) if (sample.a254 is not None and not np.isnan(sample.a254)) else np.nan,
         "DOC": round(sample.doc, 2) if (sample.doc is not None and not np.isnan(sample.doc)) else np.nan,
         "SUVA254": round(suva, 2) if not np.isnan(suva) else np.nan,
@@ -297,8 +386,14 @@ def build_eem_tensor(
 def compute_corcondia(
     tensor: np.ndarray, factors: Tuple[np.ndarray, np.ndarray, np.ndarray]
 ) -> float:
+    """
+    Core Consistency Diagnostic (Bro & Kiers, 2003):
+    CORCONDIA = 100 · (1 − Σ(g_def − t_def)² / R), где G — ядро Таккера, оцененное по факторам
+    PARAFAC, T — суперединичное ядро. Возвращается истинное значение (может быть < 0 при
+    перефакторизации — это диагностический признак, а не ошибка). NaN, если tensorly недоступен.
+    """
     if not TENSORLY_AVAILABLE:
-        return 0.0
+        return float("nan")
     a, b, c = factors
     r = a.shape[1]
     g = tl.tenalg.multi_mode_dot(
@@ -310,24 +405,49 @@ def compute_corcondia(
     for i in range(r):
         t[i, i, i] = 1.0
     sse = np.sum((g - t) ** 2)
-    return float(max(0.0, 100.0 * (1.0 - (sse / float(r)))))
+    return float(100.0 * (1.0 - (sse / float(r))))
 
 
 def fit_parafac(
-    tensor: np.ndarray, n_components: int = 3, random_state: int = 42
+    tensor: np.ndarray, n_components: int = 3, random_state: int = 42, n_starts: int = 5
 ) -> Dict:
+    """
+    Неотрицательный PARAFAC с несколькими стартами: SVD-инициализация + ``n_starts`` случайных
+    инициализаций (random_state, random_state+1, ...); сохраняется модель с минимальной
+    суммой квадратов остатков (стандартная защита от локальных минимумов ALS, ср. Murphy et al., 2013).
+    """
     if not TENSORLY_AVAILABLE:
         raise RuntimeError("Библиотека tensorly не установлена в окружении.")
-    weights, factors = non_negative_parafac(
-        tensor, rank=n_components, n_iter_max=300, tol=1e-6, init="svd", random_state=random_state
-    )
+    if not np.all(np.isfinite(tensor)):
+        raise ValueError("Тензор EEM содержит NaN/Inf (например, ячейки без IFE-коррекции): PARAFAC невозможен.")
+
+    inits = [("svd", random_state)] + [("random", int(random_state) + k) for k in range(max(0, int(n_starts)))]
+    best = None
+    start_sse = []
+    for init_kind, rs in inits:
+        try:
+            w_k, f_k = non_negative_parafac(
+                tensor, rank=n_components, n_iter_max=300, tol=1e-6, init=init_kind, random_state=rs
+            )
+        except Exception:
+            start_sse.append(float("nan"))
+            continue
+        rec_k = tl.cp_to_tensor((w_k, f_k))
+        sse_k = float(np.sum((tensor - rec_k) ** 2))
+        start_sse.append(sse_k)
+        if np.isfinite(sse_k) and (best is None or sse_k < best[0]):
+            best = (sse_k, w_k, [np.array(f, dtype=float, copy=True) for f in f_k], f"{init_kind}:{rs}")
+    if best is None:
+        raise RuntimeError("PARAFAC не сошелся ни из одной инициализации.")
+    _, weights, factors, best_init = best
     a, b, c = factors
     for r in range(n_components):
+        a[:, r] *= weights[r]
         mb, mc = np.max(b[:, r]), np.max(c[:, r])
         if mb > 0 and mc > 0:
             b[:, r] /= mb
             c[:, r] /= mc
-            a[:, r] *= mb * mc * weights[r]
+            a[:, r] *= mb * mc
 
     rec = tl.cp_to_tensor((np.ones(n_components), factors))
     tot_ss = np.sum(tensor**2)
@@ -340,6 +460,8 @@ def fit_parafac(
         "ex_profiles": c,
         "explained_variance": float(exp_var),
         "corcondia": corc,
+        "best_init": best_init,
+        "start_sse": start_sse,
     }
 
 
@@ -347,6 +469,7 @@ def split_half_analysis(
     tensor: np.ndarray,
     n_components: int = 3,
     random_state: int = 42,
+    tcc_threshold: float = 0.95,
 ) -> Dict[str, Any]:
     """
     Сплит-хаф валидация (Split-Half Validation) PARAFAC модели.
@@ -355,14 +478,21 @@ def split_half_analysis(
     рассчитывает коэффициенты конгруэнтности Такера (Tucker Congruence Coefficient, TCC)
     для спектров испускания (Em) и возбуждения (Ex).
 
+    Критерий (Murphy et al., 2013, Anal. Methods 5, 6557): модель валидирована, только если
+    КАЖДЫЙ компонент воспроизводится в обеих половинах, т.е. TCC_Em >= tcc_threshold И
+    TCC_Ex >= tcc_threshold для всех компонентов (по умолчанию 0.95). Среднее TCC
+    сообщается справочно и для валидации не используется.
+
     Returns:
     --------
     Dict с ключами:
       - 'can_split': bool
       - 'tcc_em': np.ndarray (конгруэнтность по эмиссии для каждого компонента)
       - 'tcc_ex': np.ndarray (конгруэнтность по возбуждению для каждого компонента)
-      - 'mean_tcc': float (средняя конгруэнтность)
-      - 'is_validated': bool (True, если mean_tcc >= 0.90)
+      - 'component_validated': List[bool] (min(TCC_Em, TCC_Ex) >= tcc_threshold)
+      - 'min_tcc': float, 'mean_tcc': float (справочно)
+      - 'tcc_threshold': float
+      - 'is_validated': bool (True только если все компоненты прошли порог)
     """
     n_samples = tensor.shape[0]
     if n_samples < 4:
@@ -370,9 +500,12 @@ def split_half_analysis(
             "can_split": False,
             "error": "Для сплит-хаф анализа требуется как минимум 4 образца (по 2 на половину).",
             "is_validated": False,
-            "mean_tcc": 0.0,
-            "tcc_em": np.zeros(n_components),
-            "tcc_ex": np.zeros(n_components),
+            "mean_tcc": float("nan"),
+            "min_tcc": float("nan"),
+            "tcc_em": np.full(n_components, np.nan),
+            "tcc_ex": np.full(n_components, np.nan),
+            "component_validated": [False] * n_components,
+            "tcc_threshold": float(tcc_threshold),
         }
 
     rng = np.random.default_rng(random_state)
@@ -424,13 +557,18 @@ def split_half_analysis(
     tcc_em_arr = np.array(tcc_em)
     tcc_ex_arr = np.array(tcc_ex)
     mean_tcc = float(np.mean((tcc_em_arr + tcc_ex_arr) / 2.0))
+    comp_min = np.minimum(tcc_em_arr, tcc_ex_arr)
+    component_validated = [bool(v >= tcc_threshold) for v in comp_min]
 
     return {
         "can_split": True,
-        "is_validated": bool(mean_tcc >= 0.90),
+        "is_validated": bool(all(component_validated)),
         "mean_tcc": round(mean_tcc, 3),
+        "min_tcc": round(float(np.min(comp_min)), 4),
         "tcc_em": tcc_em_arr,
         "tcc_ex": tcc_ex_arr,
+        "component_validated": component_validated,
+        "tcc_threshold": float(tcc_threshold),
         "matched_perm": list(best_perm),
     }
 
@@ -652,16 +790,32 @@ def compute_spectral_slope_curve(
     return s_curve
 
 
+# Область применимости линейной зависимости Mw(E2/E3). Первоисточник калибровки не подтвержден,
+# поэтому граница взята как область, где формула дает Mw >= 400 Да (ранее эта граница
+# реализовывалась "зажимом" до фиксированных 400 Да); вне области возвращается NaN.
+MW_UV_E2E3_RANGE = (0.0, (3450.0 - 400.0) / 390.0)  # (0, ~7.82]
+
+
 def estimate_molecular_weight_uv(e2_e3: float) -> float:
     """
-    Эмпирическая оценка среднемассовой молекулярной массы (Mw)
-    по уравнению Перминовой (1998, 2000) для гуминовых веществ:
+    ЭМПИРИЧЕСКАЯ оценка среднемассовой молекулярной массы (Mw) по отношению E2/E3 (A250/A365):
     Mw = 3450 - 390 * (E2/E3) [Да].
+
+    Внимание: калибровка исторически приписывалась Перминовой (1998, 2000), но первоисточник
+    этой формулы проверить не удалось - используйте значение только как ориентировочное
+    (unverified calibration). Вне области MW_UV_E2E3_RANGE (E2/E3 <= 0 или > ~7.82, где формула
+    дает < 400 Да) возвращается NaN, а не фиксированное значение.
     """
-    if e2_e3 is None or np.isnan(e2_e3) or e2_e3 <= 0:
+    if e2_e3 is None:
         return np.nan
-    mw = 3450.0 - 390.0 * float(e2_e3)
-    return float(np.clip(mw, 400.0, 15000.0))
+    try:
+        val = float(e2_e3)
+    except (TypeError, ValueError):
+        return np.nan
+    lo, hi = MW_UV_E2E3_RANGE
+    if not np.isfinite(val) or val <= lo or val > hi:
+        return np.nan
+    return float(3450.0 - 390.0 * val)
 
 
 def calculate_uv_vis_indices(
@@ -744,8 +898,16 @@ def correct_inner_filter_effect(
     pathlength_cm: float = 1.0,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[str]]:
     """
-    Коррекция эффекта внутреннего фильтра (Inner Filter Effect, IFE):
-    F_corr(Ex, Em) = F_obs(Ex, Em) * 10^(0.5 * (A_ex + A_em) * d)
+    Коррекция эффекта внутреннего фильтра (Inner Filter Effect, IFE), абсорбционный метод
+    (Lakowicz, 2006; Kothawala et al., 2013, Limnol. Oceanogr. Methods 11, 616):
+        F_corr(Ex, Em) = F_obs(Ex, Em) * 10^(0.5 * (A_ex + A_em)),
+    где A - поглощение, приведенное к 1 см кювете флуориметра:
+        A_1cm = A_measured / pathlength_cm  (pathlength_cm - длина оптического пути кюветы УФ-Вид).
+    (Раньше поглощение ошибочно УМНОЖАЛОСЬ на pathlength_cm, тогда как SUVA делит на него.)
+
+    Ячейки EEM, длины волн Ex или Em которых не покрыты спектром УФ-Вид, не корректируются
+    молча (раньше np.interp подставлял A = 0): в eem_corr и cf_matrix они маскируются NaN,
+    а в warning сообщается число таких ячеек.
     Поддерживает передачу как массивов NumPy, так и объектов EEMSample и UVVisSample.
     """
     if isinstance(eem, EEMSample) and isinstance(ex, UVVisSample):
@@ -759,18 +921,37 @@ def correct_inner_filter_effect(
             pathlength_cm=d_val,
         )
 
-    a_clean = np.maximum(0.0, uv_a)
-    a_ex = np.interp(ex, uv_wl, a_clean, left=0.0, right=0.0)
-    a_em = np.interp(em, uv_wl, a_clean, left=0.0, right=0.0)
+    if pathlength_cm is None or not np.isfinite(pathlength_cm) or pathlength_cm <= 0:
+        raise ValueError(f"Длина оптического пути кюветы УФ-Вид должна быть > 0 см (получено {pathlength_cm}).")
+    ex = np.asarray(ex, dtype=float)
+    em = np.asarray(em, dtype=float)
+    uv_wl = np.asarray(uv_wl, dtype=float)
+    order = np.argsort(uv_wl)
+    uv_wl = uv_wl[order]
+    a_1cm = np.maximum(0.0, np.asarray(uv_a, dtype=float)[order]) / float(pathlength_cm)
 
-    cf_matrix = 0.5 * (a_em[:, None] + a_ex[None, :]) * pathlength_cm
+    a_ex = np.interp(ex, uv_wl, a_1cm, left=np.nan, right=np.nan)
+    a_em = np.interp(em, uv_wl, a_1cm, left=np.nan, right=np.nan)
+
+    cf_matrix = 0.5 * (a_em[:, None] + a_ex[None, :])
     multiplier = 10.0 ** cf_matrix
-    eem_corr = eem * multiplier
+    eem_corr = np.asarray(eem, dtype=float) * multiplier  # NaN там, где нет данных УФ-Вид
 
-    max_abs = max(float(np.max(a_ex)), float(np.max(a_em)))
-    warning = None
-    if max_abs > 1.5:
-        warning = f"Оптическая плотность A_max = {max_abs:.2f} > 1.5. Рекомендуется предварительное разбавление образца (возможна нелинейность IFE)."
+    messages = []
+    n_uncovered = int(np.sum(~np.isfinite(cf_matrix)))
+    if n_uncovered > 0:
+        messages.append(
+            f"Спектр УФ-Вид ({uv_wl.min():.0f}-{uv_wl.max():.0f} нм) не покрывает часть длин волн EEM "
+            f"(Ex {ex.min():.0f}-{ex.max():.0f}, Em {em.min():.0f}-{em.max():.0f} нм): "
+            f"{n_uncovered} ячеек не скорректированы и замаскированы (NaN)."
+        )
+    finite_a = np.concatenate([a_ex[np.isfinite(a_ex)], a_em[np.isfinite(a_em)]])
+    max_abs = float(np.max(finite_a)) if finite_a.size else float("nan")
+    if np.isfinite(max_abs) and max_abs > 1.5:
+        messages.append(
+            f"Оптическая плотность A_max(1 см) = {max_abs:.2f} > 1.5. Рекомендуется предварительное разбавление образца (возможна нелинейность IFE)."
+        )
+    warning = " ".join(messages) if messages else None
 
     return eem_corr, cf_matrix, warning
 
@@ -821,11 +1002,19 @@ def link_uv_vis_to_eem(
 
             ife_applied = False
             ife_warn = None
+            n_uncovered = 0
             if apply_ife:
-                eem.data, _, ife_warn = correct_inner_filter_effect(
+                corr, cf_mat, ife_warn = correct_inner_filter_effect(
                     eem.data, eem.ex, eem.em, matched_uv.wl, matched_uv.absorbance, pathlength_cm=pathlength_cm
                 )
-                ife_applied = True
+                n_uncovered = int(np.sum(~np.isfinite(cf_mat)))
+                if n_uncovered == 0:
+                    eem.data = corr
+                    ife_applied = True
+                else:
+                    # Частично скорректированная матрица не записывается в образец (NaN сломали бы PARAFAC):
+                    # данные оставлены без IFE, что явно отражено в журнале.
+                    ife_warn = (ife_warn or "") + " IFE НЕ применена к образцу: обрежьте EEM до диапазона спектра УФ-Вид."
 
             match_logs.append({
                 "EEM_Sample": eem.sample_id,
@@ -834,17 +1023,24 @@ def link_uv_vis_to_eem(
                 "DOC": doc_val,
                 "IFE_Applied": ife_applied,
                 "IFE_Warning": ife_warn,
+                "IFE_Uncovered_Cells": n_uncovered,
             })
 
     return match_logs
 
 
 # ==============================================================================
-# ЭТАЛОННАЯ БИБЛИОТЕКА ФЛУОРОФОРОВ И ИДЕНТИФИКАЦИЯ (OPENFLUOR MATCHING)
+# ВСТРОЕННЫЕ ПРИБЛИЖЕННЫЕ ЭТАЛОННЫЕ ФЛУОРОФОРЫ (НЕ база данных OpenFluor)
 # ==============================================================================
-OPENFLUOR_REFERENCE_LIBRARY = {
+# Шесть компонентов, заданных вручную суммами гауссиан по типичным литературным положениям
+# максимумов (Coble peaks A/C/M/T/B и т.п.). Это НЕ спектры из базы OpenFluor (openfluor.org)
+# и не заменяют поиск в ней; совпадение TCC с этими гауссианами - лишь грубая подсказка.
+REFERENCE_LIBRARY_LABEL_RU = "Встроенные приближенные эталонные флуорофоры (гауссовы модели), не база данных OpenFluor"
+REFERENCE_LIBRARY_LABEL_EN = "Built-in approximate reference fluorophores (Gaussian models), not the OpenFluor database"
+
+BUILTIN_REFERENCE_FLUOROPHORES = {
     "C1_Terrestrial_Fulvic": {
-        "id": "OF_C1",
+        "id": "REF_C1",
         "name_ru": "C1: Терригенный фульвоподобный флуорофор (Fulvic-like)",
         "name_en": "C1: Terrestrial Fulvic-like (Coble A/C, Murphy C1)",
         "category": "Humic / Terrestrial",
@@ -854,7 +1050,7 @@ OPENFLUOR_REFERENCE_LIBRARY = {
         "em_peaks": [(410.0, 45.0, 1.0)],
     },
     "C2_Industrial_Lignin_Humic": {
-        "id": "OF_C2",
+        "id": "REF_C2",
         "name_ru": "C2: Техногенный шлам-лигнин / Высокомолекулярный гуминовый (BPPM Marker)",
         "name_en": "C2: Sludge Lignin / High-MW Humic (BPPM Kraft Pulp Marker)",
         "category": "Anthropogenic / Lignin",
@@ -864,7 +1060,7 @@ OPENFLUOR_REFERENCE_LIBRARY = {
         "em_peaks": [(470.0, 55.0, 1.0)],
     },
     "C3_Protein_Tryptophan": {
-        "id": "OF_C3",
+        "id": "REF_C3",
         "name_ru": "C3: Белковоподобный (Триптофаноподобный, Peak T)",
         "name_en": "C3: Protein-like (Tryptophan-like, Peak T)",
         "category": "Protein / Autochthonous",
@@ -874,7 +1070,7 @@ OPENFLUOR_REFERENCE_LIBRARY = {
         "em_peaks": [(340.0, 30.0, 1.0)],
     },
     "C4_Protein_Tyrosine": {
-        "id": "OF_C4",
+        "id": "REF_C4",
         "name_ru": "C4: Тирозиноподобный белковый компонент (Peak B)",
         "name_en": "C4: Protein-like (Tyrosine-like, Peak B)",
         "category": "Protein / Labile",
@@ -884,7 +1080,7 @@ OPENFLUOR_REFERENCE_LIBRARY = {
         "em_peaks": [(305.0, 25.0, 1.0)],
     },
     "C5_Aquatic_Microbial_Humic": {
-        "id": "OF_C5",
+        "id": "REF_C5",
         "name_ru": "C5: Микробный гуминовый флуорофор (Marine/Aquatic Humic, Peak M)",
         "name_en": "C5: Aquatic Microbial Humic (Peak M)",
         "category": "Humic / Microbial",
@@ -894,7 +1090,7 @@ OPENFLUOR_REFERENCE_LIBRARY = {
         "em_peaks": [(385.0, 38.0, 1.0)],
     },
     "C6_Oxidized_Quinone": {
-        "id": "OF_C6",
+        "id": "REF_C6",
         "name_ru": "C6: Окисленный полифенольный / Хиноидный компонент (Oxidized Quinone)",
         "name_en": "C6: Oxidized Polyphenol / Quinone-like (Stedmon C6)",
         "category": "Photochemically Altered",
@@ -904,6 +1100,9 @@ OPENFLUOR_REFERENCE_LIBRARY = {
         "em_peaks": [(495.0, 50.0, 1.0)],
     },
 }
+
+# Обратная совместимость: старое имя константы (содержимое - встроенные приближенные модели, не OpenFluor)
+OPENFLUOR_REFERENCE_LIBRARY = BUILTIN_REFERENCE_FLUOROPHORES
 
 
 def match_parafac_to_openfluor(
@@ -915,8 +1114,10 @@ def match_parafac_to_openfluor(
     lang: str = "ru",
 ) -> pd.DataFrame:
     """
-    Сравнение извлеченных PARAFAC компонент с библиотекой флуорофоров OpenFluor
+    Сравнение извлеченных PARAFAC компонент со ВСТРОЕННЫМИ ПРИБЛИЖЕННЫМИ эталонными
+    флуорофорами (BUILTIN_REFERENCE_FLUOROPHORES - гауссовы модели, НЕ база данных OpenFluor)
     по критерию конгруэнтности Такера (Tucker Congruence Coefficient, TCC).
+    Имя функции сохранено для обратной совместимости (алиас: match_parafac_to_reference_library).
 
     Parameters:
     -----------
@@ -956,7 +1157,7 @@ def match_parafac_to_openfluor(
 
     # Предварительно рассчитываем спектры библиотеки на активных сетках
     ref_spectra = {}
-    for ref_key, ref_info in OPENFLUOR_REFERENCE_LIBRARY.items():
+    for ref_key, ref_info in BUILTIN_REFERENCE_FLUOROPHORES.items():
         ref_ex = _eval_peaks(ex_ax, ref_info["ex_peaks"])
         ref_em = _eval_peaks(em_ax, ref_info["em_peaks"])
         ref_spectra[ref_key] = (ref_ex, ref_em)
@@ -984,7 +1185,7 @@ def match_parafac_to_openfluor(
                 best_key = ref_key
 
         if best_key is not None:
-            ref_data = OPENFLUOR_REFERENCE_LIBRARY[best_key]
+            ref_data = BUILTIN_REFERENCE_FLUOROPHORES[best_key]
             name = ref_data[f"name_{lang}"] if f"name_{lang}" in ref_data else ref_data["name_en"]
             origin = ref_data[f"origin_{lang}"] if f"origin_{lang}" in ref_data else ref_data["origin_en"]
 
@@ -1007,6 +1208,11 @@ def match_parafac_to_openfluor(
                 "TCC_Ex": round(best_tcc_ex, 3),
                 "Confidence_Status": status,
                 "Ecological_Origin": origin,
+                "Reference_Library": REFERENCE_LIBRARY_LABEL_RU if lang == "ru" else REFERENCE_LIBRARY_LABEL_EN,
             })
 
-    return pd.DataFrame(match_rows)
+    return pd.DataFrame(match_rows)
+
+
+# Честное имя функции сопоставления (то же поведение)
+match_parafac_to_reference_library = match_parafac_to_openfluor

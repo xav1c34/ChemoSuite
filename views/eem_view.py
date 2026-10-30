@@ -2,6 +2,8 @@
 views/eem_view.py — EEM Fluorometry & UV-Vis Spectroscopy Studio View.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -108,6 +110,25 @@ def render_eem_studio(T: dict, lang: str):
         st.subheader(T[lang]["eem_preproc_hdr"])
         clean_scatter = st.checkbox(T[lang]["eem_clean_scatter"], value=True, key="eem_clean_scatter")
         norm_raman = st.checkbox(T[lang]["eem_norm_raman"], value=False, key="eem_norm_raman")
+        water_blank = None
+        if norm_raman:
+            blank_file = st.file_uploader(
+                "EEM бланка воды (Milli-Q) для нормировки R.U.:" if lang == "ru" else "Water blank EEM (Milli-Q) for R.U. normalisation:",
+                type=["csv", "txt", "dat"],
+                key="eem_water_blank_uploader",
+                help=(
+                    "Площадь Raman-пика воды интегрируется при Ex 350 нм, Em 381–426 нм (Lawaetz & Stedmon, 2009). "
+                    "Без бланка данные НЕ нормируются и остаются в исходных единицах прибора."
+                    if lang == "ru" else
+                    "The water Raman peak is integrated at Ex 350 nm, Em 381–426 nm (Lawaetz & Stedmon, 2009). "
+                    "Without a blank the data are NOT normalised and stay in instrument units."
+                ),
+            )
+            if blank_file is not None:
+                try:
+                    water_blank = eem_core.load_eem_file(blank_file, sample_id="water_blank")
+                except Exception as e:
+                    st.error(f"Error reading water blank {blank_file.name}: {e}")
         palette = st.selectbox(T[lang]["eem_palette_label"], ["Viridis", "Plasma", "Inferno", "Turbo"], key="eem_palette_select")
 
     if "eem_stored_dict" not in st.session_state:
@@ -126,10 +147,24 @@ def render_eem_studio(T: dict, lang: str):
                     df = pd.read_csv(f)
                     parsed = eem_core.parse_eem_dataframe(df, sample_id=sample_name)
 
+                if norm_raman:
+                    blank_matrix = None
+                    if (
+                        water_blank is not None
+                        and water_blank.data.shape == parsed.data.shape
+                        and np.allclose(water_blank.ex, parsed.ex)
+                        and np.allclose(water_blank.em, parsed.em)
+                    ):
+                        blank_matrix = water_blank.data
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", RuntimeWarning)
+                        parsed.data, r_factor = eem_core.normalize_to_raman_units(
+                            parsed.data, parsed.ex, parsed.em, water_blank=blank_matrix
+                        )
+                    parsed.raman_normalized = bool(np.isfinite(r_factor))
+                    parsed.raman_factor = float(r_factor) if np.isfinite(r_factor) else None
                 if clean_scatter:
                     parsed.data = eem_core.remove_scatter_bands(parsed.data, parsed.ex, parsed.em)
-                if norm_raman:
-                    parsed.data, _ = eem_core.normalize_to_raman_units(parsed.data, parsed.ex, parsed.em)
                 st.session_state["eem_stored_dict"][sample_name] = parsed
             except Exception as e:
                 st.error(f"Error reading EEM {f.name}: {e}")
@@ -168,6 +203,17 @@ def render_eem_studio(T: dict, lang: str):
     if not samples and not uv_samples:
         st.warning(T[lang]["eem_warn_no_data"])
     else:
+        not_ru = [s.sample_id for s in samples if getattr(s, "raman_normalized", None) is False]
+        if not_ru:
+            st.warning(
+                (f"⚠️ Нормировка в Raman Units НЕ выполнена для {len(not_ru)} образц(а/ов) "
+                 f"({', '.join(not_ru[:5])}{'…' if len(not_ru) > 5 else ''}): не загружен бланк воды или его сетка "
+                 "Ex/Em не совпадает с образцом. Интенсивности остаются в исходных единицах прибора (не R.U.).")
+                if lang == "ru" else
+                (f"⚠️ Raman-unit normalisation was NOT applied to {len(not_ru)} sample(s) "
+                 f"({', '.join(not_ru[:5])}{'…' if len(not_ru) > 5 else ''}): no water blank uploaded or its Ex/Em grid "
+                 "does not match. Intensities remain in instrument units (not R.U.).")
+            )
         tab_eem1, tab_eem2, tab_eem3, tab_eem4 = st.tabs([
             T[lang]["eem_tab1"], T[lang]["eem_tab2"], T[lang]["eem_tab3"], T[lang]["eem_tab4"]
         ])
@@ -184,7 +230,7 @@ def render_eem_studio(T: dict, lang: str):
                 fig_eem = go.Figure(data=go.Contour(
                     z=s_obj.data, x=s_obj.ex, y=s_obj.em, colorscale=palette.lower(),
                     contours=dict(coloring="heatmap", showlabels=True, labelfont=dict(size=10, color="white")),
-                    colorbar=dict(title=T[lang]["eem_int_label"]),
+                    colorbar=dict(title=(T[lang]["eem_int_label"] + (" (R.U.)" if getattr(s_obj, "raman_normalized", None) else ""))),
                 ))
                 fig_eem.update_layout(
                     title=T[lang]["eem_contour_title"].format(name=s_obj.sample_id),
@@ -208,7 +254,7 @@ def render_eem_studio(T: dict, lang: str):
                 with c_idx1:
                     st_df(
                         df_indices.style.format(
-                            {"FI": "{:.2f}", "HIX": "{:.2f}", "A254": "{:.4f}", "DOC": "{:.2f}", "SUVA254": "{:.2f}"},
+                            {"FI": "{:.2f}", "HIX": "{:.2f}", "BIX": "{:.2f}", "A254": "{:.4f}", "DOC": "{:.2f}", "SUVA254": "{:.2f}"},
                             na_rep="—"
                         )
                     )
@@ -300,21 +346,33 @@ def render_eem_studio(T: dict, lang: str):
                                     sh_res = eem_core.split_half_analysis(tensor_x, n_components=n_components_sel, random_state=42)
                                 if sh_res.get("can_split", False):
                                     mean_tcc = sh_res["mean_tcc"]
+                                    thr = float(sh_res.get("tcc_threshold", 0.95))
+                                    comp_ok = sh_res.get("component_validated", [])
+                                    n_ok = int(sum(bool(v) for v in comp_ok))
                                     if sh_res["is_validated"]:
-                                        st.success(T[lang]["eem_splithalf_success"].format(tcc=mean_tcc))
+                                        st.success(
+                                            f"✅ Модель PARAFAC валидирована: все {n_components_sel} компонента воспроизводятся в обеих половинах (TCC Em и Ex ≥ {thr:.2f}; Murphy et al., 2013). Средний TCC = {mean_tcc:.3f}."
+                                            if lang == "ru" else
+                                            f"✅ PARAFAC model validated: all {n_components_sel} components reproduced in both halves (TCC Em and Ex ≥ {thr:.2f}; Murphy et al., 2013). Mean TCC = {mean_tcc:.3f}."
+                                        )
                                     else:
-                                        st.warning(T[lang]["eem_splithalf_fail"].format(tcc=mean_tcc))
+                                        st.warning(
+                                            f"⚠️ Модель PARAFAC НЕ валидирована: порог TCC ≥ {thr:.2f} по Em и Ex пройден для {n_ok} из {n_components_sel} компонентов (средний TCC = {mean_tcc:.3f} не является критерием). Возможна перефакторизация."
+                                            if lang == "ru" else
+                                            f"⚠️ PARAFAC model NOT validated: TCC ≥ {thr:.2f} (Em and Ex) met by {n_ok} of {n_components_sel} components (mean TCC = {mean_tcc:.3f} is not the criterion). The model may be overfactored."
+                                        )
 
                                     st.markdown(f"**{T[lang]['eem_splithalf_tcc_title']}**")
                                     tcc_rows = []
                                     comp_names_sh = [T[lang]["eem_comp_c1"], T[lang]["eem_comp_c2"], T[lang]["eem_comp_c3"]] if n_components_sel == 3 else [f"C{r+1}" for r in range(n_components_sel)]
                                     for idx_c in range(n_components_sel):
                                         c_name = comp_names_sh[idx_c] if idx_c < len(comp_names_sh) else f"C{idx_c+1}"
+                                        c_valid = bool(comp_ok[idx_c]) if idx_c < len(comp_ok) else False
                                         tcc_rows.append({
                                             "Component": c_name,
                                             "TCC Em": sh_res["tcc_em"][idx_c],
                                             "TCC Ex": sh_res["tcc_ex"][idx_c],
-                                            "Status": "✅ OK (≥0.90)" if (sh_res["tcc_em"][idx_c] >= 0.90 and sh_res["tcc_ex"][idx_c] >= 0.90) else "⚠️ Low (<0.90)",
+                                            "Status": f"✅ OK (≥{thr:.2f})" if c_valid else f"⚠️ Low (<{thr:.2f})",
                                         })
                                     st_df(pd.DataFrame(tcc_rows))
 
@@ -338,16 +396,33 @@ def render_eem_studio(T: dict, lang: str):
                         fig_ex.update_layout(title=T[lang]["eem_ex_prof_title"], xaxis_title=T[lang]["eem_ex_axis"], yaxis_title=T[lang]["eem_rel_int"], template="plotly_white")
                         st_plotly(fig_ex)
 
-                    with st.expander(T[lang]["eem_openfluor_expander"], expanded=False):
+                    ref_lib_label = getattr(
+                        eem_core,
+                        "REFERENCE_LIBRARY_LABEL_RU" if lang == "ru" else "REFERENCE_LIBRARY_LABEL_EN",
+                        "Built-in approximate reference fluorophores, not the OpenFluor database",
+                    )
+                    with st.expander(
+                        ("🏷️ Сопоставление со встроенными приближенными эталонными флуорофорами (не OpenFluor)"
+                         if lang == "ru" else
+                         "🏷️ Matching against built-in approximate reference fluorophores (not OpenFluor)"),
+                        expanded=False,
+                    ):
                         of_matches = eem_core.match_parafac_to_openfluor(
                             results["em_profiles"], results["ex_profiles"], em_ax, ex_ax, threshold_tcc=0.85, lang=lang
                         )
-                        st.markdown(f"**{T[lang]['eem_openfluor_tbl_title']}**")
+                        st.markdown(f"**{ref_lib_label}**")
+                        st.caption(
+                            "Эталоны — 6 гауссовых моделей типичных положений пиков (Coble A/C/M/T/B), а не спектры базы "
+                            "OpenFluor. Для публикуемой идентификации сравните компоненты с базой openfluor.org."
+                            if lang == "ru" else
+                            "References are 6 Gaussian models of typical peak positions (Coble A/C/M/T/B), not spectra from "
+                            "the OpenFluor database. For publishable identification compare components at openfluor.org."
+                        )
                         st_df(
                             of_matches,
                             column_config={
                                 "Component": st.column_config.TextColumn("Компонент" if lang == "ru" else "Component", width="small"),
-                                "Best_Match_ID": st.column_config.TextColumn("ID OpenFluor", width="small"),
+                                "Best_Match_ID": st.column_config.TextColumn("ID эталона" if lang == "ru" else "Reference ID", width="small"),
                                 "Fluorophore_Name": st.column_config.TextColumn("Флуорофор" if lang == "ru" else "Fluorophore", width="medium"),
                                 "Category": st.column_config.TextColumn("Категория" if lang == "ru" else "Category", width="small"),
                                 "TCC_Mean": st.column_config.NumberColumn("TCC Средний" if lang == "ru" else "TCC Mean", format="%.3f", width="small"),
@@ -364,7 +439,7 @@ def render_eem_studio(T: dict, lang: str):
                         st.download_button(
                             label=T[lang]["eem_openfluor_dl_btn"],
                             data=of_matches.to_csv(index=False).encode("utf-8"),
-                            file_name="ChemoSuite_PARAFAC_OpenFluor_Matches.csv",
+                            file_name="ChemoSuite_PARAFAC_BuiltinReference_Matches.csv",
                             mime="text/csv",
                             key="dl_openfluor_matches_btn",
                         )
@@ -459,6 +534,14 @@ def render_eem_studio(T: dict, lang: str):
                             "S_275_295": "{:.4f}", "S_350_400": "{:.4f}", "S_R": "{:.2f}",
                             "DOC": "{:.2f}", "SUVA254": "{:.2f}"
                         }, na_rep="—")
+                    )
+                    mw_hi = getattr(eem_core, "MW_UV_E2E3_RANGE", (0.0, 7.82))[1]
+                    st.caption(
+                        f"Mw_est — эмпирическая оценка Mw = 3450 − 390·E2/E3 (Да); первоисточник калибровки не подтвержден, "
+                        f"значение ориентировочное. При E2/E3 > {mw_hi:.2f} (вне области калибровки) Mw_est не рассчитывается (—)."
+                        if lang == "ru" else
+                        f"Mw_est is an empirical estimate Mw = 3450 − 390·E2/E3 (Da) with an unverified calibration source; "
+                        f"treat it as indicative only. For E2/E3 > {mw_hi:.2f} (outside the calibrated range) Mw_est is not reported (—)."
                     )
                 with c_tbl2:
                     st.download_button(

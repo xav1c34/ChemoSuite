@@ -5,6 +5,7 @@ fticr_core.py — Вычислительное ядро масс-спектро�
 import inspect
 import io
 import os
+import re
 import tempfile
 import zipfile
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -49,6 +50,18 @@ TMDS_LIBRARY = [
     {"name": "NH3 (Amination / Deamination)", "delta": 17.026549},
     {"name": "SO3 (Sulfonation)", "delta": 79.956815},
 ]
+
+# Тип геохимического потока по точному коду трансформации TMDS_LIBRARY
+FLUX_TYPE_BY_CODE = {
+    "O": "Oxidation",
+    "CO2": "Mineralization",
+    "CH2": "Homology",
+    "H2O": "Hydration",
+    "SO3": "Sulfonation",
+    "H2": "Hydrogenation",
+    "CO": "Carbonylation",
+    "NH3": "Amination",
+}
 
 # Стандартные биогеохимические полигоны диаграммы Ван-Кревелена (H/C vs O/C)
 VAN_KREVELEN_REGIONS = {
@@ -121,27 +134,43 @@ VAN_KREVELEN_REGIONS = {
 def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
     """Расчет молекулярных дескрипторов (H/C, O/C, DBE, AI, NOSC, классы соединений)."""
     res = df.copy()
-    c = res["C"].astype(float)
-    h = res["H"].astype(float)
-    o = res["O"].astype(float)
-    n = res["N"].astype(float) if "N" in res.columns else 0.0
-    s = res["S"].astype(float) if "S" in res.columns else 0.0
+    n_rows = len(res)
+
+    def _elem(col: str) -> np.ndarray:
+        if col in res.columns:
+            return pd.to_numeric(res[col], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        return np.zeros(n_rows, dtype=float)
+
+    c = res["C"].astype(float).to_numpy()
+    h = res["H"].astype(float).to_numpy()
+    o = res["O"].astype(float).to_numpy()
+    n = _elem("N")
+    s = _elem("S")
+    p = _elem("P")
 
     res["H/C"] = np.divide(h, c, out=np.full_like(h, np.nan), where=c > 0)
     res["O/C"] = np.divide(o, c, out=np.full_like(o, np.nan), where=c > 0)
     res["DBE"] = 1.0 + c - 0.5 * h + 0.5 * n
     res["DBE-O"] = res["DBE"] - o
 
-    num_ai = 1.0 + c - o - s - 0.5 * h
-    den_ai = c - o - s - n
-    ai = np.divide(num_ai, den_ai, out=np.zeros_like(num_ai), where=(den_ai > 0) & (num_ai > 0))
-    res["AI"] = np.clip(ai, 0.0, 1.0)
+    # Aromaticity index, Koch & Dittmar (2006) Rapid Commun. Mass Spectrom. 20, 926-932,
+    # with the erratum Koch & Dittmar (2016) RCM 30, 250:
+    #   AI     = (1 + C - O - S - 0.5*(H + N + P)) / (C - O - S - N - P)
+    #   AI_mod = (1 + C - 0.5*O - S - 0.5*(H + N + P)) / (C - 0.5*O - S - N - P)
+    # AI (AI_mod) = 0 when the numerator (DBE_AI) or the denominator (C_AI) is <= 0.
+    num_ai = 1.0 + c - o - s - 0.5 * (h + n + p)
+    den_ai = c - o - s - n - p
+    res["AI"] = np.divide(num_ai, den_ai, out=np.zeros_like(num_ai), where=(den_ai > 0) & (num_ai > 0))
+    num_ai_mod = 1.0 + c - 0.5 * o - s - 0.5 * (h + n + p)
+    den_ai_mod = c - 0.5 * o - s - n - p
+    res["AI_mod"] = np.divide(num_ai_mod, den_ai_mod, out=np.zeros_like(num_ai_mod),
+                              where=(den_ai_mod > 0) & (num_ai_mod > 0))
     nosc_num = 4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s
     res["NOSC"] = np.where(c > 0, 4.0 - np.divide(nosc_num, c, out=np.zeros_like(nosc_num), where=c > 0), np.nan)
 
     def get_hetero_class(row):
-        has_n = row["N"] > 0
-        has_s = row["S"] > 0
+        has_n = (row.get("N", 0) or 0) > 0
+        has_s = (row.get("S", 0) or 0) > 0
         if has_n and has_s:
             return "CHONS"
         if has_n:
@@ -156,7 +185,7 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
         hc = row["H/C"]
         oc = row["O/C"]
         ai_val = row["AI"]
-        n_val = row["N"]
+        n_val = row.get("N", 0) or 0
         if pd.isna(hc) or pd.isna(oc):
             return "Undefined" if lang == "en" else "Не определено"
         if n_val > 0 and (0.3 < hc < 0.8) and (oc < 0.4):
@@ -243,20 +272,100 @@ def parse_uploaded_file(file_bytes: bytes, delimiter: str = "Auto", decimal_sep:
         if any(k in c for k in ["m/z", "mass", "mz", "exp", "эксперим", "масса"]):
             mass_col = df.columns[idx]
             break
+    # Распознавание колонки интенсивности по целым токенам имени (а не по подстроке:
+    # раньше "i" совпадало с "Resolution", "Ion", "Min" и т.п.).
+    int_source = "header"
     for idx, c in enumerate(cols_lower):
-        if any(k in c for k in ["int", "i", "abund", "height", "area", "интенсив", "высота"]):
+        if mass_col is not None and df.columns[idx] == mass_col:
+            continue
+        if _is_intensity_header(c):
             int_col = df.columns[idx]
             break
+    if int_col is None and has_header and mass_col is not None:
+        # Резерв: первая числовая колонка, не являющаяся заведомо другой величиной (resolution, S/N, ppm, ...)
+        for idx, c in enumerate(cols_lower):
+            col = df.columns[idx]
+            if col == mass_col or (_header_tokens(c) & _NON_INTENSITY_TOKENS):
+                continue
+            if pd.to_numeric(df[col], errors="coerce").notna().mean() >= 0.9:
+                int_col = col
+                int_source = "guessed (first numeric column)"
+                break
 
     if not has_header or mass_col is None:
         mass_col = df.columns[0]
         int_col = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+        int_source = "positional (2nd column)" if len(df.columns) > 1 else "missing"
 
     res_df = pd.DataFrame()
     res_df["mass"] = pd.to_numeric(df[mass_col], errors="coerce")
-    res_df["intensity"] = pd.to_numeric(df[int_col], errors="coerce") if int_col is not None else 100.0
+    if int_col is not None and int_source != "missing":
+        res_df["intensity"] = pd.to_numeric(df[int_col], errors="coerce")
+    else:
+        # Пик-лист без интенсивностей: равные веса, явно помечено в attrs
+        res_df["intensity"] = 100.0
+        int_source = "missing (uniform 100 assigned)"
     res_df = res_df.dropna().sort_values("mass").reset_index(drop=True)
+    res_df.attrs["intensity_column"] = str(int_col) if int_col is not None else None
+    res_df.attrs["intensity_source"] = int_source
     return res_df
+
+
+_INTENSITY_TOKENS = {
+    "intensity", "intensities", "int", "intens", "abundance", "abund", "height", "counts", "count",
+    "area", "i", "интенсивность", "интенсив", "высота",
+}
+_NON_INTENSITY_TOKENS = {
+    "resolution", "res", "sn", "s", "n", "snr", "noise", "fwhm", "error", "err", "ppm", "mda",
+    "charge", "z", "formula", "class", "dbe", "rt", "time", "index", "id",
+}
+
+
+def _header_tokens(header: str) -> set:
+    """Разбивает имя колонки на токены (буквенно-цифровые слова, включая кириллицу)."""
+    return {t for t in re.split(r"[^0-9a-zа-яё]+", str(header).lower()) if t}
+
+
+def _is_intensity_header(header: str) -> bool:
+    """True, если имя колонки содержит токен интенсивности (intensity, int, abundance, height, counts, ...)."""
+    tokens = _header_tokens(header)
+    if tokens & _INTENSITY_TOKENS:
+        return True
+    return any(t.startswith(("intensit", "abundan", "интенсив")) for t in tokens)
+
+
+def ion_mode_polarity(ion_mode: str) -> int:
+    """
+    Знак сдвига массы протона для поддерживаемых режимов ионизации:
+      -1 -> [M-H]-  (ESI(-)),  +1 -> [M+H]+  (ESI(+)),  0 -> нейтральные массы [M].
+    Любые другие аддукты/режимы ([M+Na]+, [M+Cl]-, APPI M+. и т.п.) не поддерживаются и вызывают
+    ValueError (раньше им молча присваивался нулевой сдвиг, т.е. массы трактовались как нейтральные).
+    """
+    raw = str(ion_mode or "")
+    norm = (raw.replace("⁻", "-").replace("⁺", "+").replace("−", "-")
+            .replace(" ", "").upper())
+    low = raw.lower()
+    if "NEUTRAL" in norm or "нейтральн" in low or norm in ("[M]", "M"):
+        return 0
+    adduct = re.search(r"\[(.*?)\]", norm)
+    if adduct:
+        core = adduct.group(1)
+        if core == "M-H":
+            return -1
+        if core == "M+H":
+            return 1
+        if core == "M":
+            return 0
+        raise ValueError(
+            f"Неподдерживаемый режим ионизации '{ion_mode}': поддерживаются только [M-H]-, [M+H]+ и нейтральные массы [M]."
+        )
+    if norm in ("ESI(-)", "ESI-"):
+        return -1
+    if norm in ("ESI(+)", "ESI+"):
+        return 1
+    raise ValueError(
+        f"Неподдерживаемый режим ионизации '{ion_mode}': поддерживаются только ESI(-) [M-H]-, ESI(+) [M+H]+ и нейтральные массы [M]."
+    )
 
 
 def fast_formula_assigner(
@@ -274,6 +383,7 @@ def fast_formula_assigner(
     n_min, n_max = bounds.get("N", (0, 2))
     s_min, s_max = bounds.get("S", (0, 1))
 
+    polarity = ion_mode_polarity(ion_mode)  # ValueError для неподдерживаемых аддуктов
     peaks_m = peaks_df["mass"].values
     peaks_int = peaks_df["intensity"].values
     peaks_norm = peaks_df["norm_intensity"].values if "norm_intensity" in peaks_df.columns else peaks_int
@@ -283,7 +393,7 @@ def fast_formula_assigner(
     all_assigned_rows = []
 
     for z in charges:
-        ion_shift = -z * H_ION_MASS if "ESI(-)" in ion_mode else (z * H_ION_MASS if "ESI(+)" in ion_mode else 0.0)
+        ion_shift = polarity * z * H_ION_MASS
         c_list, h_list, o_list, n_list, s_list = [], [], [], [], []
 
         for n in range(n_min, n_max + 1):
@@ -369,7 +479,9 @@ def fast_formula_assigner(
                 c13_r = np.searchsorted(peaks_m, exp_c13_m + (exp_c13_m * ppm_tolerance * 1e-6), side="right")
 
                 if c13_l < c13_r:
-                    c13_intens = peaks_int[c13_l]
+                    # ближайший к ожидаемой массе 13C-изотополога пик внутри окна допуска
+                    c13_best = c13_l + int(np.argmin(np.abs(peaks_m[c13_l:c13_r] - exp_c13_m)))
+                    c13_intens = peaks_int[c13_best]
                     theor_ratio = c_val * 0.0108
                     obs_ratio = c13_intens / intens if intens > 0 else 0
                     if iso_strict:
@@ -427,7 +539,7 @@ def run_formula_assignment(
                     if "elements" in sig: kwargs["elements"] = bounds
                     if "hc_limits" in sig: kwargs["hc_limits"] = (0.2, max_hc)
                     if "oc_limits" in sig: kwargs["oc_limits"] = (0.0, max_oc)
-                    if "mode" in sig: kwargs["mode"] = ("neg" if "ESI(-)" in ion_mode else ("pos" if "ESI(+)" in ion_mode else "neutral"))
+                    if "mode" in sig: kwargs["mode"] = {-1: "neg", 1: "pos", 0: "neutral"}[ion_mode_polarity(ion_mode)]
 
                     target_method(**kwargs)
                     for attr in ["data", "df", "assigned", "assigned_data", "peaks"]:
@@ -826,14 +938,10 @@ def compute_geochemical_vector_fluxes(
         "total_reaction_pairs": total_reactions,
     }
 
+    # Классификация по ТОЧНОМУ коду трансформации (первое слово имени в TMDS_LIBRARY).
+    # Подстрочный поиск "O (" ранее ошибочно относил "H2O (" и "CO (" к окислению.
     summary_df["Flux_Type"] = summary_df["Transformation"].apply(
-        lambda t: "Oxidation" if "O (" in t
-        else "Mineralization" if "CO2" in t
-        else "Homology" if "CH2" in t
-        else "Hydration" if "H2O" in t
-        else "Sulfonation" if "SO3" in t
-        else "Hydrogenation" if "H2" in t
-        else "Other"
+        lambda t: FLUX_TYPE_BY_CODE.get(str(t).split()[0] if str(t).split() else "", "Other")
     )
 
     return {
@@ -970,15 +1078,16 @@ def find_transformation_pathways(
 def get_calibrant_library(series_name: str, ion_mode: str) -> pd.DataFrame:
     """Генерация теоретической библиотеки калибрантов (FA / CHO)."""
     calibrants = []
+    polarity = ion_mode_polarity(ion_mode)
     if "FA" in series_name or "Жирные" in series_name or "Fatty" in series_name:
         for n in range(12, 34):
             m_neut = n * EXACT_MASSES["C"] + 2 * n * EXACT_MASSES["H"] + 2 * EXACT_MASSES["O"]
-            calibrants.append({"name": f"FA {n}:0 (C{n}H{2*n}O2)", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
+            calibrants.append({"name": f"FA {n}:0 (C{n}H{2*n}O2)", "m_theor": m_neut + polarity * H_ION_MASS})
     elif "CHO" in series_name:
         for n in range(14, 32):
             h_count = 2 * n - 8
             m_neut = n * EXACT_MASSES["C"] + h_count * EXACT_MASSES["H"] + 7 * EXACT_MASSES["O"]
-            calibrants.append({"name": f"CHO C{n}H{h_count}O7", "m_theor": m_neut - H_ION_MASS if "ESI(-)" in ion_mode else (m_neut + H_ION_MASS if "ESI(+)" in ion_mode else m_neut)})
+            calibrants.append({"name": f"CHO C{n}H{h_count}O7", "m_theor": m_neut + polarity * H_ION_MASS})
     return pd.DataFrame(calibrants)
 
 
@@ -1016,8 +1125,17 @@ def batch_process_fticr_spectra(
         Сводная матрица дескрипторов всех образцов со столбцом 'Sample_ID' (готова для ChemoSuite ML).
     spectra_dict : Dict[str, Dict[str, Any]]
         Словарь обработанных спектров, готовый для обновления st.session_state["spectra_db"].
+
+    Ошибки и пропуски по отдельным файлам не теряются: они возвращаются в
+    ``summary_df.attrs["errors"]`` — список словарей {"file", "sample_id", "stage", "error"}
+    (stage: parse | filter | assign | descriptors | exception). Одинаковые имена файлов из разных
+    папок ZIP-архива не перезаписывают друг друга: дубликаты получают имя с префиксом папки
+    (``"dirA__sample.csv"``), а исходный путь хранится в spectra_dict[...]["archive_path"]
+    и ``summary_df.attrs["renamed"]``.
     """
     files_dict: Dict[str, bytes] = {}
+    archive_paths: Dict[str, str] = {}
+    renamed: Dict[str, str] = {}
 
     if isinstance(files_input, dict):
         files_dict = files_input
@@ -1032,9 +1150,27 @@ def batch_process_fticr_spectra(
             for z in zf.infolist():
                 if ".." in z.filename or z.filename.startswith("/") or z.filename.startswith("\\"):
                     raise ValueError(f"Обнаружен опасный путь файла (Zip-Slip): {z.filename}")
-            for fname in zf.namelist():
-                if fname.lower().endswith((".csv", ".tsv", ".txt", ".xy")) and not fname.startswith("__MACOSX"):
-                    files_dict[os.path.basename(fname)] = zf.read(fname)
+            member_names = [
+                fname for fname in zf.namelist()
+                if fname.lower().endswith((".csv", ".tsv", ".txt", ".xy")) and not fname.startswith("__MACOSX")
+            ]
+            base_counts: Dict[str, int] = {}
+            for fname in member_names:
+                base = os.path.basename(fname)
+                base_counts[base] = base_counts.get(base, 0) + 1
+            for fname in member_names:
+                base = os.path.basename(fname)
+                key = base
+                if base_counts[base] > 1:
+                    key = fname.replace("\\", "/").strip("/").replace("/", "__")
+                    k_idx = 2
+                    while key in files_dict:
+                        stem, ext = os.path.splitext(key)
+                        key = f"{stem}_{k_idx}{ext}"
+                        k_idx += 1
+                    renamed[fname] = key
+                files_dict[key] = zf.read(fname)
+                archive_paths[key] = fname
         if isinstance(files_input, str) and not isinstance(bio, io.BytesIO):
             bio.close()
     elif isinstance(files_input, str) and os.path.isdir(files_input):
@@ -1046,10 +1182,21 @@ def batch_process_fticr_spectra(
         raise ValueError("Неподдерживаемый формат входных данных для пакетной обработки спектров.")
 
     if not files_dict:
-        return pd.DataFrame(), {}
+        empty = pd.DataFrame()
+        empty.attrs["errors"] = []
+        empty.attrs["renamed"] = {}
+        return empty, {}
+
+    # Неподдерживаемый режим ионизации — ошибка всего пакета, а не «тихий» пропуск каждого файла
+    ion_mode_polarity(ion_mode)
 
     summary_rows = []
     spectra_dict = {}
+    errors: List[Dict[str, str]] = []
+
+    def _fail(fname_: str, sample_id_: str, stage: str, msg: str) -> None:
+        errors.append({"file": archive_paths.get(fname_, fname_), "sample_id": sample_id_,
+                       "stage": stage, "error": msg})
 
     for fname, raw_bytes in files_dict.items():
         sample_id = os.path.splitext(fname)[0]
@@ -1057,6 +1204,7 @@ def batch_process_fticr_spectra(
             # 1. Парсинг
             parsed_df = parse_uploaded_file(raw_bytes, delimiter="Auto", decimal_sep=".", has_header=True)
             if parsed_df.empty or "mass" not in parsed_df.columns:
+                _fail(fname, sample_id, "parse", "Не удалось извлечь пики (mass/intensity) из файла.")
                 continue
 
             # 2. Фильтрация
@@ -1065,11 +1213,14 @@ def batch_process_fticr_spectra(
                 mask = mask & (parsed_df["intensity"] >= min_intensity)
             filtered = parsed_df[mask].reset_index(drop=True)
             if filtered.empty:
+                _fail(fname, sample_id, "filter",
+                      f"Нет пиков в диапазоне m/z {mz_range[0]}-{mz_range[1]} с интенсивностью >= {min_intensity}.")
                 continue
 
             # 3. Приписка формул
             assigned = fast_formula_assigner(filtered, ion_mode=ion_mode, ppm_tolerance=ppm_tolerance)
             if assigned.empty:
+                _fail(fname, sample_id, "assign", f"Ни одной формулы не приписано (допуск {ppm_tolerance} ppm).")
                 continue
 
             # 4. Дескрипторы и классы
@@ -1090,6 +1241,7 @@ def batch_process_fticr_spectra(
 
             # Базовые хемометрические индексы
             row["AI"] = round(float(desc_df["AI"].mean()), 3)
+            row["AI_mod"] = round(float(desc_df["AI_mod"].mean()), 3)
             row["DBE"] = round(float(desc_df["DBE"].mean()), 2)
             row["H/C"] = round(float(desc_df["H/C"].mean()), 3)
             row["O/C"] = round(float(desc_df["O/C"].mean()), 3)
@@ -1112,13 +1264,17 @@ def batch_process_fticr_spectra(
             # Сохранение спектра
             spectra_dict[fname] = {
                 "raw_path": fname,
+                "archive_path": archive_paths.get(fname, fname),
                 "file_bytes": raw_bytes,
                 "raw_df": parsed_df,
                 "parsed_peaks": filtered,
                 "assigned_df": desc_df,
             }
-        except Exception:
+        except Exception as e:
+            _fail(fname, sample_id, "exception", f"{type(e).__name__}: {e}")
             continue
 
     summary_df = pd.DataFrame(summary_rows)
+    summary_df.attrs["errors"] = errors
+    summary_df.attrs["renamed"] = renamed
     return summary_df, spectra_dict

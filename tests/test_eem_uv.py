@@ -81,10 +81,12 @@ def test_uv_vis_indices_and_derivatives():
     assert not np.isnan(indices["E2_E3"])
     assert not np.isnan(indices["Mw_est"])
 
-    # 2. Оценка молекулярной массы (уравнение Перминовой: Mw = 3450 - 390 * E2/E3)
+    # 2. Эмпирическая оценка Mw = 3450 - 390 * E2/E3 (калибровка не подтверждена): без «зажима»,
+    #    вне области применимости (E2/E3 > MW_UV_E2E3_RANGE[1]) - NaN
     e2_e3 = indices["E2_E3"]
+    assert e2_e3 <= eem_core.MW_UV_E2E3_RANGE[1]
     expected_mw = 3450.0 - 390.0 * e2_e3
-    assert np.isclose(indices["Mw_est"], np.clip(expected_mw, 400.0, 15000.0), atol=2.0)
+    assert np.isclose(indices["Mw_est"], expected_mw, atol=2.0)
 
     # 3. Производная спектроскопия (Савицкий — Голей)
     derivs = eem_core.compute_uv_derivatives(wl, absorbance)
@@ -228,7 +230,11 @@ def test_synthetic_uv_vis_dataset():
     ind_bai = eem_core.calculate_uv_vis_indices(baikal_u)
 
     assert ind_lig["SUVA254"] > ind_bai["SUVA254"]
-    assert ind_lig["Mw_est"] > ind_bai["Mw_est"]
+    assert ind_lig["E2_E3"] < ind_bai["E2_E3"]
+    # Mw_est лигнина в области калибровки; для байкальской воды E2/E3 может выходить за ее пределы
+    # (тогда Mw_est = NaN, а не фиксированные 400 Да)
+    assert np.isfinite(ind_lig["Mw_est"])
+    assert np.isnan(ind_bai["Mw_est"]) or ind_lig["Mw_est"] > ind_bai["Mw_est"]
 
 
 

@@ -12,6 +12,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+# Базис, на котором заданы массовые доли C, H, N, S, O:
+#   "as_received" — на исходную (влажную, зольную) навеску: daf = x * 100 / (100 - W - A)
+#   "dry"         — на сухое вещество (ash_pct тоже на сухую навеску): daf = x * 100 / (100 - A)
+#   "daf"         — уже на сухое беззольное вещество: пересчет не выполняется
+VALID_BASES = ("as_received", "dry", "daf")
+DAF_SUM_TOLERANCE_PCT = 100.5
+
 
 # Атомные массы элементов (IUPAC стандарт)
 ATOMIC_WEIGHTS = {
@@ -36,6 +43,7 @@ class ElementalSample:
     moisture_pct: float = 0.0  # Влажность, %
     sample_type: str = "Unknown"  # Тип пробы (NOM, Lignin, Humic, Soil)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    basis: str = "as_received"  # Базис массовых долей: "as_received" | "dry" | "daf" (см. VALID_BASES)
 
     # Рассчитанные атомные соотношения и индексы
     h_c: float = 0.0
@@ -43,22 +51,53 @@ class ElementalSample:
     n_c: float = 0.0
     s_c: float = 0.0
     nosc: float = 0.0
-    aromaticity_index: float = 0.0
-    combustion_heat_mj_kg: float = 0.0
+    aromaticity_index: float = 0.0       # AI_bulk (Koch & Dittmar, на C-нормированной формуле)
+    aromaticity_index_mod: float = 0.0   # AI_mod_bulk (O учитывается как 0.5·O)
+    combustion_heat_mj_kg: float = 0.0   # = hhv_mendeleev_mj_kg (имя сохранено для совместимости)
+    hhv_mendeleev_mj_kg: float = 0.0
+    hhv_dulong_mj_kg: float = 0.0
+    daf_sum_pct: float = 0.0             # C+H+N+S+O на daf-базисе после пересчета
+    basis_warning: Optional[str] = None
 
-    def compute_stoichiometry(self) -> "ElementalSample":
-        """Вычисляет атомные отношения и хемометрические дескрипторы."""
-        # Пересчет на абсолютно сухое беззольное вещество (daf - dry ash-free) если зольность/влажность заданы
-        organic_fraction = 100.0 - (self.ash_pct + self.moisture_pct)
-        if organic_fraction > 0.0 and (self.ash_pct > 0.0 or self.moisture_pct > 0.0):
-            scale = 100.0 / organic_fraction
-            c_daf = self.c_pct * scale
-            h_daf = self.h_pct * scale
-            n_daf = self.n_pct * scale
-            s_daf = self.s_pct * scale
-            o_daf = self.o_pct * scale
+    def compute_stoichiometry(self, basis: Optional[str] = None) -> "ElementalSample":
+        """
+        Вычисляет атомные отношения и хемометрические дескрипторы.
+
+        basis : "as_received" | "dry" | "daf" (по умолчанию — self.basis).
+            Пересчет на сухое беззольное вещество (daf) выполняется только в соответствии с
+            заявленным базисом, поэтому данные, уже приведенные к daf, повторно не корректируются.
+            Если сумма C+H+N+S+O после пересчета превышает 100.5 %, в basis_warning записывается
+            предупреждение (вероятно, указан неверный базис или O рассчитан по разности на другом базисе).
+        """
+        if basis is not None:
+            self.basis = basis
+        b = str(self.basis or "as_received").strip().lower()
+        if b not in VALID_BASES:
+            raise ValueError(f"Неизвестный базис '{self.basis}'. Допустимо: {', '.join(VALID_BASES)}.")
+        self.basis = b
+
+        if b == "as_received":
+            organic_fraction = 100.0 - (self.ash_pct + self.moisture_pct)
+        elif b == "dry":
+            organic_fraction = 100.0 - self.ash_pct
         else:
-            c_daf, h_daf, n_daf, s_daf, o_daf = self.c_pct, self.h_pct, self.n_pct, self.s_pct, self.o_pct
+            organic_fraction = 100.0
+        if organic_fraction <= 0.0:
+            raise ValueError(f"Зольность/влажность образца {self.sample_id} >= 100 %: пересчет на daf невозможен.")
+        scale = 100.0 / organic_fraction
+        c_daf = self.c_pct * scale
+        h_daf = self.h_pct * scale
+        n_daf = self.n_pct * scale
+        s_daf = self.s_pct * scale
+        o_daf = self.o_pct * scale
+
+        self.daf_sum_pct = float(c_daf + h_daf + n_daf + s_daf + o_daf)
+        self.basis_warning = None
+        if self.daf_sum_pct > DAF_SUM_TOLERANCE_PCT:
+            self.basis_warning = (
+                f"Сумма C+H+N+S+O на daf = {self.daf_sum_pct:.1f} % > {DAF_SUM_TOLERANCE_PCT} % "
+                f"(базис '{b}'): проверьте базис данных (возможно, они уже на daf/сухом веществе)."
+            )
 
         # Атомные количества (моль на 100 г)
         mol_c = c_daf / ATOMIC_WEIGHTS["C"] if c_daf > 0 else 1e-9
@@ -77,19 +116,30 @@ class ElementalSample:
         # NOSC = 4 - (4*C + H - 3*N - 2*O - 2*S) / C = - (H - 3*N - 2*O - 2*S) / C
         self.nosc = float(- (mol_h - 3.0 * mol_n - 2.0 * mol_o - 2.0 * mol_s) / mol_c)
 
-        # Индекс ароматичности валовый (AI_bulk по Koch & Dittmar / Van Krevelen)
-        # AI = (1 + C - O - 0.5*H) / (C - O)
-        c_minus_o = mol_c - mol_o
-        if c_minus_o > 0:
-            ai_val = (1.0 + mol_c - mol_o - 0.5 * mol_h) / c_minus_o
-            self.aromaticity_index = float(np.clip(ai_val, 0.0, 1.0))
-        else:
-            self.aromaticity_index = 0.0
+        # Валовый индекс ароматичности — ПРИБЛИЖЕНИЕ для объемного вещества.
+        # Выражение Koch & Dittmar (2006; erratum 2016) для формулы CcHhNnOoSs:
+        #   AI = (1 + C - O - S - 0.5*(H + N)) / (C - O - S - N),  AI_mod: O -> 0.5*O.
+        # Для валовой пробы молекулярная формула неизвестна, поэтому используется C-нормированная
+        # формула C1 H(h/c) N(n/c) O(o/c) S(s/c). Член "1 +" (вклад одной молекулы, 1/C на атом C)
+        # для макромолекулярного вещества стремится к 0 и опускается: при C = 1 он доминировал бы
+        # и давал AI > 1. Результат не зависит от базиса пересчета (моль/100 г и т.п.).
+        # AI = 0, если числитель или знаменатель <= 0 (как в Koch & Dittmar).
+        hc, oc, nc, sc = self.h_c, self.o_c, self.n_c, self.s_c
 
-        # Высшая теплота сгорания (формула Менделеева / Дюлонга в МДж/кг)
-        # Q_s = 0.339*C + 1.256*H - 0.1088*(O - S)
-        q_val = 0.339 * c_daf + 1.256 * h_daf - 0.1088 * max(0.0, o_daf - s_daf)
-        self.combustion_heat_mj_kg = float(max(0.0, q_val))
+        def _ai(o_term: float) -> float:
+            num = 1.0 - o_term - sc - 0.5 * (hc + nc)
+            den = 1.0 - o_term - sc - nc
+            return float(num / den) if (num > 0 and den > 0) else 0.0
+
+        self.aromaticity_index = _ai(oc)
+        self.aromaticity_index_mod = _ai(0.5 * oc)
+
+        # Высшая теплота сгорания (МДж/кг, массовые % на daf):
+        # Менделеев: Q = 0.339*C + 1.256*H - 0.1088*(O - S)   (без ограничения O - S снизу)
+        self.hhv_mendeleev_mj_kg = float(0.339 * c_daf + 1.256 * h_daf - 0.1088 * (o_daf - s_daf))
+        # Дюлонг: HHV = 0.3383*C + 1.443*(H - O/8) + 0.0942*S
+        self.hhv_dulong_mj_kg = float(0.3383 * c_daf + 1.443 * (h_daf - o_daf / 8.0) + 0.0942 * s_daf)
+        self.combustion_heat_mj_kg = self.hhv_mendeleev_mj_kg
 
         return self
 
@@ -111,15 +161,31 @@ class ElementalSample:
             "S_C": round(self.s_c, 4),
             "NOSC": round(self.nosc, 3),
             "AI_bulk": round(self.aromaticity_index, 3),
-            "Q_combustion_MJ_kg": round(self.combustion_heat_mj_kg, 2),
+            "AI_mod_bulk": round(self.aromaticity_index_mod, 3),
+            "Q_combustion_MJ_kg": round(self.combustion_heat_mj_kg, 2),  # = HHV по Менделееву
+            "HHV_Dulong_MJ_kg": round(self.hhv_dulong_mj_kg, 2),
+            "Basis": self.basis,
+            "Sum_daf_pct": round(self.daf_sum_pct, 2),
+            "QC_Warning": self.basis_warning or "",
         }
 
 
-def parse_elemental_table(df_or_bytes: Union[pd.DataFrame, bytes, str]) -> List[ElementalSample]:
+def parse_elemental_table(
+    df_or_bytes: Union[pd.DataFrame, bytes, str],
+    basis: Optional[str] = None,
+) -> List[ElementalSample]:
     """
     Парсит таблицу элементного анализа (CSV, TSV, Excel или DataFrame).
     Определяет колонки C, H, N, S, O, Ash, Moisture и рассчитывает стехиометрию.
+
+    basis : "as_received" | "dry" | "daf" | None.
+        Базис массовых долей. Если задан — применяется ко всем строкам; если None —
+        берется из колонки "Basis" таблицы (если есть), иначе "as_received" (прежнее поведение).
+        O по разности рассчитывается на том же базисе: as_received: 100 - (C+H+N+S+A+W),
+        dry: 100 - (C+H+N+S+A), daf: 100 - (C+H+N+S).
     """
+    if basis is not None and str(basis).strip().lower() not in VALID_BASES:
+        raise ValueError(f"Неизвестный базис '{basis}'. Допустимо: {', '.join(VALID_BASES)}.")
     if df_or_bytes is None:
         return []
 
@@ -186,6 +252,8 @@ def parse_elemental_table(df_or_bytes: Union[pd.DataFrame, bytes, str]) -> List[
             col_map["ash"] = c
         elif any(k in cl for k in ["moist", "влаж"]):
             col_map["moist"] = c
+        elif cl in ["basis", "базис"]:
+            col_map["basis"] = c
         elif any(k in cl for k in ["type", "тип", "group", "class"]):
             col_map["type"] = c
 
@@ -201,11 +269,23 @@ def parse_elemental_table(df_or_bytes: Union[pd.DataFrame, bytes, str]) -> List[
         ash_val = float(pd.to_numeric(row.get(col_map.get("ash", ""), 0.0), errors="coerce") or 0.0)
         moist_val = float(pd.to_numeric(row.get(col_map.get("moist", ""), 0.0), errors="coerce") or 0.0)
 
-        # Если O не задан явно, рассчитываем по балансу 100 - (C+H+N+S+Ash+Moisture)
+        if basis is not None:
+            row_basis = str(basis).strip().lower()
+        elif "basis" in col_map and pd.notna(row[col_map["basis"]]):
+            row_basis = str(row[col_map["basis"]]).strip().lower()
+        else:
+            row_basis = "as_received"
+
+        # Если O не задан явно, рассчитываем по балансу на заявленном базисе
         if "o" in col_map and pd.notna(row[col_map["o"]]):
             o_val = float(pd.to_numeric(row[col_map["o"]], errors="coerce") or 0.0)
         else:
-            diff = 100.0 - (c_val + h_val + n_val + s_val + ash_val + moist_val)
+            if row_basis == "daf":
+                diff = 100.0 - (c_val + h_val + n_val + s_val)
+            elif row_basis == "dry":
+                diff = 100.0 - (c_val + h_val + n_val + s_val + ash_val)
+            else:
+                diff = 100.0 - (c_val + h_val + n_val + s_val + ash_val + moist_val)
             o_val = max(0.0, diff)
 
         s_obj = ElementalSample(
@@ -218,6 +298,7 @@ def parse_elemental_table(df_or_bytes: Union[pd.DataFrame, bytes, str]) -> List[
             ash_pct=ash_val,
             moisture_pct=moist_val,
             sample_type=s_type,
+            basis=row_basis,
         )
         s_obj.compute_stoichiometry()
         samples.append(s_obj)
@@ -231,6 +312,9 @@ def generate_synthetic_elemental_dataset() -> pd.DataFrame:
     - 4 пробы природного РОВ (Байкал, Селенга, Баргузин, Снежная)
     - 4 пробы техногенного шлам-лигнина БЦБК (накопители, фильтрат, окисленный шлам)
     - 4 пробы эталонных гуминовых кислот (IHSS Suwannee River, Leonardite, Peat HA, Soil HA)
+
+    Колонка "Basis" указывает базис массовых долей: значения РОВ и шлам-лигнина в сумме с золой
+    дают ~100 % (сухое вещество, "dry"); значения IHSS (C+H+N+S+O ~ 100 %) уже на "daf".
     """
     records = [
         # Байкал и природное РОВ
@@ -249,6 +333,8 @@ def generate_synthetic_elemental_dataset() -> pd.DataFrame:
         {"Sample_ID": "Pahokee_Peat_HA", "Sample_Type": "Humic_Standard", "C": 56.4, "H": 4.1, "N": 3.7, "S": 0.7, "O": 35.1, "Ash": 1.1, "Moist": 2.8},
         {"Sample_ID": "Elliott_Soil_HA", "Sample_Type": "Humic_Standard", "C": 58.1, "H": 3.7, "N": 4.1, "S": 0.4, "O": 33.7, "Ash": 1.2, "Moist": 2.6},
     ]
+    for rec in records:
+        rec["Basis"] = "daf" if rec["Sample_Type"] == "Humic_Standard" else "dry"
     return pd.DataFrame(records)
 
 

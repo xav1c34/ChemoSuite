@@ -3,7 +3,22 @@ test_chemo_pubchem.py — Тестирование модуля хемоинфо
 """
 
 import pytest
+import requests
 import chemo_pubchem
+
+
+@pytest.fixture(autouse=True)
+def _offline_isolated_pubchem(tmp_path, monkeypatch):
+    """Тесты не используют сеть: кэш — во временной папке, requests.get — «нет сети»."""
+    monkeypatch.setattr(chemo_pubchem, "CACHE_FILE", str(tmp_path / "pubchem_cache.json"))
+    chemo_pubchem.clear_cache()
+
+    def _no_network(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("network disabled in tests")
+
+    monkeypatch.setattr(chemo_pubchem.requests, "get", _no_network)
+    yield
+    chemo_pubchem.clear_cache()
 
 
 def test_clean_formula():

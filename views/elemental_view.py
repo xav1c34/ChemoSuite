@@ -42,8 +42,27 @@ def render_elemental_studio(T: dict, lang: str):
                 type=["csv", "tsv", "txt"],
                 key="elem_uploader_file",
             )
+            basis_labels = {
+                "auto": "Авто (колонка 'Basis' или исходная навеска)" if lang == "ru" else "Auto ('Basis' column or as received)",
+                "as_received": "На исходную навеску (as received)" if lang == "ru" else "As received (wet, with ash)",
+                "dry": "На сухое вещество (dry)" if lang == "ru" else "Dry basis",
+                "daf": "Уже на сухое беззольное (daf)" if lang == "ru" else "Already dry ash-free (daf)",
+            }
+            basis_choice = st.selectbox(
+                "Базис массовых долей C, H, N, S, O:" if lang == "ru" else "Basis of C, H, N, S, O mass fractions:",
+                list(basis_labels.keys()),
+                format_func=lambda k: basis_labels[k],
+                key="elem_basis_select",
+                help=(
+                    "Пересчет на daf выполняется только согласно базису: as received — 100/(100−W−A), dry — 100/(100−A), daf — без пересчета."
+                    if lang == "ru" else
+                    "Conversion to daf follows the declared basis: as received — 100/(100−W−A), dry — 100/(100−A), daf — none."
+                ),
+            )
             if up_elem_file is not None:
-                samples_list = elemental_core.parse_elemental_table(up_elem_file.getvalue())
+                samples_list = elemental_core.parse_elemental_table(
+                    up_elem_file.getvalue(), basis=None if basis_choice == "auto" else basis_choice
+                )
                 st.session_state["elemental_samples"] = {s.sample_id: s for s in samples_list}
         else:
             if not st.session_state.get("elemental_samples"):
@@ -94,6 +113,39 @@ def render_elemental_studio(T: dict, lang: str):
         c_kpi3.metric(T[lang]["elem_kpi_nc"], f"{active_elem_sample.n_c:.4f}")
         c_kpi4.metric(T[lang]["elem_kpi_sc"], f"{active_elem_sample.s_c:.4f}")
         c_kpi5.metric(T[lang]["elem_kpi_nosc"], f"{active_elem_sample.nosc:+.3f}")
+
+        c_kpi6, c_kpi7, c_kpi8, c_kpi9 = st.columns(4)
+        c_kpi6.metric(
+            "AI_bulk (Koch & Dittmar, C-норм.)" if lang == "ru" else "AI_bulk (Koch & Dittmar, C-normalised)",
+            f"{active_elem_sample.aromaticity_index:.3f}",
+        )
+        c_kpi7.metric("AI_mod_bulk", f"{getattr(active_elem_sample, 'aromaticity_index_mod', float('nan')):.3f}")
+        c_kpi8.metric(
+            "ВТС Менделеев (МДж/кг)" if lang == "ru" else "HHV Mendeleev (MJ/kg)",
+            f"{getattr(active_elem_sample, 'hhv_mendeleev_mj_kg', active_elem_sample.combustion_heat_mj_kg):.2f}",
+        )
+        c_kpi9.metric(
+            "ВТС Дюлонг (МДж/кг)" if lang == "ru" else "HHV Dulong (MJ/kg)",
+            f"{getattr(active_elem_sample, 'hhv_dulong_mj_kg', float('nan')):.2f}",
+        )
+        st.caption(
+            "AI_bulk — приближение для валовой пробы: выражение Koch & Dittmar (2006, 2016) на C-нормированной формуле "
+            "C1HhNnOoSs без молекулярного члена «1+». ВТС (daf): Менделеев Q = 0.339C + 1.256H − 0.1088(O − S); "
+            "Дюлонг HHV = 0.3383C + 1.443(H − O/8) + 0.0942S."
+            if lang == "ru" else
+            "AI_bulk is a bulk approximation: Koch & Dittmar (2006, 2016) expression on the C-normalised formula "
+            "C1HhNnOoSs without the molecular '1+' term. HHV (daf): Mendeleev Q = 0.339C + 1.256H − 0.1088(O − S); "
+            "Dulong HHV = 0.3383C + 1.443(H − O/8) + 0.0942S."
+        )
+        basis_val = getattr(active_elem_sample, "basis", "as_received")
+        daf_sum = getattr(active_elem_sample, "daf_sum_pct", float("nan"))
+        st.caption(
+            (f"Базис исходных данных: **{basis_val}**; сумма C+H+N+S+O на daf = {daf_sum:.1f} %."
+             if lang == "ru" else
+             f"Input basis: **{basis_val}**; C+H+N+S+O on daf = {daf_sum:.1f} %.")
+        )
+        if getattr(active_elem_sample, "basis_warning", None):
+            st.warning(active_elem_sample.basis_warning)
 
         st.markdown("---")
         st.write("#### " + ("Весовой элементный состав образца (% масс.):" if lang == "ru" else "Mass Elemental Composition (% wt):"))
@@ -200,6 +252,21 @@ def render_elemental_studio(T: dict, lang: str):
         all_elem_records = [s.to_dict() for s in curr_elem_samples.values()]
         df_elem_desc = pd.DataFrame(all_elem_records)
         st_df(df_elem_desc)
+        st.caption(
+            "Q_combustion_MJ_kg — высшая теплота сгорания по формуле Менделеева, HHV_Dulong_MJ_kg — по формуле Дюлонга (обе на daf). "
+            "QC_Warning — предупреждение о сумме C+H+N+S+O > 100.5 % после пересчета на daf."
+            if lang == "ru" else
+            "Q_combustion_MJ_kg — higher heating value by the Mendeleev formula, HHV_Dulong_MJ_kg — by the Dulong formula (both daf). "
+            "QC_Warning flags C+H+N+S+O > 100.5 % after conversion to daf."
+        )
+        if "QC_Warning" in df_elem_desc.columns:
+            n_qc = int((df_elem_desc["QC_Warning"].astype(str).str.len() > 0).sum())
+            if n_qc:
+                st.warning(
+                    f"{n_qc} образц(а/ов): сумма элементов на daf > 100.5 % — проверьте выбранный базис данных."
+                    if lang == "ru" else
+                    f"{n_qc} sample(s): element sum on daf > 100.5 % — check the declared data basis."
+                )
 
         c_ed1, c_ed2, c_ed3 = st.columns([1.5, 1.5, 2.5])
         with c_ed1:

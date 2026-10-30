@@ -2,19 +2,83 @@
 chemo_pubchem.py — Модуль хемоинформатики и структурной идентификации ChemoSuite.
 Интеграция с базой данных PubChem (NCBI PUG-REST API) для аннотации формул FT-ICR MS,
 поиска химических названий, SMILES, 2D структур и классификации природных/техногенных соединений.
+
+Принципы:
+- Сначала выполняется онлайн-поиск изомеров в PubChem (PUG-REST ``fastformula``).
+- Встроенный справочник REFERENCE_NOM_STRUCTURES используется ТОЛЬКО как явно помеченный
+  офлайн-резерв (нет сети / use_online=False); он не является поиском изомеров.
+- Ошибки сети/HTTP никогда не кэшируются и не подменяются «эвристическими» заглушками:
+  возвращается пустой результат с атрибутом ``error`` (см. PubChemResult) либо
+  возбуждается PubChemError (fetch_compounds_by_formula).
+- Записи кэша имеют срок жизни (CACHE_TTL_SECONDS).
 """
 
 import json
 import os
 import re
+import time
 import urllib.parse
-import urllib.request
 from typing import Any, Dict, List, Optional
 import pandas as pd
 
-CACHE_FILE = ".cache_pubchem.json"
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:  # pragma: no cover - requests входит в requirements.txt
+    requests = None
+    REQUESTS_AVAILABLE = False
 
-# Встроенный справочник эталонных маркеров природного РОВ и крафт-шлам-лигнина (офлайн fallback)
+CACHE_FILE = ".cache_pubchem.json"
+CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 суток
+PUBCHEM_REST_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+HTTP_HEADERS = {"User-Agent": "ChemoSuite/3.0 (Analytical Chem Dept, MSU; msu.chemosuite@gmail.com)"}
+
+# Полный список символов химических элементов (IUPAC) для строгой валидации формул.
+_ELEMENT_SYMBOLS = frozenset("""
+H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr
+Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm
+Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No
+Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og
+""".split())
+_FORMULA_RE = re.compile(r"^(?:[A-Z][a-z]?\d{0,4})+$")
+_FORMULA_TOKEN_RE = re.compile(r"([A-Z][a-z]?)(\d*)")
+_MAX_FORMULA_LEN = 64
+
+# Моноизотопные массы (для офлайн-записей справочника)
+_MONOISOTOPIC = {"C": 12.0, "H": 1.00782503207, "N": 14.0030740048, "O": 15.99491461956,
+                 "S": 31.97207100, "P": 30.97376163}
+# Стандартные атомные массы IUPAC (средние)
+_AVERAGE = {"C": 12.011, "H": 1.008, "N": 14.007, "O": 15.999, "S": 32.06, "P": 30.974}
+
+
+class PubChemError(RuntimeError):
+    """Ошибка обращения к PubChem (сеть, тайм-аут, HTTP-ошибка, асинхронный ответ 202)."""
+
+
+class PubChemResult(list):
+    """
+    Список результатов (полностью совместим с list) с диагностическими атрибутами:
+      - source: 'Online' | 'Cache' | 'Reference_Offline' | 'None'
+      - error: Optional[str] — текст ошибки сети/HTTP (если онлайн-поиск не удался)
+      - offline_fallback: bool — True, если возвращена запись встроенного справочника
+    """
+
+    def __init__(self, items=(), source: str = "None", error: Optional[str] = None,
+                 offline_fallback: bool = False):
+        super().__init__(items)
+        self.source = source
+        self.error = error
+        self.offline_fallback = offline_fallback
+
+
+# Встроенный справочник эталонных маркеров природного РОВ и крафт-шлам-лигнина.
+# ТОЛЬКО офлайн-резерв. Все пары CID / формула / SMILES / IUPAC сверены с PubChem
+# (PUG-REST compound/cid/.../property/MolecularFormula,Title,IUPACName,SMILES; 2026-10).
+# Исправлены CID: Acetovanillone 2214 (было 8469), Syringol 7041 (было 10787),
+# Syringic acid 10742 (было 10768), Sinapyl alcohol 5280507 (было 5352119),
+# Dehydroabietic acid 94391 (было 9382). Запись «Guaiacyl Lignosulfonate Model» удалена:
+# CID 9832104 — C44H44N4O9, ключ C9H10O7S не совпадал с её SMILES (C10H12O6S),
+# а сам SMILES в PubChem отсутствует (CID 0).
 REFERENCE_NOM_STRUCTURES = {
     "C7H8O2": {
         "CID": 460,
@@ -38,9 +102,9 @@ REFERENCE_NOM_STRUCTURES = {
         "Class": "Карбоновая кислота лигнина",
     },
     "C9H10O3": {
-        "CID": 8469,
+        "CID": 2214,
         "Title": "Acetovanillone",
-        "IUPACName": "1-(4-hydroxy-3-methoxyphenyl)ethan-1-one",
+        "IUPACName": "1-(4-hydroxy-3-methoxyphenyl)ethanone",
         "SMILES": "CC(=O)C1=CC(=C(C=C1)O)OC",
         "Class": "Кето-производное лигнина",
     },
@@ -52,14 +116,14 @@ REFERENCE_NOM_STRUCTURES = {
         "Class": "Маркер деструкции лигнина",
     },
     "C8H10O3": {
-        "CID": 10787,
+        "CID": 7041,
         "Title": "Syringol",
         "IUPACName": "2,6-dimethoxyphenol",
-        "SMILES": "COC1=CC=CC(=C1O)OC",
+        "SMILES": "COC1=C(C(=CC=C1)OC)O",
         "Class": "Сирингиловый мономер лигнина",
     },
     "C9H10O5": {
-        "CID": 10768,
+        "CID": 10742,
         "Title": "Syringic Acid",
         "IUPACName": "4-hydroxy-3,5-dimethoxybenzoic acid",
         "SMILES": "COC1=CC(=CC(=C1O)OC)C(=O)O",
@@ -87,7 +151,7 @@ REFERENCE_NOM_STRUCTURES = {
         "Class": "Монолигнол (G-тип)",
     },
     "C11H14O4": {
-        "CID": 5352119,
+        "CID": 5280507,
         "Title": "Sinapyl Alcohol",
         "IUPACName": "4-[(E)-3-hydroxyprop-1-enyl]-2,6-dimethoxyphenol",
         "SMILES": "COC1=CC(=CC(=C1O)OC)/C=C/CO",
@@ -97,22 +161,15 @@ REFERENCE_NOM_STRUCTURES = {
         "CID": 10569,
         "Title": "Abietic Acid",
         "IUPACName": "(1R,4aR,4bR,10aR)-1,4a-dimethyl-7-propan-2-yl-2,3,4,4b,5,6,10,10a-octahydrophenanthrene-1-carboxylic acid",
-        "SMILES": "CC(C)C1=CC2=CCC3C(C2CC1)(CCCC3(C)C(=O)O)C",
+        "SMILES": "CC(C)C1=CC2=CC[C@@H]3[C@@]([C@H]2CC1)(CCC[C@@]3(C)C(=O)O)C",
         "Class": "Смоляная кислота хвойных (Древесный маркер)",
     },
     "C20H28O2": {
-        "CID": 9382,
+        "CID": 94391,
         "Title": "Dehydroabietic Acid",
-        "IUPACName": "(1R,4aS,10aR)-1,4a-dimethyl-7-propan-2-yl-1,2,3,4,9,10-hexahydrophenanthrene-1-carboxylic acid",
-        "SMILES": "CC(C)C1=CC2=C(C=C1)C3(CCCC(C3CC2)(C)C(=O)O)C",
+        "IUPACName": "(1R,4aS,10aR)-1,4a-dimethyl-7-propan-2-yl-2,3,4,9,10,10a-hexahydrophenanthrene-1-carboxylic acid",
+        "SMILES": "CC(C)C1=CC2=C(C=C1)[C@]3(CCC[C@@]([C@@H]3CC2)(C)C(=O)O)C",
         "Class": "Техногенный маркер шлам-лигнина БЦБК (ДХАК)",
-    },
-    "C9H10O7S": {
-        "CID": 9832104,
-        "Title": "Guaiacyl Lignosulfonate Model",
-        "IUPACName": "1-(4-hydroxy-3-methoxyphenyl)-1-sulfopropan-2-one model",
-        "SMILES": "COC1=C(C=CC(=C1)C(C(=O)C)S(=O)(=O)O)O",
-        "Class": "Лигносульфонат (Техногенный Kraft маркер)",
     },
     "C15H10O7": {
         "CID": 5280343,
@@ -139,14 +196,14 @@ REFERENCE_NOM_STRUCTURES = {
         "CID": 1794427,
         "Title": "Chlorogenic Acid",
         "IUPACName": "(1S,3R,4R,5R)-3-[(E)-3-(3,4-dihydroxyphenyl)prop-2-enoyl]oxy-1,4,5-trihydroxycyclohexane-1-carboxylic acid",
-        "SMILES": "C1C(C(C(CC1(C(=O)O)O)OC(=O)/C=C/C2=CC(=C(C=C2)O)O)O)O",
+        "SMILES": "C1[C@H]([C@H]([C@@H](C[C@@]1(C(=O)O)O)OC(=O)/C=C/C2=CC(=C(C=C2)O)O)O)O",
         "Class": "Оксикоричный эфир / Природный антиоксидант",
     },
     "C18H34O2": {
         "CID": 445639,
         "Title": "Oleic Acid",
         "IUPACName": "(Z)-octadec-9-enoic acid",
-        "SMILES": "CCCCCCCCC=CCCCCCCCC(=O)O",
+        "SMILES": "CCCCCCCC/C=C\\CCCCCCCC(=O)O",
         "Class": "Ненасыщенная жирная кислота (Липидный пул)",
     },
     "C16H32O2": {
@@ -165,27 +222,111 @@ REFERENCE_NOM_STRUCTURES = {
     },
 }
 
-_memory_cache: Dict[str, List[Dict[str, Any]]] = {}
+_memory_cache: Optional[Dict[str, Any]] = None
+_memory_cache_path: Optional[str] = None
 
 
-def _load_disk_cache() -> Dict[str, List[Dict[str, Any]]]:
+def _load_disk_cache() -> Dict[str, Any]:
     """Загружает локальный кэш запросов PubChem с диска."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception:
             return {}
     return {}
 
 
-def _save_disk_cache(cache: Dict[str, List[Dict[str, Any]]]) -> None:
+def _save_disk_cache(cache: Dict[str, Any]) -> None:
     """Сохраняет кэш на диск."""
     try:
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def _get_cache() -> Dict[str, Any]:
+    """Кэш в памяти (перечитывается с диска при смене CACHE_FILE, например в тестах)."""
+    global _memory_cache, _memory_cache_path
+    if _memory_cache is None or _memory_cache_path != CACHE_FILE:
+        _memory_cache = _load_disk_cache()
+        _memory_cache_path = CACHE_FILE
+    return _memory_cache
+
+
+def _cache_get(key: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Возвращает кэшированный успешный ответ, если он не старше CACHE_TTL_SECONDS.
+    Записи старого формата (без метки времени) и эвристические заглушки считаются недействительными.
+    """
+    entry = _get_cache().get(key)
+    if not isinstance(entry, dict) or "ts" not in entry or "results" not in entry:
+        return None
+    try:
+        age = time.time() - float(entry["ts"])
+    except (TypeError, ValueError):
+        return None
+    if age < 0 or age > CACHE_TTL_SECONDS:
+        return None
+    results = entry["results"]
+    if not isinstance(results, list):
+        return None
+    if any(isinstance(r, dict) and r.get("Source") == "Formula_Heuristic" for r in results):
+        return None
+    return [dict(r) for r in results]
+
+
+def _cache_put(key: str, results: List[Dict[str, Any]]) -> None:
+    """Сохраняет ТОЛЬКО успешный ответ PubChem (в т.ч. «0 совпадений») с меткой времени."""
+    cache = _get_cache()
+    cache[key] = {"ts": time.time(), "results": results}
+    _save_disk_cache(cache)
+
+
+def clear_cache(remove_file: bool = False) -> None:
+    """Очищает кэш в памяти (и, при remove_file=True, файл кэша на диске)."""
+    global _memory_cache, _memory_cache_path
+    _memory_cache = {}
+    _memory_cache_path = CACHE_FILE
+    if remove_file and os.path.exists(CACHE_FILE):
+        try:
+            os.remove(CACHE_FILE)
+        except OSError:
+            pass
+
+
+def is_valid_formula(formula: str) -> bool:
+    """
+    Строгая проверка брутто-формулы (например 'C9H10O4', 'C10H12O6S').
+    Допускаются только символы реальных элементов и целые индексы; пробелы, '/', '%', '..', '_' и т.п.
+    отклоняются, поэтому формула безопасна для подстановки в путь URL PUG-REST.
+    """
+    f = str(formula or "").strip()
+    if not f or len(f) > _MAX_FORMULA_LEN or not _FORMULA_RE.match(f):
+        return False
+    tokens = _FORMULA_TOKEN_RE.findall(f)
+    if "".join(sym + cnt for sym, cnt in tokens) != f:
+        return False
+    return all(sym in _ELEMENT_SYMBOLS for sym, _ in tokens)
+
+
+def parse_formula_counts(formula: str) -> Dict[str, int]:
+    """Разбирает валидную брутто-формулу в словарь {элемент: число атомов} ({} для невалидной)."""
+    counts: Dict[str, int] = {}
+    if not is_valid_formula(formula):
+        return counts
+    for sym, cnt in _FORMULA_TOKEN_RE.findall(str(formula).strip()):
+        counts[sym] = counts.get(sym, 0) + (int(cnt) if cnt else 1)
+    return counts
+
+
+def _formula_mass(formula: str, table: Dict[str, float]) -> Optional[float]:
+    counts = parse_formula_counts(formula)
+    if not counts or any(el not in table for el in counts):
+        return None
+    return float(sum(table[el] * n for el, n in counts.items()))
 
 
 def clean_formula(formula: str) -> str:
@@ -239,6 +380,139 @@ def classify_compound_by_name(title: str, iupac: str, formula: str) -> str:
     return "Органическое вещество природного происхождения"
 
 
+def _pubchem_formula_property_search(
+    formula: str,
+    properties: str,
+    max_records: int,
+    timeout: float,
+) -> List[Dict[str, Any]]:
+    """
+    PUG-REST: compound/fastformula/{formula}/property/{properties}/JSON?MaxRecords=N.
+    Возвращает PropertyTable.Properties; [] при ответе PubChem «нет совпадений» (HTTP 404 PUGREST.NotFound).
+    Любая сетевая/HTTP ошибка или асинхронный ответ 202 -> PubChemError (никогда не подменяется данными).
+    """
+    if not is_valid_formula(formula):
+        raise ValueError(f"Некорректная брутто-формула для запроса PubChem: {formula!r}")
+    if not REQUESTS_AVAILABLE:
+        raise PubChemError("Библиотека requests недоступна: онлайн-запрос к PubChem невозможен.")
+
+    max_records = max(1, int(max_records))
+    url = (
+        f"{PUBCHEM_REST_BASE}/compound/fastformula/{urllib.parse.quote(formula, safe='')}/"
+        f"property/{properties}/JSON"
+    )
+    try:
+        resp = requests.get(url, params={"MaxRecords": max_records}, headers=HTTP_HEADERS, timeout=timeout)
+    except requests.exceptions.Timeout as e:
+        raise PubChemError(f"PubChem: превышен тайм-аут запроса ({timeout:g} с) для {formula}.") from e
+    except requests.exceptions.RequestException as e:
+        raise PubChemError(f"PubChem недоступен (ошибка сети) для {formula}: {e}") from e
+
+    status = int(getattr(resp, "status_code", 0) or 0)
+    if status == 404:
+        # PUGREST.NotFound «Search returned no hits» — валидный ответ «0 изомеров»
+        return []
+    if status == 202:
+        raise PubChemError(
+            f"PubChem вернул асинхронный ответ 202 (запрос для {formula} поставлен в очередь). Повторите позже."
+        )
+    if status != 200:
+        raise PubChemError(f"PubChem вернул HTTP {status} для {formula}.")
+    try:
+        payload = resp.json()
+    except ValueError as e:
+        raise PubChemError(f"PubChem вернул некорректный JSON для {formula}.") from e
+    if not isinstance(payload, dict) or "PropertyTable" not in payload:
+        fault = payload.get("Fault", {}) if isinstance(payload, dict) else {}
+        raise PubChemError(f"PubChem: неожиданный ответ для {formula}: {fault.get('Message', 'нет PropertyTable')}")
+    props = payload.get("PropertyTable", {}).get("Properties", [])
+    return [p for p in props if isinstance(p, dict) and p.get("CID")]
+
+
+def _to_float_or_none(v: Any) -> Optional[float]:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_compounds_by_formula(
+    formula: str,
+    max_records: int = 30,
+    timeout: float = 10.0,
+    use_cache: bool = True,
+) -> List[Dict[str, Any]]:
+    """
+    Поиск изомеров-кандидатов в PubChem по брутто-формуле для движка structure_elucidation.
+
+    PUG-REST: compound/fastformula/{formula}/property/MonoisotopicMass,IsomericSMILES,IUPACName,Title,MolecularFormula/JSON
+
+    Returns:
+    --------
+    Список словарей с ключами: cid, name, iupac_name, smiles, formula,
+    exact_mass (= MonoisotopicMass PubChem, НЕ средняя MolecularWeight), source.
+    Пустой список, если PubChem сообщает об отсутствии совпадений.
+
+    Raises:
+    -------
+    ValueError    — некорректная формула (запрос не отправляется).
+    PubChemError  — ошибка сети / тайм-аут / HTTP / 202; такие ответы не кэшируются.
+    """
+    f_clean = clean_formula(formula)
+    if not is_valid_formula(f_clean):
+        raise ValueError(f"Некорректная брутто-формула: {formula!r}")
+
+    cache_key = f"fetch|{f_clean}|{int(max_records)}"
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            for c in cached:
+                c["source"] = "Cache"
+            return cached
+
+    props = _pubchem_formula_property_search(
+        f_clean, "MonoisotopicMass,IsomericSMILES,IUPACName,Title,MolecularFormula", max_records, timeout
+    )
+    out: List[Dict[str, Any]] = []
+    for p in props[:max(1, int(max_records))]:
+        cid = p.get("CID")
+        # PubChem (2025+) возвращает запрошенный IsomericSMILES под ключом "SMILES"
+        smiles = (p.get("IsomericSMILES") or p.get("SMILES") or p.get("CanonicalSMILES")
+                  or p.get("ConnectivitySMILES") or "")
+        title = p.get("Title") or p.get("IUPACName") or f"CID {cid}"
+        out.append({
+            "cid": int(cid) if cid is not None else None,
+            "name": title,
+            "iupac_name": p.get("IUPACName") or title,
+            "smiles": smiles,
+            "formula": p.get("MolecularFormula") or f_clean,
+            "exact_mass": _to_float_or_none(p.get("MonoisotopicMass")),
+            "source": "PubChem",
+        })
+    if use_cache:
+        _cache_put(cache_key, out)
+    return out
+
+
+def _offline_reference_entry(f_clean: str, reason: str) -> List[Dict[str, Any]]:
+    """Явно помеченная запись встроенного справочника (НЕ поиск изомеров PubChem)."""
+    if f_clean not in REFERENCE_NOM_STRUCTURES:
+        return []
+    ref = REFERENCE_NOM_STRUCTURES[f_clean].copy()
+    ref["MolecularFormula"] = f_clean
+    ref["MolecularWeight"] = _formula_mass(f_clean, _AVERAGE)
+    ref["MonoisotopicMass"] = _formula_mass(f_clean, _MONOISOTOPIC)
+    ref["PubChem_URL"] = f"https://pubchem.ncbi.nlm.nih.gov/compound/{ref['CID']}"
+    ref["Image_URL"] = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{ref['CID']}/PNG?record_type=2d&image_size=small"
+    ref["Source"] = "Reference_Offline"
+    ref["Offline_Fallback"] = True
+    ref["Note"] = (
+        "Офлайн-резерв: одна запись встроенного справочника, а не поиск изомеров PubChem "
+        f"(для этой формулы существуют и другие изомеры). Причина: {reason}"
+    )
+    return [ref]
+
+
 def lookup_formula_in_pubchem(
     formula: str,
     max_records: int = 4,
@@ -247,110 +521,92 @@ def lookup_formula_in_pubchem(
 ) -> List[Dict[str, Any]]:
     """
     Выполняет поиск структурных изомеров в PubChem по брутто-формуле.
-    Сначала проверяет память и кэш, затем офлайн-справочник, затем PubChem PUG-REST API.
+    Порядок: кэш (TTL, ключ учитывает max_records) -> PubChem PUG-REST (fastformula) ->
+    только при недоступности сети (или use_online=False) — явно помеченный офлайн-справочник.
+    Ошибки не кэшируются и не подменяются заглушками.
 
     Returns:
     --------
-    Список словарей с метаданными:
+    PubChemResult (подкласс list) словарей:
       [
         {
           'CID': int,
           'Title': str,
           'IUPACName': str,
           'SMILES': str,
-          'MolecularWeight': float,
+          'MolecularWeight': float | None,
+          'MonoisotopicMass': float | None,
+          'MolecularFormula': str,
           'Class': str,
           'PubChem_URL': str,
           'Image_URL': str,
-          'Source': 'Cache' | 'Online' | 'Reference',
+          'Source': 'Cache' | 'Online' | 'Reference_Offline',
+          'Offline_Fallback': bool,
+          'Note': str (только для офлайн-записей),
         },
         ...
       ]
+    Атрибуты результата: .source, .error (текст ошибки сети или None), .offline_fallback.
     """
-    global _memory_cache
     f_clean = clean_formula(formula)
+    if not is_valid_formula(f_clean):
+        return PubChemResult([], source="None", error=f"Некорректная брутто-формула: {formula!r}")
 
-    if not _memory_cache:
-        _memory_cache = _load_disk_cache()
-
-    if f_clean in _memory_cache and _memory_cache[f_clean]:
-        return _memory_cache[f_clean][:max_records]
-
-    # Проверка офлайн-справочника
-    if f_clean in REFERENCE_NOM_STRUCTURES:
-        ref = REFERENCE_NOM_STRUCTURES[f_clean].copy()
-        ref["MolecularWeight"] = 0.0
-        ref["PubChem_URL"] = f"https://pubchem.ncbi.nlm.nih.gov/compound/{ref['CID']}"
-        ref["Image_URL"] = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{ref['CID']}/PNG?record_type=2d&image_size=small"
-        ref["Source"] = "Reference"
-        res = [ref]
-        _memory_cache[f_clean] = res
-        _save_disk_cache(_memory_cache)
-        return res
+    max_records = max(1, int(max_records))
+    cache_key = f"lookup|{f_clean}|{max_records}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        for c in cached:
+            c["Source"] = "Cache"
+        return PubChemResult(cached, source="Cache")
 
     if not use_online:
-        return []
+        ref = _offline_reference_entry(f_clean, reason="онлайн-поиск отключен (use_online=False)")
+        return PubChemResult(ref, source="Reference_Offline" if ref else "None", offline_fallback=bool(ref))
 
-    # Запрос в NCBI PubChem PUG-REST API
-    url = (
-        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastformula/{urllib.parse.quote(f_clean)}/"
-        f"property/IUPACName,Title,MolecularWeight,ConnectivitySMILES,CanonicalSMILES/JSON?MaxRecords={max_records}"
-    )
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "ChemoSuite/3.0 (Analytical Chem Dept, MSU; msu.chemosuite@gmail.com)"}
-    )
+    try:
+        props = _pubchem_formula_property_search(
+            f_clean, "IUPACName,Title,MolecularWeight,MonoisotopicMass,MolecularFormula,IsomericSMILES",
+            max_records, timeout,
+        )
+    except PubChemError as e:
+        ref = _offline_reference_entry(f_clean, reason=str(e))
+        return PubChemResult(ref, source="Reference_Offline" if ref else "None", error=str(e),
+                             offline_fallback=bool(ref))
 
     results: List[Dict[str, Any]] = []
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-            props = payload.get("PropertyTable", {}).get("Properties", [])
-            for p in props:
-                cid = p.get("CID")
-                title = p.get("Title") or p.get("IUPACName") or f"Compound CID {cid}"
-                iupac = p.get("IUPACName") or title
-                smiles = p.get("ConnectivitySMILES") or p.get("CanonicalSMILES") or ""
-                mw = float(p.get("MolecularWeight", 0.0))
-                cls_annot = classify_compound_by_name(title, iupac, f_clean)
+    for p in props[:max_records]:
+        cid = p.get("CID")
+        title = p.get("Title") or p.get("IUPACName") or f"Compound CID {cid}"
+        iupac = p.get("IUPACName") or title
+        smiles = (p.get("IsomericSMILES") or p.get("SMILES") or p.get("CanonicalSMILES")
+                  or p.get("ConnectivitySMILES") or "")
+        mol_formula = p.get("MolecularFormula") or f_clean
+        results.append({
+            "CID": cid,
+            "Title": title,
+            "IUPACName": iupac,
+            "SMILES": smiles,
+            "MolecularWeight": _to_float_or_none(p.get("MolecularWeight")),
+            "MonoisotopicMass": _to_float_or_none(p.get("MonoisotopicMass")),
+            "MolecularFormula": mol_formula,
+            "Class": classify_compound_by_name(title, iupac, mol_formula),
+            "PubChem_URL": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}",
+            "Image_URL": f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/PNG?record_type=2d&image_size=small",
+            "Source": "Online",
+            "Offline_Fallback": False,
+        })
 
-                results.append({
-                    "CID": cid,
-                    "Title": title,
-                    "IUPACName": iupac,
-                    "SMILES": smiles,
-                    "MolecularWeight": mw,
-                    "Class": cls_annot,
-                    "PubChem_URL": f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}",
-                    "Image_URL": f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/PNG?record_type=2d&image_size=small",
-                    "Source": "Online",
-                })
-    except Exception:
-        # При отсутствии сети или тайм-ауте возвращаем обобщенную оценку на основе брутто-формулы
-        fallback_cls = classify_compound_by_name("", "", f_clean)
-        results = [{
-            "CID": None,
-            "Title": f"Изомерный ансамбль {f_clean}",
-            "IUPACName": f"Молекулярный класс формулы {f_clean}",
-            "SMILES": "N/A",
-            "MolecularWeight": 0.0,
-            "Class": fallback_cls,
-            "PubChem_URL": f"https://pubchem.ncbi.nlm.nih.gov/#query={f_clean}",
-            "Image_URL": None,
-            "Source": "Formula_Heuristic",
-        }]
-
-    if results:
-        _memory_cache[f_clean] = results
-        _save_disk_cache(_memory_cache)
-
-    return results
+    _cache_put(cache_key, results)
+    return PubChemResult(results, source="Online")
 
 
 def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFrame:
     """
     Аннотирует список формул (например, топ VIP-маркеров) структурами PubChem.
     Возвращает сводный DataFrame для отображения в Streamlit и экспорта в CSV.
+    Колонка 'Source' показывает происхождение аннотации ('Online', 'Cache',
+    'Reference_Offline' — офлайн-резерв, 'Not found', 'Unavailable'); 'Lookup_Note' — пояснение/ошибка.
     """
     rows = []
     seen = set()
@@ -362,8 +618,10 @@ def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFra
         seen.add(f_clean)
 
         matches = lookup_formula_in_pubchem(f_clean, max_records=1, timeout=3.0)
-        chembl_url = f"https://www.ebi.ac.uk/chembl/search_results/{urllib.parse.quote(f_clean)}"
-        hmdb_url = f"https://hmdb.ca/unearth/q?query={urllib.parse.quote(f_clean)}&searcher=metabolites"
+        err = getattr(matches, "error", None)
+        q = urllib.parse.quote(f_clean, safe="")
+        chembl_url = f"https://www.ebi.ac.uk/chembl/search_results/{q}"
+        hmdb_url = f"https://hmdb.ca/unearth/q?query={q}&searcher=metabolites"
 
         if matches:
             best = matches[0]
@@ -374,10 +632,12 @@ def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFra
                 "CID": cid,
                 "Chemical_Class": best.get("Class", "N/A"),
                 "SMILES": best.get("SMILES", "N/A"),
-                "PubChem_URL": best.get("PubChem_URL", f"https://pubchem.ncbi.nlm.nih.gov/#query={f_clean}"),
+                "PubChem_URL": best.get("PubChem_URL", f"https://pubchem.ncbi.nlm.nih.gov/#query={q}"),
                 "ChEMBL_URL": chembl_url,
                 "HMDB_URL": hmdb_url,
                 "Image_URL": best.get("Image_URL"),
+                "Source": best.get("Source", "Online"),
+                "Lookup_Note": best.get("Note") or err or "",
             })
         else:
             rows.append({
@@ -386,10 +646,12 @@ def annotate_formula_table(formulas: List[str], max_top: int = 15) -> pd.DataFra
                 "CID": None,
                 "Chemical_Class": classify_compound_by_name("", "", f_clean),
                 "SMILES": "N/A",
-                "PubChem_URL": f"https://pubchem.ncbi.nlm.nih.gov/#query={f_clean}",
+                "PubChem_URL": f"https://pubchem.ncbi.nlm.nih.gov/#query={q}",
                 "ChEMBL_URL": chembl_url,
                 "HMDB_URL": hmdb_url,
                 "Image_URL": None,
+                "Source": "Unavailable" if err else "Not found",
+                "Lookup_Note": err or "PubChem: совпадений не найдено",
             })
 
     return pd.DataFrame(rows)

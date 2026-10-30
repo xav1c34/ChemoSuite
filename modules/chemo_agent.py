@@ -7,6 +7,7 @@ Hard budget guard: max 100 requests per day, token capping (2500 max), anti-spam
 Zero external heavy dependencies (uses standard requests).
 """
 
+import math
 import os
 import re
 import json
@@ -171,7 +172,7 @@ CHEMO_SYSTEM_PROMPT = r"""Ты — Chemo Agent, ведущий мировой э
 
 Твои профессиональные принципы:
 1. **Глубокая физико-химическая строгость**:
-   - При анализе формул FT-ICR MS оперируй индексами: H/C, O/C, DBE (Double Bond Equivalent), модифицированным индексом ароматичности Коха (AI_mod = (1 + C - 0.5*O - S - 0.5*H) / (C - 0.5*O - S - N)), номинальной степенью окисления углерода (NOSC = 4 - (4*C + H - 3*N - 2*O - 2*S)/C), 20 хемотипическими ячейками Перминовой (VK-20).
+   - При анализе формул FT-ICR MS оперируй индексами: H/C, O/C, DBE (Double Bond Equivalent), модифицированным индексом ароматичности Коха и Диттмара (AI_mod = (1 + C - 0.5*O - S - 0.5*(H + N + P)) / (C - 0.5*O - S - N - P); AI_mod > 0.5 — ароматические, ≥ 0.67 — конденсированные ароматические структуры), номинальной степенью окисления углерода (NOSC = 4 - (4*C + H - 3*N - 2*O - 2*S)/C), 20 хемотипическими ячейками Перминовой (VK-20).
    - В EEM-PARAFAC различай гуминоподобные автохтонные (C1) и аллохтонные (C2) флуорофоры, белковоподобные тирозин/триптофановые (C3/C4), индексы BIX, HIX, FI.
    - В 13C-ЯМР четко интерпретируй соотношение ароматического углерода fa (108–165 ppm) и алифатических цепочек (0–48 ppm), наличие метоксильных групп лигнина (-OCH3 ~56 ppm).
    - В FTIR связывай полосы 1510 см⁻¹ (гваяцильное кольцо лигнина), 1600 см⁻¹ (ароматический каркас C=C), 1720 см⁻¹ (карбоксилы C=O), 1030 см⁻¹ (полисахариды).
@@ -588,7 +589,8 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
 
         # AI (Modified Aromaticity Index)
         ai_col = None
-        for cand in ["ai", "ai_mod", "ai_koch", "aromaticity_index"]:
+        # AI_mod (Koch & Dittmar) предпочтительнее: пороги 0.5 / 0.67 определены для него
+        for cand in ["ai_mod", "ai", "ai_koch", "aromaticity_index"]:
             if cand in cols_lower:
                 ai_col = cols_lower[cand]
                 break
@@ -597,7 +599,8 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
             if not ai_s.empty:
                 high_ai = (ai_s > 0.5).mean() * 100.0
                 condensed = (ai_s >= 0.67).mean() * 100.0
-                metrics.append(f"AI_mod: {ai_s.mean():.3f} (доля >0.5: {high_ai:.0f}%, конденс.: {condensed:.0f}%)")
+                ai_label = "AI_mod" if str(ai_col).lower() == "ai_mod" else "AI"
+                metrics.append(f"{ai_label}: {ai_s.mean():.3f} (доля >0.5: {high_ai:.0f}%, конденс.: {condensed:.0f}%)")
 
         # DBE
         dbe_col = None
@@ -699,6 +702,14 @@ def build_sample_analysis_prompt(sample_name: str, sample_data: Dict[str, Any], 
 # ==============================================================================
 # КРОСС-МОДАЛЬНЫЙ СИНТЕЗ (CROSS-MODAL SYNTHESIS & MULTI-OMICS FUSION)
 # ==============================================================================
+
+def _is_finite_number(val: Any) -> bool:
+    """True для конечного числа (NaN, None и строки — False): NaN в Python истинно в условиях."""
+    try:
+        return val is not None and math.isfinite(float(val))
+    except (TypeError, ValueError):
+        return False
+
 
 def _normalize_sample_id(s: str) -> str:
     """Normalizes sample identifier across different studio file naming schemes."""
@@ -864,7 +875,7 @@ def harvest_multimodal_descriptors(
                     break
 
             # AI_mod
-            for cand in ["ai", "ai_mod", "ai_koch", "aromaticity_index"]:
+            for cand in ["ai_mod", "ai", "ai_koch", "aromaticity_index"]:
                 if cand in cols_lower:
                     s_ai = pd.to_numeric(df[cols_lower[cand]], errors="coerce").dropna()
                     if not s_ai.empty:
@@ -1142,7 +1153,7 @@ def compute_cross_modal_insights(multimodal_data: Dict[str, Any]) -> List[Dict[s
         })
 
     # 4. Raman Carbonaceous Condensation
-    if raman.get("id_ig_ratio") and raman.get("la_crystallite_nm"):
+    if _is_finite_number(raman.get("id_ig_ratio")) and _is_finite_number(raman.get("la_crystallite_nm")):
         id_ig = raman["id_ig_ratio"]
         la = raman["la_crystallite_nm"]
         insights.append({
