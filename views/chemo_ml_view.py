@@ -10,7 +10,20 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from views.common import st_df, st_plotly
+from views.common import st_df, st_plotly, LOCAL_MODE
+
+_DEMO_DATA_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo_data"))
+
+
+def _is_allowed_batch_dir(path: str) -> bool:
+    """В веб-режиме сканирование каталогов сервера ограничено папкой demo_data/."""
+    if LOCAL_MODE:
+        return True
+    real = os.path.realpath(path or "")
+    try:
+        return os.path.commonpath([_DEMO_DATA_DIR, real]) == _DEMO_DATA_DIR
+    except ValueError:
+        return False
 
 try:
     from modules import chemo_ml
@@ -343,7 +356,19 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                         key="batch_recursive_chk"
                     )
 
-                if st.button(T[lang]["batch_run_btn"], type="primary", key="btn_run_batch_screening"):
+                if not LOCAL_MODE:
+                    st.caption(
+                        "Веб-режим: доступна только папка demo_data/. Для своих данных используйте загрузку файлов."
+                        if lang == "ru" else
+                        "Web mode: only demo_data/ can be scanned. Use file upload for your own data."
+                    )
+
+                run_batch_dir = st.button(T[lang]["batch_run_btn"], type="primary", key="btn_run_batch_screening")
+                if run_batch_dir and not _is_allowed_batch_dir(batch_dir_path):
+                    st.error("Каталог вне demo_data/ недоступен в веб-режиме." if lang == "ru" else "Directories outside demo_data/ are not available in web mode.")
+                    run_batch_dir = False
+
+                if run_batch_dir:
                     progress_bar = st.progress(0.0)
                     status_text = st.empty()
                     def _prog_cb(frac: float, msg: str):

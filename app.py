@@ -181,8 +181,11 @@ if _css_file.exists():
         st.markdown(f"<style>{_f_css.read()}</style>", unsafe_allow_html=True)
 
 
-STORAGE_DIR = "user_spectra"
-os.makedirs(STORAGE_DIR, exist_ok=True)
+from views.common import LOCAL_MODE, PERSISTENT_STORAGE_DIR, storage_path
+
+STORAGE_DIR = PERSISTENT_STORAGE_DIR
+if LOCAL_MODE:
+    os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # ==============================================================================
 # СЛОВАРЬ ПОЛНОЙ ДВУЯЗЫЧНОЙ ЛОКАЛИЗАЦИИ (I18N)
@@ -1764,7 +1767,8 @@ def get_plot_download_buttons(fig, base_filename: str, lang: str):
 # ==============================================================================
 if "spectra_db" not in st.session_state:
     st.session_state["spectra_db"] = {}
-    for fname in os.listdir(STORAGE_DIR):
+    # Общая постоянная папка видна всем сессиям, поэтому подгружается только в локальном режиме
+    for fname in (os.listdir(STORAGE_DIR) if LOCAL_MODE else []):
         if fname.lower().endswith((".csv", ".txt", ".tsv", ".xy")):
             fpath = os.path.join(STORAGE_DIR, fname)
             try:
@@ -1877,8 +1881,8 @@ if hasattr(st, "dialog") and PROJECT_IO_AVAILABLE and project_io is not None:
                                 st.session_state[k] = v
                         for s_name, s_val in restored.get("spectra_db", {}).items():
                             if isinstance(s_val, dict) and s_val.get("file_bytes"):
-                                local_path = os.path.join(STORAGE_DIR, s_name)
                                 try:
+                                    local_path = storage_path(s_name)
                                     with open(local_path, "wb") as f_loc:
                                         f_loc.write(s_val["file_bytes"])
                                     s_val["raw_path"] = local_path

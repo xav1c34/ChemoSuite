@@ -12,6 +12,7 @@ import re
 import json
 import logging
 import datetime
+import threading
 from typing import Dict, Any, List, Optional, Generator, Tuple
 import requests
 import pandas as pd
@@ -30,7 +31,12 @@ FALLBACK_MODELS = AVAILABLE_MODELS
 DEFAULT_MAX_TOKENS = 2048
 MAX_TOKEN_CAP = 2500
 DAILY_REQUEST_LIMIT = 100
+SESSION_REQUEST_LIMIT = 20  # один посетитель не может израсходовать общий дневной лимит
 USAGE_FILE = ".agent_usage.json"
+
+# Сессии Streamlit — потоки одного процесса: счётчик читается и пишется под блокировкой.
+# globals().get сохраняет блокировку при importlib.reload модуля.
+_USAGE_LOCK = globals().get("_USAGE_LOCK") or threading.Lock()
 
 
 def _get_today_str() -> str:
@@ -69,20 +75,45 @@ def check_and_increment_daily_usage(max_limit: int = DAILY_REQUEST_LIMIT) -> Tup
     If under limit, increments and persists to disk.
     Returns (allowed: bool, current_count: int, message: str).
     """
-    today = _get_today_str()
-    usage = get_daily_usage()
-    if usage["count"] >= max_limit:
-        msg = f"⚠️ Превышен защитный лимит: {max_limit} запросов в день. Лимит обновится в полночь для защиты баланса."
-        return False, usage["count"], msg
+    session_state = _get_session_state()
+    if session_state is not None:
+        sess_cnt = int(session_state.get("_agent_session_requests", 0))
+        if sess_cnt >= SESSION_REQUEST_LIMIT:
+            msg = f"⚠️ Превышен лимит сессии: {SESSION_REQUEST_LIMIT} запросов. Общий дневной лимит защищён от исчерпания одним пользователем."
+            return False, sess_cnt, msg
 
-    new_count = usage["count"] + 1
-    try:
-        with open(USAGE_FILE, "w", encoding="utf-8") as f:
-            json.dump({"date": today, "count": new_count, "limit": max_limit}, f, indent=2)
-    except Exception as exc:
-        logger.warning("Could not persist daily usage: %s", exc)
+    today = _get_today_str()
+    with _USAGE_LOCK:
+        usage = get_daily_usage()
+        if usage["count"] >= max_limit:
+            msg = f"⚠️ Превышен защитный лимит: {max_limit} запросов в день. Лимит обновится в полночь для защиты баланса."
+            return False, usage["count"], msg
+
+        new_count = usage["count"] + 1
+        try:
+            tmp_file = f"{USAGE_FILE}.tmp"
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump({"date": today, "count": new_count, "limit": max_limit}, f, indent=2)
+            os.replace(tmp_file, USAGE_FILE)
+        except Exception as exc:
+            logger.warning("Could not persist daily usage: %s", exc)
+
+    if session_state is not None:
+        session_state["_agent_session_requests"] = int(session_state.get("_agent_session_requests", 0)) + 1
 
     return True, new_count, "OK"
+
+
+def _get_session_state():
+    """Возвращает st.session_state текущей сессии или None вне Streamlit (тесты, скрипты)."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx() is None:
+            return None
+        import streamlit as st
+        return st.session_state
+    except Exception:
+        return None
 
 
 def get_polza_api_key(explicit_key: Optional[str] = None) -> Optional[str]:

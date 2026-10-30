@@ -425,7 +425,7 @@ def _render_agent_content(T: Dict[str, Any], lang: str = "ru", is_dialog: bool =
             avatar = "🤖" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=avatar):
                 display_text = msg.get("display_content", msg["content"])
-                st.markdown(chemo_agent.normalize_latex(display_text), unsafe_allow_html=True)
+                st.markdown(chemo_agent.normalize_latex(display_text))
 
     # 5. Handle Analysis & Synthesis Triggers
     is_triggered = (btn_cross_modal or btn_analyze_sample) and bool(active_data)
@@ -618,7 +618,7 @@ def render_sample_ai_card(sample_name: str, sample_data: Dict[str, Any], lang: s
             st.session_state[cache_key] = res.get("content", "")
             st.rerun()
         else:
-            st.markdown(res.get("error", "Произошла ошибка"), unsafe_allow_html=True)
+            st.markdown(res.get("error", "Произошла ошибка"))
 
     cached_content = st.session_state.get(cache_key)
     if cached_content:
