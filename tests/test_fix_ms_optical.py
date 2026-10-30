@@ -396,6 +396,24 @@ def test_intensity_column_token_detection():
     assert "missing" in df3.attrs["intensity_source"]
 
 
+@pytest.mark.parametrize("raw", [
+    b"m/z\n301.1234\n315.1391\n",                            # одна колонка: точка не разделитель
+    b"m/z,intensity\n301.1234,1000\n315.1391,2000\n",
+    b"m/z, intensity\n301.1234, 1000\n315.1391, 2000\n",
+    b"m/z\tI\n301.1234\t1000\n315.1391\t2000\n",
+    b"m/z  intensity\n301.1234  1000\n315.1391  2000\n",
+    b"m/z  intensity\n301,1234  1000\n315,1391  2000\n",      # пробел + десятичная запятая
+    b"m/z;intensity\n301,1234;1000\n315,1391;2000\n",        # экспорт Excel в русской локали
+    b"m/z;intensity;formula\n301.1234;1000;C15H18O7\n315.1391;2000;C16H20O7\n",
+    "Масса;Интенсивность\n301,1234;1000\n315,1391;2000\n".encode("cp1251"),
+])
+def test_auto_delimiter_and_decimal_detection(raw):
+    df = fticr_core.parse_uploaded_file(raw)
+    assert list(df["mass"]) == [301.1234, 315.1391]
+    if b"\n301.1234\n" not in raw:
+        assert list(df["intensity"]) == [1000.0, 2000.0]
+
+
 def test_unsupported_ion_mode_raises():
     assert fticr_core.ion_mode_polarity("ESI(-)") == -1
     assert fticr_core.ion_mode_polarity("ESI(+)") == 1

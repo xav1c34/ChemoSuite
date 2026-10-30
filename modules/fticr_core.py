@@ -240,6 +240,48 @@ def get_biomolecular_distribution(assigned_df: pd.DataFrame, lang: str = "ru") -
     return {k: round(float(v), 2) for k, v in counts.items()}
 
 
+_NUMBER_TOKEN_RE = re.compile(r"^[+-]?(\d+([.,]\d*)?|[.,]\d+)([eE][+-]?\d+)?$")
+_DECIMAL_COMMA_RE = re.compile(r"^[+-]?\d+,\d+([eE][+-]?\d+)?$")
+
+
+def _sniff_peaklist_format(file_bytes: bytes) -> Optional[Tuple[str, bool]]:
+    """
+    Определяет разделитель пик-листа по строкам данных (а не через csv.Sniffer, который
+    в одноколоночном файле «m/z\\n301.1234» принимает точку за разделитель).
+
+    Возвращает (sep, decimal_comma) или None, если строк данных не найдено.
+    sep = "single" означает одноколоночный файл.
+    """
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = file_bytes.decode("cp1251", errors="replace")
+    data = [ln.strip() for ln in text.splitlines()
+            if ln.strip() and _NUMBER_TOKEN_RE.match(re.split(r"[\t;,\s]+", ln.strip())[0] or "")][:50]
+    if not data:
+        return None
+
+    best_sep, best_score = "single", 0.0
+    for sep in ("\t", ";", ",", "ws"):
+        rows = [ln.split() if sep == "ws" else [t.strip() for t in ln.split(sep)] for ln in data]
+        n_fields = {len(r) for r in rows}
+        if len(n_fields) != 1 or n_fields.pop() < 2:
+            continue
+        tokens = [t for r in rows for t in r if t != ""]
+        score = sum(bool(_NUMBER_TOKEN_RE.match(t)) for t in tokens) / max(len(tokens), 1)
+        if score > best_score:
+            best_sep, best_score = sep, score
+
+    def _first_field(ln: str) -> str:
+        if best_sep == "single":
+            return ln
+        return ln.split()[0] if best_sep == "ws" else ln.split(best_sep)[0].strip()
+
+    first_col = [_first_field(ln) for ln in data]
+    decimal_comma = best_sep != "," and sum(bool(_DECIMAL_COMMA_RE.match(t)) for t in first_col) > len(first_col) / 2
+    return best_sep, decimal_comma
+
+
 def parse_uploaded_file(file_bytes: bytes, delimiter: str = "Auto", decimal_sep: str = ".", has_header: bool = True) -> pd.DataFrame:
     """Парсер пик-листов масс-спектров из текстовых файлов."""
     sep_map = {
@@ -250,13 +292,28 @@ def parse_uploaded_file(file_bytes: bytes, delimiter: str = "Auto", decimal_sep:
         "Space": r"\s+", "Пробел": r"\s+",
     }
     actual_sep = sep_map.get(delimiter, ",")
+    if actual_sep is None:
+        sniffed = _sniff_peaklist_format(file_bytes)
+        if sniffed is not None:
+            sep_kind, decimal_comma = sniffed
+            # одноколоночный файл: разделитель, которого в нём нет, дает ровно одну колонку
+            actual_sep = {"ws": r"\s+", "single": "\t"}.get(sep_kind, sep_kind)
+            if decimal_comma and decimal_sep == ".":
+                decimal_sep = ","
     engine = "python" if (actual_sep is None or actual_sep == r"\s+") else "c"
+
+    try:
+        file_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        # экспорт из русской локали Windows (cp1251) -> UTF-8 для pandas
+        file_bytes = file_bytes.decode("cp1251", errors="replace").encode("utf-8")
 
     bio = io.BytesIO(file_bytes)
     try:
         df = pd.read_csv(
             bio, sep=actual_sep, decimal=decimal_sep,
-            header=0 if has_header else None, engine=engine
+            header=0 if has_header else None, engine=engine,
+            skipinitialspace=True,
         )
     except Exception:
         bio.seek(0)
