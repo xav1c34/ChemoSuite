@@ -45,7 +45,7 @@ _BLOCK_PREFIXES: List[Tuple[Tuple[str, ...], str]] = [
 _BLOCK_KEYWORDS: List[Tuple[str, List[str]]] = [
     ("SEC/GPC", ["polydispersity", "pdi", "hmw_lmw", "fraction_i", "fraction_ii", "fraction_iii", "fraction_iv"]),
     ("UV-Vis", ["a254", "a280", "a365", "a465", "a665", "e2_e3", "e4_e6", "s_r", "sr", "s_275", "s_350",
-                "d2a", "mw_est", "uv_mw", "absorbance", "suva"]),
+                "d2a", "mw_est", "uv_mw", "absorbance", "suva", "doc"]),
     ("FT-ICR MS", ["mn", "mw", "dbe", "ai", "ai_mod", "nosc", "cho", "chon", "chos", "chons", "kmd"]),
     ("Raman", ["raman", "id_ig", "ad_ag", "la_crystallite", "d_band", "g_band", "carbon_order", "fwhm_d", "fwhm_g",
                "d_pos", "g_pos"]),

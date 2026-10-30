@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import io
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -35,6 +36,325 @@ except ImportError:
         from . import cross_correlation
     except ImportError:
         cross_correlation = None
+
+
+# ==============================================================================
+# Защита от формульных инъекций в Excel/CSV (OWASP «CSV / Formula Injection»)
+# ==============================================================================
+# Строки, начинающиеся с = + - @ (а также TAB / CR), Excel и LibreOffice могут
+# интерпретировать как формулы (например, =HYPERLINK(...), =cmd|...). Такие строки
+# экранируются ведущим апострофом. Обычные числовые литералы («-28.5», «+3») не
+# изменяются, чтобы не портить легитимные данные.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+_PLAIN_NUMBER_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
+
+
+def sanitize_excel_value(value: Any) -> Any:
+    """Возвращает значение, безопасное для ячейки Excel (строки-формулы получают префикс «'»)."""
+    if not isinstance(value, str) or not value:
+        return value
+    if value[0] in _FORMULA_PREFIXES and not _PLAIN_NUMBER_RE.match(value):
+        return "'" + value
+    return value
+
+
+def sanitize_excel_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Копия DataFrame, безопасная для экспорта в Excel/CSV: экранируются строковые ячейки,
+    заголовки столбцов и строковый индекс. Числовые столбцы не изменяются.
+    """
+    if not isinstance(df, pd.DataFrame):
+        return df
+    out = df.copy()
+    for i in range(out.shape[1]):
+        s = out.iloc[:, i]
+        if s.dtype == object or pd.api.types.is_string_dtype(s.dtype):
+            out.isetitem(i, s.map(sanitize_excel_value))
+    if not isinstance(out.columns, pd.MultiIndex):
+        out.columns = pd.Index([sanitize_excel_value(c) for c in out.columns], name=out.columns.name)
+    if not isinstance(out.index, pd.MultiIndex) and (
+        out.index.dtype == object or pd.api.types.is_string_dtype(out.index.dtype)
+    ):
+        out.index = pd.Index([sanitize_excel_value(v) for v in out.index], name=out.index.name)
+    return out
+
+
+# ==============================================================================
+# Форматирование метрик: отсутствующее / NaN значение -> «—» (никаких выдуманных 0.0)
+# ==============================================================================
+_MISSING = "—"
+
+
+def _num(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _fmt_pct(value: Any, nd: int = 1) -> str:
+    """Метрика уже в процентах (как возвращает chemo_ml) -> «85.3%» или «—»."""
+    f = _num(value)
+    return f"{f:.{nd}f}%" if np.isfinite(f) else _MISSING
+
+
+def _fmt_num(value: Any, nd: int = 3) -> str:
+    f = _num(value)
+    return f"{f:.{nd}f}" if np.isfinite(f) else _MISSING
+
+
+def _fmt_p(value: Any) -> str:
+    f = _num(value)
+    if not np.isfinite(f):
+        return _MISSING
+    return f"{f:.3f}" if f >= 0.001 else f"{f:.1e}"
+
+
+def _first_metric(d: Optional[Dict], keys: Tuple[str, ...]) -> Tuple[float, Optional[str]]:
+    """Первое конечное значение из перечня ключей (NaN, None, если ни одного нет)."""
+    if not isinstance(d, dict):
+        return float("nan"), None
+    for k in keys:
+        if k in d:
+            f = _num(d.get(k))
+            if np.isfinite(f):
+                return f, k
+    return float("nan"), None
+
+
+def _resolve_permutation_p(model_results: Optional[Dict], permutation_results: Optional[Dict]) -> float:
+    """p-value перестановочного теста Q² (chemo_ml.permutation_test_plsda: ключ p_val_q2)."""
+    for src in (permutation_results, model_results):
+        if isinstance(src, dict) and "p_val_q2" in src:
+            f = _num(src.get("p_val_q2"))
+            if np.isfinite(f):
+                return f
+    return float("nan")
+
+
+# ==============================================================================
+# Статус валидации модели и автоматическая сводка по данным (без «экспертных» выводов)
+# ==============================================================================
+# Пороги: Q² > 0.5 — «хорошая» прогностическая способность (Eriksson L. et al.,
+# Multi- and Megavariate Data Analysis, Umetrics, 2006); значимость Q² проверяется
+# перестановочным тестом, а малые выборки дают сильно завышенные/нестабильные оценки
+# CV (Westerhuis J.A. et al., Metabolomics 4 (2008) 81–89).
+Q2_GOOD_PCT = 50.0
+PERMUTATION_ALPHA = 0.05
+SMALL_N_SAMPLES = 30
+SMALL_N_PER_CLASS = 10
+
+
+def assess_model_validation(
+    model_results: Optional[Dict],
+    permutation_results: Optional[Dict] = None,
+    lang: str = "ru",
+) -> Dict[str, Any]:
+    """
+    Статус валидации классификационной модели по Q² (CV) и p-value перестановочного теста.
+
+    status: "no_model" | "unverified" (нет Q² или нет перестановочного теста) |
+            "not_validated" (Q² ≤ 0 или p ≥ 0.05) | "weak" (p < 0.05, Q² ≤ 50%) |
+            "validated" (p < 0.05, Q² > 50%).
+    """
+    is_en = (lang == "en")
+    q2, _ = _first_metric(model_results, ("Q2",))
+    p_val = _resolve_permutation_p(model_results, permutation_results)
+
+    if not model_results:
+        status = "no_model"
+        label = "NO MODEL: DESCRIPTIVE STATISTICS ONLY" if is_en else "МОДЕЛЬ НЕ ОБУЧЕНА: ТОЛЬКО ОПИСАТЕЛЬНАЯ СТАТИСТИКА"
+        color, bg = "#475569", "#f1f5f9"
+    elif not np.isfinite(q2):
+        status = "unverified"
+        label = "UNVERIFIED: Q² NOT AVAILABLE" if is_en else "НЕ ПОДТВЕРЖДЕНО: Q² НЕ РАССЧИТАН"
+        color, bg = "#b45309", "#fef3c7"
+    elif q2 <= 0.0:
+        status = "not_validated"
+        label = "NOT VALIDATED: Q² ≤ 0 (NO PREDICTIVE ABILITY)" if is_en else "НЕ ВАЛИДИРОВАНО: Q² ≤ 0 (НЕТ ПРОГНОСТИЧЕСКОЙ СПОСОБНОСТИ)"
+        color, bg = "#b91c1c", "#fee2e2"
+    elif not np.isfinite(p_val):
+        status = "unverified"
+        label = "UNVERIFIED: PERMUTATION TEST NOT RUN" if is_en else "НЕ ПОДТВЕРЖДЕНО: ПЕРЕСТАНОВОЧНЫЙ ТЕСТ НЕ ВЫПОЛНЕН"
+        color, bg = "#b45309", "#fef3c7"
+    elif p_val >= PERMUTATION_ALPHA:
+        status = "not_validated"
+        label = (f"NOT VALIDATED: PERMUTATION p = {_fmt_p(p_val)} ≥ {PERMUTATION_ALPHA}" if is_en
+                 else f"НЕ ВАЛИДИРОВАНО: ПЕРЕСТАНОВОЧНЫЙ p = {_fmt_p(p_val)} ≥ {PERMUTATION_ALPHA}")
+        color, bg = "#b91c1c", "#fee2e2"
+    elif q2 <= Q2_GOOD_PCT:
+        status = "weak"
+        label = (f"WEAK: p = {_fmt_p(p_val)}, Q² ≤ {Q2_GOOD_PCT:.0f}%" if is_en
+                 else f"СЛАБАЯ МОДЕЛЬ: p = {_fmt_p(p_val)}, Q² ≤ {Q2_GOOD_PCT:.0f}%")
+        color, bg = "#b45309", "#fef3c7"
+    else:
+        status = "validated"
+        label = (f"VALIDATED: Q² > {Q2_GOOD_PCT:.0f}%, PERMUTATION p = {_fmt_p(p_val)}" if is_en
+                 else f"ВАЛИДИРОВАНО: Q² > {Q2_GOOD_PCT:.0f}%, ПЕРЕСТАНОВОЧНЫЙ p = {_fmt_p(p_val)}")
+        color, bg = "#15803d", "#dcfce7"
+
+    return {"status": status, "label": label, "color": color, "bg": bg, "q2": q2, "p_value": p_val}
+
+
+def _class_counts(fused_df: pd.DataFrame) -> Dict[str, int]:
+    if not isinstance(fused_df, pd.DataFrame) or "Class_Target" not in fused_df.columns:
+        return {}
+    vc = fused_df["Class_Target"].dropna().astype(str).value_counts(sort=False)
+    return {str(k): int(v) for k, v in vc.items()}
+
+
+def _top_markers_with_direction(
+    fused_df: pd.DataFrame, vip_df: Any, max_markers: int = 5, vip_threshold: float = 1.0
+) -> List[Dict[str, Any]]:
+    """
+    Дескрипторы с VIP ≥ 1 (по убыванию VIP) и направление различия: в каком классе
+    среднее значение (по исходной, немасштабированной матрице) максимально / минимально.
+    """
+    if not isinstance(vip_df, pd.DataFrame) or vip_df.empty or "Descriptor" not in vip_df.columns or "VIP" not in vip_df.columns:
+        return []
+    v = vip_df.copy()
+    v["VIP"] = pd.to_numeric(v["VIP"], errors="coerce")
+    v = v[v["VIP"] >= vip_threshold].sort_values("VIP", ascending=False).head(max_markers)
+    has_cls = isinstance(fused_df, pd.DataFrame) and "Class_Target" in fused_df.columns
+    out = []
+    for _, r in v.iterrows():
+        desc = str(r["Descriptor"])
+        item = {"descriptor": desc, "vip": float(r["VIP"]), "block": str(r.get("Block", "")),
+                "high_class": None, "low_class": None, "high_mean": float("nan"), "low_mean": float("nan"),
+                "n_classes": 0}
+        if has_cls and desc in fused_df.columns:
+            vals = pd.to_numeric(fused_df[desc], errors="coerce")
+            means = vals.groupby(fused_df["Class_Target"].astype(str)).mean().dropna()
+            if len(means) >= 2 and float(means.max()) != float(means.min()):
+                item.update(high_class=str(means.idxmax()), low_class=str(means.idxmin()),
+                            high_mean=float(means.max()), low_mean=float(means.min()),
+                            n_classes=int(len(means)))
+        out.append(item)
+    return out
+
+
+def build_data_driven_summary(
+    fused_df: pd.DataFrame,
+    model_results: Optional[Dict] = None,
+    permutation_results: Optional[Dict] = None,
+    active_blocks: Optional[List[str]] = None,
+    lang: str = "ru",
+) -> Dict[str, Any]:
+    """
+    Автоматическая сводка, построенная только по данным сессии: дизайн выборки,
+    метрики модели (Q², R²Y, точность CV / обучения, p-value перестановок), предупреждение
+    о малой выборке, ведущие VIP-маркеры с направлением и вклад аналитических блоков.
+    Никаких заранее заготовленных выводов о генезисе/источнике загрязнения не делается.
+
+    Возвращает dict: validation (см. assess_model_validation), items (список строк, plain text),
+    small_n (bool), markers (list), html (готовый <ul> для паспорта).
+    """
+    is_en = (lang == "en")
+    df = fused_df if isinstance(fused_df, pd.DataFrame) else pd.DataFrame()
+    n = int(len(df))
+    feature_cols = [c for c in df.columns if c not in ["Sample_ID", "Class_Target"]]
+    counts = _class_counts(df)
+    validation = assess_model_validation(model_results, permutation_results, lang=lang)
+    items: List[str] = []
+
+    blocks_txt = ", ".join(active_blocks) if active_blocks else _MISSING
+    cls_txt = ", ".join(f"{k} (n={v})" for k, v in counts.items()) if counts else _MISSING
+    items.append(
+        f"Data: {n} samples, {len(feature_cols)} descriptors; modalities ({len(active_blocks or [])}): {blocks_txt}. Classes: {cls_txt}."
+        if is_en else
+        f"Данные: образцов — {n}, дескрипторов — {len(feature_cols)}; методы ({len(active_blocks or [])}): {blocks_txt}. Классы: {cls_txt}."
+    )
+
+    min_class = min(counts.values()) if counts else n
+    small_n = bool(n < SMALL_N_SAMPLES or (counts and min_class < SMALL_N_PER_CLASS))
+    markers: List[Dict[str, Any]] = []
+
+    if not model_results:
+        items.append(
+            "No supervised model was trained: the report contains descriptive statistics only; "
+            "no class discrimination, source attribution or genesis is inferred."
+            if is_en else
+            "Модель с учителем не обучалась: отчёт содержит только описательную статистику; "
+            "выводы о различии классов, источнике или генезисе ОВ не делаются."
+        )
+    else:
+        m_type = str(model_results.get("model_type", "PLS-DA"))
+        cv_scheme = model_results.get("CV_Scheme")
+        cv_txt = f", {cv_scheme}" if cv_scheme else ""
+        q2 = validation["q2"]
+        r2y, _ = _first_metric(model_results, ("R2Y",))
+        acc_cv, acc_cv_key = _first_metric(model_results, ("Balanced_Accuracy_CV", "Accuracy_CV"))
+        acc_tr, acc_tr_key = _first_metric(model_results, ("Balanced_Accuracy", "Accuracy"))
+        if acc_cv_key is not None:
+            acc_name = ("balanced accuracy (CV)" if acc_cv_key == "Balanced_Accuracy_CV" else "accuracy (CV)") if is_en else \
+                ("сбалансированная точность (CV)" if acc_cv_key == "Balanced_Accuracy_CV" else "точность (CV)")
+            acc_txt = f"{acc_name} = {_fmt_pct(acc_cv)}"
+        elif acc_tr_key is not None:
+            acc_txt = (f"training (resubstitution) accuracy = {_fmt_pct(acc_tr)} — optimistic, not a validation metric"
+                       if is_en else
+                       f"точность на обучающей выборке (ресубституция) = {_fmt_pct(acc_tr)} — завышенная оценка, не метрика валидации")
+        else:
+            acc_txt = (f"accuracy = {_MISSING}" if is_en else f"точность = {_MISSING}")
+        items.append(
+            f"{m_type}: Q² = {_fmt_pct(q2)} (cross-validated{cv_txt}), R²Y = {_fmt_pct(r2y)}, {acc_txt}."
+            if is_en else
+            f"{m_type}: Q² = {_fmt_pct(q2)} (кросс-валидация{cv_txt}), R²Y = {_fmt_pct(r2y)}, {acc_txt}."
+        )
+        p_val = validation["p_value"]
+        if np.isfinite(p_val):
+            items.append(f"Permutation test of Q²: p = {_fmt_p(p_val)}." if is_en else f"Перестановочный тест Q²: p = {_fmt_p(p_val)}.")
+        else:
+            items.append(
+                "Permutation test was not run: the statistical significance of Q² is not established."
+                if is_en else
+                "Перестановочный тест не выполнялся: статистическая значимость Q² не установлена."
+            )
+        items.append((f"Validation status: {validation['label']}." if is_en else f"Статус валидации: {validation['label']}."))
+
+        markers = _top_markers_with_direction(df, model_results.get("VIP_df", model_results.get("vip_df")))
+        if markers:
+            parts = []
+            for mk in markers:
+                if mk["high_class"] is not None:
+                    if mk["n_classes"] == 2:
+                        d_txt = (f"higher in class {mk['high_class']} ({mk['high_mean']:.3g} vs {mk['low_mean']:.3g})" if is_en
+                                 else f"выше в классе {mk['high_class']} ({mk['high_mean']:.3g} против {mk['low_mean']:.3g})")
+                    else:
+                        d_txt = (f"highest in {mk['high_class']} ({mk['high_mean']:.3g}), lowest in {mk['low_class']} ({mk['low_mean']:.3g})" if is_en
+                                 else f"максимум в {mk['high_class']} ({mk['high_mean']:.3g}), минимум в {mk['low_class']} ({mk['low_mean']:.3g})")
+                else:
+                    d_txt = "direction n/a" if is_en else "направление не определено"
+                parts.append(f"{mk['descriptor']} [VIP {mk['vip']:.2f}; {d_txt}]")
+            items.append(("Top markers (VIP ≥ 1): " if is_en else "Ведущие маркеры (VIP ≥ 1): ") + "; ".join(parts) + ".")
+        else:
+            items.append("No descriptor reached VIP ≥ 1." if is_en else "Ни один дескриптор не достиг VIP ≥ 1.")
+
+        contrib = model_results.get("Block_Contributions") or {}
+        contrib_f = sorted(((str(k), _num(v)) for k, v in contrib.items() if np.isfinite(_num(v))), key=lambda kv: -kv[1])
+        if contrib_f:
+            c_txt = ", ".join(f"{k} {v:.1f}%" for k, v in contrib_f[:3])
+            items.append((f"Largest block contributions (share): {c_txt}." if is_en else f"Наибольший вклад блоков (доля): {c_txt}."))
+
+    if small_n:
+        items.append(
+            f"Caution: small sample set (n = {n}, smallest class n = {min_class}); cross-validated metrics have high "
+            "variance and multivariate models overfit easily (Westerhuis et al., 2008). Treat results as exploratory."
+            if is_en else
+            f"Внимание: малая выборка (n = {n}, наименьший класс n = {min_class}); оценки кросс-валидации имеют большую "
+            "дисперсию, многомерные модели легко переобучаются (Westerhuis et al., 2008). Результаты носят разведочный характер."
+        )
+    items.append(
+        "This summary is computed automatically from the session data; it is not an expert interpretation "
+        "of the origin or source of the organic matter."
+        if is_en else
+        "Сводка рассчитана автоматически по данным сессии и не является экспертной интерпретацией "
+        "происхождения или источника органического вещества."
+    )
+
+    html_list = "<ul style=\"margin: 6px 0 0 0; padding-left: 20px;\">" + "".join(
+        f"<li>{html.escape(t)}</li>" for t in items
+    ) + "</ul>"
+    return {"validation": validation, "items": items, "small_n": small_n, "markers": markers, "html": html_list}
 
 
 def _style_header_cell(cell, fill_hex="0B2545", font_color="FFFFFF", font_size=11, bold=True):
@@ -79,6 +399,7 @@ def generate_excel_passport(
     metadata: Optional[Dict] = None,
     lang: str = "ru",
     cross_corr_results: Optional[Dict] = None,
+    permutation_results: Optional[Dict] = None,
 ) -> bytes:
     """
     Генерирует многостраничный файл Excel (.xlsx) с паспортом анализа и возвращает байты.
@@ -150,7 +471,7 @@ def generate_excel_passport(
     for idx, (lbl, val) in enumerate(meta_info, start=5):
         ws_sum.cell(row=idx, column=1, value=lbl)
         ws_sum.cell(row=idx, column=1).font = Font(name="Calibri", size=10, bold=True)
-        ws_sum.cell(row=idx, column=2, value=val)
+        ws_sum.cell(row=idx, column=2, value=sanitize_excel_value(val))
         _style_data_cell(ws_sum.cell(row=idx, column=2))
 
     # Секция хемометрической модели
@@ -160,29 +481,49 @@ def generate_excel_passport(
     curr_row += 1
 
     if model_results:
-        m_type = model_results.get("model_type", "PLS-DA")
-        acc = model_results.get("Balanced_Accuracy", model_results.get("Accuracy", 0.0))
-        r2x = model_results.get("R2X", 0.0)
+        m_type = str(model_results.get("model_type", "PLS-DA"))
+        cv_scheme = model_results.get("CV_Scheme")
+        # Отсутствующие метрики показываются как «—», а не подставляются нулями
+        r2x = model_results.get("R2X")
         r2x_p = model_results.get("R2X_pred", None)
         r2x_o = model_results.get("R2X_ortho", None)
-        r2y = model_results.get("R2Y", 0.0)
-        q2 = model_results.get("Q2", 0.0)
+        r2y = model_results.get("R2Y")
+        q2 = model_results.get("Q2")
+        acc_cv, acc_cv_key = _first_metric(model_results, ("Balanced_Accuracy_CV", "Accuracy_CV"))
+        acc_tr, acc_tr_key = _first_metric(model_results, ("Balanced_Accuracy", "Accuracy"))
+        p_perm = _resolve_permutation_p(model_results, permutation_results)
+        validation = assess_model_validation(model_results, permutation_results, lang=lang)
+
+        q2_lbl = (f"Q² (Predictive Ability, CV{': ' + str(cv_scheme) if cv_scheme else ''}):" if is_en
+                  else f"Q² (Прогностическая способность, CV{': ' + str(cv_scheme) if cv_scheme else ''}):")
+        if acc_cv_key == "Accuracy_CV":
+            acc_cv_lbl = "Accuracy (CV):" if is_en else "Точность (CV):"
+        else:
+            acc_cv_lbl = "Balanced Accuracy (CV):" if is_en else "Сбалансированная точность (CV):"
+        if acc_tr_key == "Accuracy":
+            acc_tr_lbl = "Accuracy (train, resubstitution):" if is_en else "Точность (обучение, ресубституция):"
+        else:
+            acc_tr_lbl = "Balanced Accuracy (train, resubstitution):" if is_en else "Сбалансированная точность (обучение, ресубституция):"
 
         model_info = [
             ("Model Architecture:" if is_en else "Архитектура модели:", m_type),
-            ("R²X (Explained X-variance):" if is_en else "R²X (Объясненная дисперсия X):", f"{r2x:.2f}%"),
-            ("R²Y (Explained Class Y-variance):" if is_en else "R²Y (Объясненная дисперсия классов Y):", f"{r2y:.2f}%"),
-            ("Q² (Predictive Ability CV):" if is_en else "Q² (Прогностическая способность CV):", f"{q2:.2f}%"),
-            ("Balanced Accuracy:" if is_en else "Сбалансированная точность (Accuracy):", f"{acc:.2f}%"),
+            ("R²X (Explained X-variance):" if is_en else "R²X (Объясненная дисперсия X):", _fmt_pct(r2x, 2)),
+            ("R²Y (Explained Class Y-variance):" if is_en else "R²Y (Объясненная дисперсия классов Y):", _fmt_pct(r2y, 2)),
+            (q2_lbl, _fmt_pct(q2, 2)),
+            (acc_cv_lbl, _fmt_pct(acc_cv, 2)),
+            (acc_tr_lbl, _fmt_pct(acc_tr, 2)),
+            ("Permutation test p(Q²):" if is_en else "Перестановочный тест p(Q²):",
+             _fmt_p(p_perm) if np.isfinite(p_perm) else (f"{_MISSING} (not run)" if is_en else f"{_MISSING} (не выполнялся)")),
+            ("Validation status:" if is_en else "Статус валидации:", validation["label"]),
         ]
         if r2x_p is not None and r2x_o is not None:
-            model_info.append(("R²X_pred (Predictive Variance):" if is_en else "R²X_pred (Предиктивная дисперсия):", f"{r2x_p:.2f}%"))
-            model_info.append(("R²X_ortho (Orthogonal Noise):" if is_en else "R²X_ortho (Ортогональный шум):", f"{r2x_o:.2f}%"))
+            model_info.append(("R²X_pred (Predictive Variance):" if is_en else "R²X_pred (Предиктивная дисперсия):", _fmt_pct(r2x_p, 2)))
+            model_info.append(("R²X_ortho (Orthogonal Noise):" if is_en else "R²X_ortho (Ортогональный шум):", _fmt_pct(r2x_o, 2)))
 
         for lbl, val in model_info:
             ws_sum.cell(row=curr_row, column=1, value=lbl)
             ws_sum.cell(row=curr_row, column=1).font = Font(name="Calibri", size=10, bold=True)
-            ws_sum.cell(row=curr_row, column=2, value=val)
+            ws_sum.cell(row=curr_row, column=2, value=sanitize_excel_value(val))
             _style_data_cell(ws_sum.cell(row=curr_row, column=2))
             curr_row += 1
 
@@ -190,21 +531,28 @@ def generate_excel_passport(
         b_contrib = model_results.get("Block_Contributions", {})
         if b_contrib:
             curr_row += 1
-            ws_sum.cell(row=curr_row, column=1, value="3. RELATIVE ANALYTICAL BLOCK CONTRIBUTION (VIP²)" if is_en else "3. ОТНОСИТЕЛЬНЫЙ ВКЛАД АНАЛИТИЧЕСКИХ БЛОКОВ (VIP²)")
+            # Нейтральная подпись: для PLS-DA это доля ΣVIP², для MB-PLS — доля объяснённой Y,
+            # для SO-PLS — инкрементальный прирост R²Y (см. chemo_ml)
+            ws_sum.cell(row=curr_row, column=1, value="3. RELATIVE ANALYTICAL BLOCK CONTRIBUTION (SHARE)" if is_en else "3. ОТНОСИТЕЛЬНЫЙ ВКЛАД АНАЛИТИЧЕСКИХ БЛОКОВ (ДОЛЯ)")
             ws_sum.cell(row=curr_row, column=1).font = Font(name="Calibri", size=12, bold=True, color="134074")
             curr_row += 1
 
             ws_sum.cell(row=curr_row, column=1, value="Analytical Block" if is_en else "Аналитический блок")
-            ws_sum.cell(row=curr_row, column=2, value="Contribution Share (%)" if is_en else "Доля вклада (%)")
+            ws_sum.cell(row=curr_row, column=2, value="Block contribution (share)" if is_en else "Вклад блока (доля)")
             _style_header_cell(ws_sum.cell(row=curr_row, column=1), fill_hex="134074")
             _style_header_cell(ws_sum.cell(row=curr_row, column=2), fill_hex="134074")
             curr_row += 1
 
             for b_name, b_pct in b_contrib.items():
-                ws_sum.cell(row=curr_row, column=1, value=b_name)
+                ws_sum.cell(row=curr_row, column=1, value=sanitize_excel_value(str(b_name)))
                 _style_data_cell(ws_sum.cell(row=curr_row, column=1), bold=True)
-                ws_sum.cell(row=curr_row, column=2, value=b_pct / 100.0)
-                _style_data_cell(ws_sum.cell(row=curr_row, column=2), num_format="0.0%", align="right")
+                b_val = _num(b_pct)
+                if np.isfinite(b_val):
+                    ws_sum.cell(row=curr_row, column=2, value=b_val / 100.0)
+                    _style_data_cell(ws_sum.cell(row=curr_row, column=2), num_format="0.0%", align="right")
+                else:
+                    ws_sum.cell(row=curr_row, column=2, value=_MISSING)
+                    _style_data_cell(ws_sum.cell(row=curr_row, column=2), align="right")
                 curr_row += 1
     else:
         ws_sum.cell(row=curr_row, column=1, value="Machine learning model has not been trained yet." if is_en else "Модель машинного обучения еще не была обучена.")
@@ -222,7 +570,7 @@ def generate_excel_passport(
 
         # Заголовки
         for c_idx, col_name in enumerate(cols, start=1):
-            cell = ws_obj.cell(row=1, column=c_idx, value=col_name)
+            cell = ws_obj.cell(row=1, column=c_idx, value=sanitize_excel_value(str(col_name)))
             _style_header_cell(cell, fill_hex=header_fill)
 
         # Данные
@@ -236,10 +584,16 @@ def generate_excel_passport(
                     cell.value = int(val)
                     _style_data_cell(cell, num_format="0", align="right")
                 elif isinstance(val, (float, np.floating)):
-                    cell.value = float(val)
-                    _style_data_cell(cell, num_format="0.000", align="right")
+                    if np.isfinite(val):
+                        cell.value = float(val)
+                        _style_data_cell(cell, num_format="0.000", align="right")
+                    else:
+                        # ±inf не является допустимым числом в .xlsx — пишем текстом
+                        cell.value = str(float(val))
+                        _style_data_cell(cell, align="right")
                 else:
-                    cell.value = str(val)
+                    # Защита от формульных инъекций (=, +, -, @)
+                    cell.value = sanitize_excel_value(str(val))
                     _style_data_cell(cell, align="left")
 
         _apply_thin_borders(ws_obj, 1, len(df_source) + 1, 1, len(cols))
@@ -339,17 +693,17 @@ def generate_excel_passport(
                 _style_header_cell(cell, fill_hex="134074")
 
             for r_idx, row in enumerate(vip_df.itertuples(index=False), start=2):
-                desc = getattr(row, "Descriptor")
-                vip_v = float(getattr(row, "VIP"))
-                block = getattr(row, "Block", "Other")
-                is_sig = (vip_v >= 1.0)
+                desc = sanitize_excel_value(str(getattr(row, "Descriptor")))
+                vip_v = _num(getattr(row, "VIP"))
+                block = sanitize_excel_value(str(getattr(row, "Block", "Other")))
+                is_sig = bool(np.isfinite(vip_v) and vip_v >= 1.0)
 
                 bg_col = "E6F4EA" if is_sig else None  # Светло-зеленый для значимых маркеров
 
                 c1 = ws_vip.cell(row=r_idx, column=1, value=desc)
                 _style_data_cell(c1, bold=is_sig, bg_color=bg_col)
 
-                c2 = ws_vip.cell(row=r_idx, column=2, value=vip_v)
+                c2 = ws_vip.cell(row=r_idx, column=2, value=vip_v if np.isfinite(vip_v) else _MISSING)
                 _style_data_cell(c2, num_format="0.000", align="right", bold=is_sig, bg_color=bg_col)
 
                 c3 = ws_vip.cell(row=r_idx, column=3, value=block)
@@ -383,11 +737,16 @@ def generate_ecological_passport_html(
     cross_corr_results: Optional[Dict] = None,
     metadata: Optional[Dict] = None,
     lang: str = "ru",
+    permutation_results: Optional[Dict] = None,
 ) -> str:
     """
-    Генерирует автономный интерактивный HTML-паспорт / Экологический сертификат образцов.
+    Генерирует автономный интерактивный HTML-паспорт образцов.
     Включает сводные метрики 8 аналитических методов, результаты хемометрической классификации,
-    панель ключевых биомаркеров, межмодальные кросс-корреляции и экспертное заключение с поддержкой печати в PDF.
+    панель ключевых биомаркеров, межмодальные кросс-корреляции и автоматическую сводку по данным
+    (метрики валидации модели, предупреждение о малой выборке, VIP-маркеры с направлением различий,
+    вклад блоков) с поддержкой печати в PDF. Заготовленные «экспертные» выводы о генезисе не формируются.
+
+    permutation_results: результат chemo_ml.permutation_test_plsda (ключ p_val_q2), необязательно.
     """
     if isinstance(fused_df, dict):
         if model_results is None:
@@ -418,21 +777,24 @@ def generate_ecological_passport_html(
     ]
 
     active_blocks_count = 0
+    active_block_names: List[str] = []
     block_cards_html = ""
     for b_key, b_title_en, b_title_ru, b_color in all_blocks:
         b_cols = [c for c in feature_cols if block_map.get(c) == b_key]
         b_title = b_title_en if is_en else b_title_ru
         if len(b_cols) > 0:
             active_blocks_count += 1
+            active_block_names.append(b_key)
             sample_stats_html = ""
             for col in b_cols[:4]:
-                val_mean = float(fused_df[col].mean())
-                val_std = float(fused_df[col].std()) if len(fused_df) > 1 else 0.0
-                c_clean = html.escape(col)
+                col_vals = pd.to_numeric(fused_df[col], errors="coerce")
+                val_mean = float(col_vals.mean())
+                val_std = float(col_vals.std()) if col_vals.notna().sum() > 1 else float("nan")
+                c_clean = html.escape(str(col))
                 sample_stats_html += f"""
                 <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
                     <span style="color: #475569; font-family: monospace;">{c_clean}:</span>
-                    <span style="font-weight: 600; color: #0f172a;">{val_mean:.3f} ± {val_std:.3f}</span>
+                    <span style="font-weight: 600; color: #0f172a;">{_fmt_num(val_mean)} ± {_fmt_num(val_std)}</span>
                 </div>
                 """
             badge_status = f'<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">{len(b_cols)} {"features" if is_en else "признаков"}</span>'
@@ -450,64 +812,53 @@ def generate_ecological_passport_html(
         </div>
         """
 
-    # Экологическая оценка и генезис
-    classes_present = list(fused_df["Class_Target"].unique()) if "Class_Target" in fused_df.columns else []
+    # Автоматическая сводка по данным (вместо заготовленного «экспертного» заключения):
+    # статус определяется только метриками валидации модели, а не названиями классов.
+    classes_present = list(fused_df["Class_Target"].dropna().unique()) if "Class_Target" in fused_df.columns else []
     classes_str = ", ".join(str(c) for c in classes_present) if classes_present else ("N/A")
 
-    has_lignin_or_sludge = any(k in str(classes_str).lower() for k in ["lignin", "sludge", "шлам", "1"])
-    has_high_q2 = bool(model_results and model_results.get("Q2", 0) > 40)
-
-    if has_lignin_or_sludge or has_high_q2:
-        risk_label = "HIGH CONTRAST / TECHNOGENIC TRANSFORMATION" if is_en else "ВЫСОКИЙ КОНТРАСТ / ТЕХНОГЕННАЯ ТРАНСФОРМАЦИЯ"
-        risk_bg = "#fee2e2"
-        risk_color = "#b91c1c"
-        conclusion_text = (
-            "Molecular characterization reveals significant structural divergence between sample subsets. "
-            "Biomarker analysis indicates high enrichment in condensed polyphenolic and lignin-derived aromatics "
-            "with elevated AI_mod and SUVA254, characteristic of technogenic impact (e.g. industrial sludge-lignin discharge). "
-            "Background aquatic organic matter is distinguished by dominant aliphatic and humic-like constituents."
-            if is_en else
-            "Мультимодальная молекулярная характеризация выявила выраженную структурную дифференциацию между подгруппами образцов. "
-            "Анализ биомаркеров свидетельствует о резком обогащении конденсированными полифенольными и лигниноподобными ароматическими структурами "
-            "с повышенными индексами AI_mod и SUVA254, что характерно для техногенного загрязнения (включая шлам-лигнин БЦБК). "
-            "Фоновые природные воды контрастно отличаются преобладанием алифатических и классических гуминовых соединений."
-        )
-    else:
-        risk_label = "NATURAL BACKGROUND / AQUATIC DOM" if is_en else "ФОНОВЫЙ ПРИРОДНЫЙ ГЕНЕЗИС / ПРИРОДНОЕ ОВ"
-        risk_bg = "#dcfce7"
-        risk_color = "#15803d"
-        conclusion_text = (
-            "Multi-omics profiling confirms that the organic matter pool consists of predominantly natural background dissolved organic matter (DOM). "
-            "Spectroscopic and mass spectrometric signatures correspond to autochthonous microbial and terrigenous soil fulvic/humic complexes "
-            "with normal aromaticity levels and balanced heteroatom distributions."
-            if is_en else
-            "Мультимодальное профилирование подтверждает, что исследованный пул органического вещества соответствует фоновому "
-            "природному растворенному органическому веществу (DOM). Спектроскопические и масс-спектрометрические сигнатуры указывают на "
-            "сбалансированное присутствие автохтонных биогенных и терригенных гумусовых комплексов с естественным уровнем ароматичности."
-        )
+    summary = build_data_driven_summary(
+        fused_df, model_results=model_results, permutation_results=permutation_results,
+        active_blocks=active_block_names, lang=lang,
+    )
+    validation = summary["validation"]
+    risk_label = html.escape(validation["label"])
+    risk_bg = validation["bg"]
+    risk_color = validation["color"]
+    validation_status_html = f'<strong style="color: {risk_color};">{risk_label}</strong>'
+    conclusion_text = summary["html"]
 
     # Модель ML
     model_section_html = ""
     if model_results:
-        m_type = model_results.get("model_type", "PLS-DA")
-        acc = model_results.get("Balanced_Accuracy", model_results.get("Accuracy", 0.0))
-        r2x = model_results.get("R2X", 0.0)
-        r2y = model_results.get("R2Y", 0.0)
-        q2 = model_results.get("Q2", 0.0)
+        m_type = html.escape(str(model_results.get("model_type", "PLS-DA")))
+        cv_scheme = model_results.get("CV_Scheme")
+        acc_cv, acc_cv_key = _first_metric(model_results, ("Balanced_Accuracy_CV", "Accuracy_CV"))
+        acc_tr, acc_tr_key = _first_metric(model_results, ("Balanced_Accuracy", "Accuracy"))
+        if acc_cv_key is not None:
+            acc = acc_cv
+            acc_label = "Balanced Accuracy (CV)" if acc_cv_key == "Balanced_Accuracy_CV" else "Accuracy (CV)"
+        else:
+            acc = acc_tr
+            acc_label = "Balanced Accuracy (train)" if acc_tr_key != "Accuracy" else "Accuracy (train)"
+        r2x = model_results.get("R2X")
+        r2y = model_results.get("R2Y")
+        q2 = _num(model_results.get("Q2"))
+        q2_label = f"Q² ({html.escape(str(cv_scheme))})" if cv_scheme else "Q² (CV)"
 
         vip_rows_html = ""
         vip_df = model_results.get("VIP_df", pd.DataFrame())
         if isinstance(vip_df, pd.DataFrame) and not vip_df.empty:
             for _, r in vip_df.head(8).iterrows():
                 desc_name = html.escape(str(r["Descriptor"]))
-                vip_val = float(r["VIP"])
+                vip_val = _num(r["VIP"])
                 blk_name = html.escape(str(r.get("Block", "Other")))
-                sig_badge = f'<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">VIP={vip_val:.2f} ★</span>' if vip_val >= 1.0 else f'<span style="background: #f1f5f9; color: #64748b; padding: 2px 8px; border-radius: 10px; font-size: 11px;">VIP={vip_val:.2f}</span>'
+                sig_badge = f'<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;">VIP={vip_val:.2f} ★</span>' if (np.isfinite(vip_val) and vip_val >= 1.0) else f'<span style="background: #f1f5f9; color: #64748b; padding: 2px 8px; border-radius: 10px; font-size: 11px;">VIP={_fmt_num(vip_val, 2)}</span>'
                 vip_rows_html += f"""
                 <tr>
                     <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: 600;">{desc_name}</td>
                     <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #0b5394;">{blk_name}</td>
-                    <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">{vip_val:.3f}</td>
+                    <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">{_fmt_num(vip_val)}</td>
                     <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: center;">{sig_badge}</td>
                 </tr>
                 """
@@ -521,19 +872,19 @@ def generate_ecological_passport_html(
             <div class="kpi-grid">
                 <div class="kpi-box">
                     <div class="kpi-label">R²X (Spectral Variance)</div>
-                    <div class="kpi-value">{r2x:.1f}%</div>
+                    <div class="kpi-value">{_fmt_pct(r2x)}</div>
                 </div>
                 <div class="kpi-box">
                     <div class="kpi-label">R²Y (Class Variance)</div>
-                    <div class="kpi-value">{r2y:.1f}%</div>
+                    <div class="kpi-value">{_fmt_pct(r2y)}</div>
                 </div>
                 <div class="kpi-box">
-                    <div class="kpi-label">Q² (LOO-CV Predictive)</div>
-                    <div class="kpi-value" style="color: {'#16a34a' if q2 > 50 else '#d97706'};">{q2:.1f}%</div>
+                    <div class="kpi-label">{q2_label}</div>
+                    <div class="kpi-value" style="color: {'#16a34a' if (np.isfinite(q2) and q2 > Q2_GOOD_PCT) else '#d97706'};">{_fmt_pct(q2)}</div>
                 </div>
                 <div class="kpi-box">
-                    <div class="kpi-label">Balanced Accuracy</div>
-                    <div class="kpi-value" style="color: #0b5394;">{acc:.1f}%</div>
+                    <div class="kpi-label">{acc_label}</div>
+                    <div class="kpi-value" style="color: #0b5394;">{_fmt_pct(acc)}</div>
                 </div>
             </div>
             <table class="custom-table" style="margin-top: 16px;">
@@ -571,8 +922,15 @@ def generate_ecological_passport_html(
             ba = html.escape(str(r["Block_A"]))
             fb = html.escape(str(r["Feature_B"]))
             bb = html.escape(str(r["Block_B"]))
-            r_val = float(r["Correlation"])
-            p_val = float(r.get("p_value", 0.0))
+            r_val = _num(r["Correlation"])
+            # Предпочтительно q-value (поправка Бенджамини–Хохберга на множественные сравнения),
+            # иначе p-value; отсутствующее значение -> «—» (не 0.0)
+            if "q_value" in r.index and np.isfinite(_num(r.get("q_value"))):
+                sig_name, sig_val = "q", _num(r.get("q_value"))
+            else:
+                sig_name, sig_val = "p", _num(r.get("p_value"))
+            sig_txt = f"{sig_name} = {sig_val:.2e}" if np.isfinite(sig_val) else f"{sig_name} = {_MISSING}"
+            r_txt = f"{r_val:+.3f}" if np.isfinite(r_val) else _MISSING
             r_col = "#15803d" if r_val > 0 else "#b91c1c"
             cc_rows += f"""
             <tr>
@@ -583,8 +941,8 @@ def generate_ecological_passport_html(
                 <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0;">
                     <strong>{fb}</strong> <span style="font-size: 11px; color: #64748b;">[{bb}]</span>
                 </td>
-                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: {r_col};">{r_val:+.3f}</td>
-                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 11px; color: #64748b;">p = {p_val:.2e}</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: {r_col};">{r_txt}</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 11px; color: #64748b;">{sig_txt}</td>
             </tr>
             """
 
@@ -601,7 +959,7 @@ def generate_ecological_passport_html(
                         <th style="text-align: center;"></th>
                         <th>{"Дескриптор B (Блок B)" if not is_en else "Feature B (Block B)"}</th>
                         <th style="text-align: right;">r (Pearson)</th>
-                        <th style="text-align: right;">p-value</th>
+                        <th style="text-align: right;">q-value (BH-FDR) / p-value</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -817,8 +1175,8 @@ body {{
       <tr>
         <td style="font-weight: 600; color: #475569;">{"Аналитическая платформа:" if not is_en else "Analytical Platform:"}</td>
         <td>ChemoSuite Unified Analytical Engine 3.0</td>
-        <td style="font-weight: 600; color: #475569;">{"Статус сертификации:" if not is_en else "Certification Status:"}</td>
-        <td><strong style="color: #16a34a;">PASS (Chemometrically Validated)</strong></td>
+        <td style="font-weight: 600; color: #475569;">{"Статус валидации модели:" if not is_en else "Model Validation Status:"}</td>
+        <td>{validation_status_html}</td>
       </tr>
     </table>
   </div>
@@ -840,14 +1198,14 @@ body {{
   <!-- Кросс-модальные корреляции -->
   {cc_section_html}
 
-  <!-- Экспертное заключение -->
+  <!-- Автоматическая сводка по данным (не экспертное заключение) -->
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">📝 {"Автоматизированное экспертное заключение" if not is_en else "Automated Expert Conclusion & Diagnosis"}</h3>
-      <span style="font-size: 12px; color: #64748b;">ChemoSuite Rule-Based Synthesis</span>
+      <h3 class="card-title">📝 {"Автоматическая сводка результатов" if not is_en else "Automated Data Summary"}</h3>
+      <span style="font-size: 12px; color: #64748b;">{"Рассчитано по данным сессии" if not is_en else "Computed from session data"}</span>
     </div>
     <div class="conclusion-box">
-      <strong>{"ЗАКЛЮЧЕНИЕ ЭКСПЕРТА:" if not is_en else "EXPERT APPRAISAL:"}</strong> {conclusion_text}
+      <strong>{"СВОДКА ПО ДАННЫМ:" if not is_en else "DATA SUMMARY:"}</strong> {conclusion_text}
     </div>
   </div>
 

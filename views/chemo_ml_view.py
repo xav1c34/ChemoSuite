@@ -1510,6 +1510,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 "operator": "ChemoSuite Unified Analytical Engine",
                             },
                             lang=rep_lang,
+                            permutation_results=st.session_state.get("perm_results"),
                         )
                         rep_suffix = "EN" if rep_lang == "en" else "RU"
 
@@ -1522,6 +1523,7 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
                                 "operator": "ChemoSuite Unified Analytical Engine",
                             },
                             lang=rep_lang,
+                            permutation_results=st.session_state.get("perm_results"),
                         )
 
                         col_btn_html, col_btn_xlsx = st.columns(2)

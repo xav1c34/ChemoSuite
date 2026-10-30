@@ -73,6 +73,7 @@ def test_fticr_descriptor_ai_follows_koch_dittmar_with_erratum(formula, ai_expec
     ("Elem_AI_bulk", "Elemental"),
     ("NMR_C_acetal_pct", "NMR"),
     ("FTIR_GS_Ratio", "FTIR"),
+    ("DOC", "UV-Vis"),                     # DOC приходит из UV-блока вместе с SUVA254
     ("lmwoa_fraction", "IC"),
     ("Raman_Mw", "Raman"),
     ("Profile_Width", "Other"),

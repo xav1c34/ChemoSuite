@@ -139,7 +139,8 @@ def test_generate_ecological_passport_html_plsda():
     assert "window.print()" in html_out
     assert "FT-ICR MS" in html_out
     assert "EEM-PARAFAC" in html_out
-    assert "ЗАКЛЮЧЕНИЕ ЭКСПЕРТА:" in html_out
+    assert "СВОДКА ПО ДАННЫМ:" in html_out
+    assert "ЗАКЛЮЧЕНИЕ ЭКСПЕРТА" not in html_out
 
 
 def test_generate_ecological_passport_html_english():
@@ -152,6 +153,7 @@ def test_generate_ecological_passport_html_english():
     assert "<!DOCTYPE html>" in html_out
     assert "ChemoSuite Ecological Passport" in html_out
     assert "Print / Save as PDF" in html_out
-    assert "EXPERT APPRAISAL:" in html_out
+    assert "DATA SUMMARY:" in html_out
+    assert "No supervised model was trained" in html_out
 
 
