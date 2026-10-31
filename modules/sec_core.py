@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 import scipy.integrate
 import scipy.signal
+import scipy.linalg
 from scipy import sparse
-from scipy.sparse.linalg import spsolve
 
 
 def _trapz_integrate(y: np.ndarray, x: np.ndarray) -> float:
@@ -267,6 +267,14 @@ def baseline_als_sec(
     поэтому масштаб L^4 сохраняет её постоянной в единицах объёма. SEC-пики занимают большую
     часть хроматограммы, и при lam ~ 1e5 базовая линия «врезается» в широкий пик; при
     lam = 1e9, p = 0.001 Mw синтетического профиля с известным дрейфом воспроизводится < 1 %.
+
+    Численная устойчивость: при таком lam число обусловленности системы ~ 16·lam/p ~ 1e13,
+    а линейные функции лежат в ядре D'D и штрафом не контролируются, поэтому ошибка округления
+    уходит в линейный «наклон» (на CI разные сборки SuperLU давали 5.0 -> 4.9979..4.9982).
+    Задача эквивариантна к линейному тренду: (W + lam D'D)(z - l) = W(y - l) при D l = 0, —
+    поэтому МНК-прямая вычитается до решения и добавляется обратно (результат тот же, но большой
+    офсет детектора не проходит через плохо обусловленное решение), а сама SPD-ленточная
+    система решается Холецким (LAPACK pbsv) вместо LU общего вида.
     """
     y = np.asarray(y, dtype=float)
     L = len(y)
@@ -274,15 +282,22 @@ def baseline_als_sec(
         return np.zeros_like(y)
     if lam is None:
         lam = 1e9 * (L / 721.0) ** 4
+    t = np.arange(L, dtype=float)
+    trend = np.polyval(np.polyfit(t, y, 1), t)
+    r = y - trend
     D = sparse.diags([1.0, -2.0, 1.0], [0, 1, 2], shape=(L - 2, L), format="csc", dtype=float)
-    D_mat = lam * (D.T @ D)
+    DtD = (D.T @ D).todia()
+    # Верхняя ленточная форма для solveh_banded: ab[2 - k, k:] = диагональ k
+    ab = np.zeros((3, L))
+    ab[1, 1:] = lam * DtD.diagonal(1)
+    ab[0, 2:] = lam * DtD.diagonal(2)
+    d0 = lam * DtD.diagonal(0)
     w = np.ones(L)
     for _ in range(niter):
-        W = sparse.diags(w, 0, shape=(L, L), format="csc")
-        Z = W + D_mat
-        z = spsolve(Z, w * y)
-        w = p * (y > z) + (1 - p) * (y <= z)
-    return np.asarray(z)
+        ab[2] = d0 + w
+        z = scipy.linalg.solveh_banded(ab, w * r, check_finite=False)
+        w = p * (r > z) + (1 - p) * (r <= z)
+    return z + trend
 
 
 def fit_sec_calibration(

@@ -32,7 +32,20 @@ DEMO = Path(__file__).resolve().parent.parent / "demo_data"
 def test_sec_asls_flat_baseline_is_preserved():
     """(W + λD'D)z = Wy: плоская базовая линия 5.0 должна остаться 5.0 (раньше D·D' давал ~0 на краях)."""
     z = sec_core.baseline_als_sec(np.full(721, 5.0))
-    assert np.allclose(z, 5.0, atol=1e-3)
+    assert np.allclose(z, 5.0, atol=1e-9)
+
+
+def test_sec_asls_is_equivariant_to_offset_and_slope():
+    """D'D не штрафует прямую ⇒ baseline(y + a + b·t) = baseline(y) + a + b·t.
+    При cond ~1e13 прежний spsolve нарушал это на ~2e-3 и по-разному на разных сборках SciPy
+    (на CI плоская 5.0 превращалась в наклонную 4.9979..4.9982)."""
+    t = np.arange(721.0)
+    rng = np.random.default_rng(0)
+    y = 40 * np.exp(-0.5 * ((t - 300) / 60) ** 2) + 15 * np.exp(-0.5 * ((t - 420) / 30) ** 2)
+    y = y + rng.normal(0, 0.05, t.size)
+    z0 = sec_core.baseline_als_sec(y)
+    z1 = sec_core.baseline_als_sec(y + 1000.0 + 0.5 * t)
+    assert np.allclose(z1, z0 + 1000.0 + 0.5 * t, atol=1e-6)
 
 
 @pytest.mark.parametrize("key", list(sec_core.CALIBRATION_PRESETS.keys()))
