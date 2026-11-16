@@ -77,6 +77,7 @@ class MultiBlockPLSDA:
         self.block_names: List[str] = []
         self.block_features: Dict[str, List[str]] = {}
         self.scaling_factors: Dict[str, float] = {}
+        self.block_means_: Dict[str, np.ndarray] = {}
         self.block_weights_: Dict[str, np.ndarray] = {}  # P_b x A
         self.block_loadings_: Dict[str, np.ndarray] = {}  # P_b x A
         self.block_scores_: Dict[str, np.ndarray] = {}  # N x A
@@ -86,7 +87,7 @@ class MultiBlockPLSDA:
         self.block_contributions_: Dict[str, np.ndarray] = {}  # Modality % per component
         self.r2x_: float = 0.0
         self.r2y_: float = 0.0
-        self.q2_: float = 0.0
+        self.q2_: float = float("nan")
         self.b_vip_: Dict[str, np.ndarray] = {}  # Block-VIP scores
         self.classes_: np.ndarray = np.array([])
         self.mean_y_: Optional[np.ndarray] = None
@@ -95,7 +96,8 @@ class MultiBlockPLSDA:
         self,
         blocks: Dict[str, Any],
         y: Any,
-        feature_names: Optional[Dict[str, List[str]]] = None
+        feature_names: Optional[Dict[str, List[str]]] = None,
+        _cross_validate: bool = True,
     ) -> "MultiBlockPLSDA":
         """
         Fit MB-PLS-DA model on multi-modal block dictionary.
@@ -156,6 +158,7 @@ class MultiBlockPLSDA:
         Y_centered = Y_dummy - self.mean_y_
 
         # Block scaling
+        self.block_means_ = {k: np.mean(v, axis=0, keepdims=True) for k, v in clean_blocks.items()}
         if self.scale_blocks:
             scaled_blocks, self.scaling_factors = block_scale(clean_blocks, method="frobenius")
         else:
@@ -284,7 +287,8 @@ class MultiBlockPLSDA:
         self._compute_block_vip(scaled_blocks, Y_centered)
 
         # Cross-validation Q2 estimation
-        self._compute_q2_cv(clean_blocks, y_arr, n_comp)
+        if _cross_validate:
+            self._compute_q2_cv(clean_blocks, y_arr, n_comp)
 
         return self
 
@@ -321,7 +325,7 @@ class MultiBlockPLSDA:
         """Perform 5-fold cross-validation to estimate Q2."""
         n_samples = len(y_arr)
         if n_samples < 5:
-            self.q2_ = float(self.r2y_ * 0.85)  # conservative heuristic for micro datasets
+            self.q2_ = float("nan")
             return
 
         k_folds = min(5, n_samples)
@@ -344,15 +348,16 @@ class MultiBlockPLSDA:
 
             try:
                 sub_model = MultiBlockPLSDA(n_components=n_comp, scale_blocks=self.scale_blocks)
-                sub_model.fit(train_blocks, y_train)
+                sub_model.fit(train_blocks, y_train, _cross_validate=False)
                 y_pred = sub_model.predict_proba(test_blocks)
                 press += np.sum((y_test - y_pred) ** 2)
-            except Exception:
-                press += np.sum((y_test - mean_fold_y) ** 2)
+            except (ValueError, np.linalg.LinAlgError):
+                self.q2_ = float("nan")
+                return
 
             ss_y += np.sum((y_test - mean_fold_y) ** 2)
 
-        self.q2_ = float(max(0.0, 1.0 - press / ss_y)) if ss_y > 1e-12 else 0.0
+        self.q2_ = float(1.0 - press / ss_y) if ss_y > 1e-12 else float("nan")
 
     def predict_proba(self, blocks: Dict[str, np.ndarray]) -> np.ndarray:
         """Predict class probabilities for new multi-modal blocks."""
@@ -364,7 +369,7 @@ class MultiBlockPLSDA:
         for b_name in self.block_names:
             X_raw = np.asarray(blocks[b_name], dtype=np.float64)
             factor = self.scaling_factors.get(b_name, 1.0)
-            scaled_test[b_name] = (X_raw - np.mean(X_raw, axis=0, keepdims=True)) * factor
+            scaled_test[b_name] = (X_raw - self.block_means_[b_name]) * factor
 
         n_samples = next(iter(scaled_test.values())).shape[0]
         n_comp = self.super_scores_.shape[1]

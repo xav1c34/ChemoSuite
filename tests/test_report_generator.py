@@ -139,7 +139,7 @@ def test_generate_ecological_passport_html_plsda():
     assert "window.print()" in html_out
     assert "FT-ICR MS" in html_out
     assert "EEM-PARAFAC" in html_out
-    assert "ЗАКЛЮЧЕНИЕ ЭКСПЕРТА:" in html_out
+    assert "ОГРАНИЧЕНИЯ ИНТЕРПРЕТАЦИИ:" in html_out
 
 
 def test_generate_ecological_passport_html_english():
@@ -152,6 +152,14 @@ def test_generate_ecological_passport_html_english():
     assert "<!DOCTYPE html>" in html_out
     assert "ChemoSuite Ecological Passport" in html_out
     assert "Print / Save as PDF" in html_out
-    assert "EXPERT APPRAISAL:" in html_out
+    assert "INTERPRETATION LIMITS:" in html_out
+
+
+def test_report_does_not_infer_pollution_from_class_or_q2():
+    df = pd.DataFrame({"Sample_ID": ["a", "b"], "Class_Target": ["sludge1", "background"]})
+    output = report_generator.generate_ecological_passport_html(df, model_results={"Q2": 99}, lang="en")
+    assert "do not establish the source" in output
+    assert "Biomarker analysis indicates high enrichment" not in output
+    assert "confirms that the organic matter pool" not in output
 
 

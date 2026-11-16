@@ -173,7 +173,7 @@ def generate_excel_passport(
             ("R²X (Explained X-variance):" if is_en else "R²X (Объясненная дисперсия X):", f"{r2x:.2f}%"),
             ("R²Y (Explained Class Y-variance):" if is_en else "R²Y (Объясненная дисперсия классов Y):", f"{r2y:.2f}%"),
             ("Q² (Predictive Ability CV):" if is_en else "Q² (Прогностическая способность CV):", f"{q2:.2f}%"),
-            ("Balanced Accuracy:" if is_en else "Сбалансированная точность (Accuracy):", f"{acc:.2f}%"),
+            ("Balanced accuracy (training):" if is_en else "Сбалансированная точность (обучение):", f"{acc:.2f}%"),
         ]
         if r2x_p is not None and r2x_o is not None:
             model_info.append(("R²X_pred (Predictive Variance):" if is_en else "R²X_pred (Предиктивная дисперсия):", f"{r2x_p:.2f}%"))
@@ -454,37 +454,16 @@ def generate_ecological_passport_html(
     classes_present = list(fused_df["Class_Target"].unique()) if "Class_Target" in fused_df.columns else []
     classes_str = ", ".join(str(c) for c in classes_present) if classes_present else ("N/A")
 
-    has_lignin_or_sludge = any(k in str(classes_str).lower() for k in ["lignin", "sludge", "шлам", "1"])
-    has_high_q2 = bool(model_results and model_results.get("Q2", 0) > 40)
-
-    if has_lignin_or_sludge or has_high_q2:
-        risk_label = "HIGH CONTRAST / TECHNOGENIC TRANSFORMATION" if is_en else "ВЫСОКИЙ КОНТРАСТ / ТЕХНОГЕННАЯ ТРАНСФОРМАЦИЯ"
-        risk_bg = "#fee2e2"
-        risk_color = "#b91c1c"
-        conclusion_text = (
-            "Molecular characterization reveals significant structural divergence between sample subsets. "
-            "Biomarker analysis indicates high enrichment in condensed polyphenolic and lignin-derived aromatics "
-            "with elevated AI_mod and SUVA254, characteristic of technogenic impact (e.g. industrial sludge-lignin discharge). "
-            "Background aquatic organic matter is distinguished by dominant aliphatic and humic-like constituents."
-            if is_en else
-            "Мультимодальная молекулярная характеризация выявила выраженную структурную дифференциацию между подгруппами образцов. "
-            "Анализ биомаркеров свидетельствует о резком обогащении конденсированными полифенольными и лигниноподобными ароматическими структурами "
-            "с повышенными индексами AI_mod и SUVA254, что характерно для техногенного загрязнения (включая шлам-лигнин БЦБК). "
-            "Фоновые природные воды контрастно отличаются преобладанием алифатических и классических гуминовых соединений."
-        )
-    else:
-        risk_label = "NATURAL BACKGROUND / AQUATIC DOM" if is_en else "ФОНОВЫЙ ПРИРОДНЫЙ ГЕНЕЗИС / ПРИРОДНОЕ ОВ"
-        risk_bg = "#dcfce7"
-        risk_color = "#15803d"
-        conclusion_text = (
-            "Multi-omics profiling confirms that the organic matter pool consists of predominantly natural background dissolved organic matter (DOM). "
-            "Spectroscopic and mass spectrometric signatures correspond to autochthonous microbial and terrigenous soil fulvic/humic complexes "
-            "with normal aromaticity levels and balanced heteroatom distributions."
-            if is_en else
-            "Мультимодальное профилирование подтверждает, что исследованный пул органического вещества соответствует фоновому "
-            "природному растворенному органическому веществу (DOM). Спектроскопические и масс-спектрометрические сигнатуры указывают на "
-            "сбалансированное присутствие автохтонных биогенных и терригенных гумусовых комплексов с естественным уровнем ароматичности."
-        )
+    risk_label = "INTERPRETATION REQUIRED" if is_en else "ТРЕБУЕТСЯ ИНТЕРПРЕТАЦИЯ"
+    risk_bg = "#f1f5f9"
+    risk_color = "#334155"
+    conclusion_text = (
+        "Class labels and model scores do not establish the source of organic matter or demonstrate contamination. "
+        "Interpret the measured descriptors against independent reference samples, controls, and experimental uncertainty."
+        if is_en else
+        "Названия классов и показатели модели не устанавливают происхождение органического вещества и не доказывают загрязнение. "
+        "Интерпретируйте измеренные показатели с учётом независимых эталонных и контрольных проб и неопределённости измерений."
+    )
 
     # Модель ML
     model_section_html = ""
@@ -528,11 +507,11 @@ def generate_ecological_passport_html(
                     <div class="kpi-value">{r2y:.1f}%</div>
                 </div>
                 <div class="kpi-box">
-                    <div class="kpi-label">Q² (LOO-CV Predictive)</div>
+                    <div class="kpi-label">Q² (cross-validation)</div>
                     <div class="kpi-value" style="color: {'#16a34a' if q2 > 50 else '#d97706'};">{q2:.1f}%</div>
                 </div>
                 <div class="kpi-box">
-                    <div class="kpi-label">Balanced Accuracy</div>
+                    <div class="kpi-label">Balanced Accuracy (training)</div>
                     <div class="kpi-value" style="color: #0b5394;">{acc:.1f}%</div>
                 </div>
             </div>
@@ -818,7 +797,7 @@ body {{
         <td style="font-weight: 600; color: #475569;">{"Аналитическая платформа:" if not is_en else "Analytical Platform:"}</td>
         <td>ChemoSuite Unified Analytical Engine 3.0</td>
         <td style="font-weight: 600; color: #475569;">{"Статус сертификации:" if not is_en else "Certification Status:"}</td>
-        <td><strong style="color: #16a34a;">PASS (Chemometrically Validated)</strong></td>
+        <td><strong style="color: #16a34a;">PASS (Pipeline Verified)</strong></td>
       </tr>
     </table>
   </div>
@@ -847,7 +826,7 @@ body {{
       <span style="font-size: 12px; color: #64748b;">ChemoSuite Rule-Based Synthesis</span>
     </div>
     <div class="conclusion-box">
-      <strong>{"ЗАКЛЮЧЕНИЕ ЭКСПЕРТА:" if not is_en else "EXPERT APPRAISAL:"}</strong> {conclusion_text}
+      <strong>{"ОГРАНИЧЕНИЯ ИНТЕРПРЕТАЦИИ:" if not is_en else "INTERPRETATION LIMITS:"}</strong> {conclusion_text}
     </div>
   </div>
 

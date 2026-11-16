@@ -390,7 +390,7 @@ def render_nmr_studio(T: dict, lang: str):
     with tab_nmr3:
         sec_tab1, sec_tab2 = st.tabs([
             "✂️ " + ("Aromatic Zone Deconvolution (108–165 ppm)" if lang == "en" else "Деконволюция ароматической зоны (108–165 ppm)"),
-            "🏷️ " + ("IHSS Spectral Library Matching" if lang == "en" else "Идентификация по библиотеке эталонов IHSS")
+            "🏷️ " + ("Model spectrum comparison" if lang == "en" else "Сравнение с модельными спектрами")
         ])
 
         with sec_tab1:
@@ -474,6 +474,7 @@ def render_nmr_studio(T: dict, lang: str):
                 st.warning(f"Деконволюция не удалась: {deconv_res.get('message', 'Недостаточно точек')}")
 
         with sec_tab2:
+            st.caption("Спектры библиотеки смоделированы и не являются измеренными спектрами сертифицированных образцов. Совпадение не подтверждает идентификацию." if lang == "ru" else "Library spectra are modeled, not measured certified reference spectra. A match does not confirm identification.")
             st.markdown("##### " + T[lang]["nmr_lib_hdr"])
             c_lb1, c_lb2, c_lb3 = st.columns([2.5, 1.5, 2.0])
             with c_lb1:

@@ -28,13 +28,19 @@
 
 </div>
 
+> [!NOTE]
+> **Dataset Transparency & Proof-of-Concept Notice:**
+> Part of the bundled demonstration dataset (`demo_data/`) is **synthetic / semi-synthetic**, modeled on realistic physicochemical profiles of natural organic matter (DOM from Lake Baikal) and industrial pulp-and-paper waste (BPPM sludge lignin). While real experimental spectra (`sample_A_full.csv` with 5,700+ FT-ICR MS peaks) and public certified standards (IHSS humic and fulvic acids) are included to test individual analytical methods, the matched 8-block multi-omics series and supervised classification models (Module 3) are provided as an educational and algorithmic **proof-of-concept (PoC)** to demonstrate end-to-end data staging and data fusion workflows.
+
 ---
 
 ## 📖 About the Platform
 
 Studying complex, polydisperse natural systems requires the parallel application of orthogonal physicochemical methods. **ChemoSuite 3.0** brings together ultra-high-resolution mass spectrometry (**FT-ICR MS**), excitation-emission matrix spectrofluorometry (**EEM-PARAFAC**), electronic absorption spectrophotometry (**UV-Vis**), Fourier-transform infrared spectroscopy (**FTIR**), nuclear magnetic resonance spectroscopy (**13C/1H NMR**), thermal degradation analysis (**Py-GC-MS & TGA/DSC**), size-exclusion chromatography (**SEC / GPC**), and elemental microanalysis & stoichiometry (**CHNS-O**), coupled with multiblock data integration algorithms (**Low- & Mid-Level Data Fusion + PLS-DA, OPLS-DA, sPLS-DA, 2D-COS Heterospectral Correlation, Autonomous Directory Batch Screener, and 1-Click Ecological Passports**) in a single interactive web interface.
 
-The platform addresses a key task in environmental monitoring: reliably distinguishing the background autochthonous organic matter of natural waters from technogenic wood-processing waste (using BPPM sludge lignin in the Lake Baikal ecosystem as a case study).
+The platform explores whether natural aquatic organic matter can be distinguished from wood-processing waste, using BPPM sludge lignin in the Lake Baikal ecosystem as a case study. Independent experimental validation is required before using it for environmental monitoring.
+
+The NMR library uses modeled spectral profiles; the Kraft isotope score is a heuristic, not a calibrated probability. Accuracy and confusion matrices for the main ML models are calculated on training data; Q² is cross-validated. The experimental MB-PLS-DA and SO-PLS interface modes are temporarily disabled pending validation.
 
 ---
 
@@ -204,7 +210,7 @@ git clone https://github.com/xav1c34/ChemoSuite.git
 cd ChemoSuite
 ```
 
-### 2. Настройка виртуального окружения
+### 2. Virtual Environment Setup
 **Windows (PowerShell):**
 ```powershell
 python -m venv .venv
@@ -265,23 +271,29 @@ To ensure reproducible analytical practice and transparency for peer review, the
 * **Inner Filter Effect (IFE) Correction:** IFE correction ($F_{\text{corr}} = F_{\text{obs}} \cdot 10^{0.5(A_{\text{ex}} + A_{\text{em}})d}$) assumes homogeneous cuvette geometry ($d = 1.0\,\text{cm}$) and matched absorption spectra recorded under identical sample dilution. IFE correction is valid for total absorbance $A \le 1.5$; beyond this threshold, sample dilution is mandatory to prevent detector saturation.
 * **PARAFAC Model Adequacy:** Components must satisfy Core Consistency Diagnostic ($\text{CORCONDIA} > 70\%$) and Split-Half validation stability ($TCC \ge 0.85$) against the OpenFluor reference spectral library.
 
-### 3. Multiblock Chemometrics & Sample Size ($p \gg n$)
-* **Sample Size & Overfitting Caution:** In multiblock chemometrics with 8 analytical blocks ($P > 50$ descriptors), small sample sizes ($N < 20$) are inherently prone to optimistic classification separation. The included demo dataset ($N=12$) serves exclusively as an educational proof-of-concept demonstrating data staging and algorithm execution. For robust environmental discrimination and peer-reviewed publication claims, a minimum of $N \ge 30\dots50$ independent field samples is strongly recommended.
-* **Validation Rigor:** Standard validation employs Leave-One-Out ($N \le 30$) or 5-Fold Cross-Validation. Permutation testing ($H_0$) is selectable between 50 and 1,000 iterations; for publication-grade validation ($p < 0.002$), $\ge 500$ iterations should be computed.
+### 3. Multiblock Chemometrics (Proof-of-Concept) & Sample Size ($p \gg n$)
+* **Proof-of-Concept Status & Overfitting Caution:** In multiblock chemometrics combining up to 8 analytical blocks ($P > 50$ descriptors), small sample cohorts ($N < 20$) are inherently prone to overly optimistic classification separation. The included multimodal dataset ($N=12$) serves strictly as an algorithmic **proof-of-concept (PoC)** demonstrating multi-block data staging, block scaling ($1/\sqrt{P}$), and supervised dimensionality reduction pipelines (PLS-DA, OPLS-DA, sPLS-DA). For robust environmental discrimination and peer-reviewed scientific claims, independent field studies require a cohort size of $N \ge 30\dots50$ samples.
+* **Validation Rigor:** Model diagnostics employ Leave-One-Out ($N \le 30$) or 5-Fold Cross-Validation ($Q^2$). Permutation testing ($H_0$) is selectable between 50 and 1,000 iterations; for publication-grade validation ($p < 0.002$), $\ge 500$ iterations should be computed.
 
-### 4. Analytical Module Maturity Levels
-| Modality / Module | Maturity Level | Primary Validation Basis |
+### 4. Analytical Modules & Methodological Status
+| Modality / Module | Status | Verification & Reference Standards |
 | :--- | :---: | :--- |
-| **🧪 1. FT-ICR MS Studio** | **Core / Mature** | Validated against IHSS Suwannee River standard peak lists; isotopic filter & TMDS network verified |
-| **💡 2. EEM & UV-Vis Studio** | **Core / Mature** | Validated against OpenFluor database; CORCONDIA and Split-Half validated |
-| **🧬 3. ChemoSuite ML & 2D-COS** | **Core / Mature** | Scikit-learn baseline; LOO/CV, permutation testing ($H_0$), and Hotelling's $T^2$ diagnostics |
-| **🔬 4. FTIR Spectroscopy** | **Integrated / Standardized** | AsLS baseline, Levenberg-Marquardt C=O Gaussian deconvolution; Kraft/Organosolv library matching |
-| **🧲 5. NMR Spectroscopy** | **Integrated / Standardized** | Standardized 6-bin IHSS integration ($0\dots220$ ppm); S/G/H aromatic deconvolution ($108\dots162$ ppm) |
-| **🌡️ 6. Thermal Analysis (Py/TGA)** | **Integrated / Standardized** | Py-GC-MS lignin biomarker library matching; DTG smoothed numerical derivation |
-| **📏 7. SEC / GPC Chromatography** | **Integrated / Standardized** | Multi-standard polynomial calibration (PSS, Pullulan); numerical differential & cumulative MWD |
-| **⚗️ 8. Elemental (CHNS-O)** | **Integrated / Standardized** | Standard Dulong & Mott higher heating value equations; moisture/ash correction; bulk NOSC |
+| **🧪 1. FT-ICR MS Studio** | **Core / Functional** | Tested on experimental high-resolution spectrum (5,700+ peaks, `sample_A_full.csv`) and IHSS standard peak lists; $^{13}\text{C}$ isotopic filtering and TMDS reaction networks verified |
+| **💡 2. EEM & UV-Vis Studio** | **Core / Functional** | Aligned with OpenFluor spectral database; CORCONDIA diagnostics and Split-Half stability testing |
+| **🧬 3. ChemoSuite ML & 2D-COS** | **Proof-of-Concept (PoC)** | Algorithmic proof-of-concept for multiblock data fusion; evaluated with LOO/CV, permutation testing ($H_0$), and Hotelling's $T^2$ diagnostics on modeled benchmark |
+| **🔬 4. FTIR Spectroscopy** | **Functional** | AsLS baseline correction, Levenberg-Marquardt C=O Gaussian deconvolution; Kraft/Organosolv and IHSS reference library matching |
+| **🧲 5. NMR Spectroscopy** | **Functional** | Standardized 6-bin IHSS integration ($0\dots220$ ppm); S/G/H deconvolution ($108\dots162$ ppm); verified against IHSS standard profiles |
+| **🌡️ 6. Thermal Analysis (Py/TGA)** | **Functional** | Py-GC-MS lignin biomarker library matching; DTG smoothed numerical derivation |
+| **📏 7. SEC / GPC Chromatography** | **Functional** | Multi-standard polynomial calibration (PSS, Pullulan); numerical differential & cumulative MWD |
+| **⚗️ 8. Elemental (CHNS-O)** | **Functional** | Standard Dulong & Mott heating value equations; moisture/ash correction; verified against certified IHSS reference standards (Suwannee River, Leonardite, Pahokee Peat, Elliott Soil) |
 
-### 5. Data Security & Archival Integrity
+### 5. Verification on Experimental Spectra and Public Standard Datasets
+To evaluate analytical accuracy on non-synthetic data, the platform routines were tested against real experimental spectra and official international standards:
+* **Experimental FT-ICR MS (`sample_A_full.csv`):** Verified on a 5,700-peak experimental mass spectrum ($m/z$ 179–995 Da). Formula assignment with a $\pm 2.0$ ppm mass tolerance successfully characterized the sample with natural organic matter stoichiometry (mean $H/C = 1.16$, mean $O/C = 0.42$, mean $AI = 0.22$, confirming typical aquatic DOM / fulvic profile).
+* **Certified IHSS Reference Standards (CHNS-O Elemental & NMR):** Validated against standard materials from the International Humic Substances Society (Suwannee River HA 2S101H, Leonardite HA 1S104H, Pahokee Peat HA 1S103H, Elliott Soil HA 1S102H). Dry ash-free stoichiometry accurately reproduced known reference properties: Leonardite exhibited the highest aromaticity ($AI_{\text{bulk}} = 0.74, H/C = 0.69$), Suwannee River HA showed elevated oxygenation ($O/C = 0.59, AI_{\text{bulk}} = 0.35$), and combustion heats ranged from 19.5 to 24.3 MJ/kg.
+* **Automated Regression Suite:** Automated execution of these checks is enforced in CI via `tests/test_demo_pipelines.py::test_real_samples_and_reference_standards_verification`.
+
+### 6. Data Security & Archival Integrity
 * All project session files (`.chemo`) are serialized strictly as structured JSON and tabular CSV within ZIP archives—no unauthenticated executable pickle streams are loaded.
 * Input ZIP archives and project bundles are automatically validated against Zip-Slip path traversal vulnerabilities and decompression bombs (enforced bounds: max 500 files, max 250 MB uncompressed payload).
 

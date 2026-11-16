@@ -4,6 +4,7 @@ tests/test_structure_elucidation.py — Unit tests for Cross-Modal Structure Elu
 import pytest
 from modules.structure_elucidation import (
     MultiModalConstraints,
+    CandidateStructure,
     detect_smiles_substructures,
     estimate_13c_nmr_distribution,
     compute_concordance_score,
@@ -89,3 +90,49 @@ def test_concordance_scoring_and_ranking():
     # First candidate must be Gallic acid
     assert results[0].name == "Gallic acid"
     assert results[0].concordance_score > results[1].concordance_score
+
+
+def test_multimodal_constraints_and_candidate_structure_view_flow():
+    """Verify exact usage pattern from chemo_ml_view.py renders and scores properly."""
+    target_formula = "C9H10O3"
+    active_ftir_keys = ["1510", "1600", "1720"]
+    nmr_arom_val = 66.7
+    chns_c_val = 65.0
+
+    constraints = MultiModalConstraints(
+        formula=target_formula,
+        ftir_active_bands=active_ftir_keys,
+        nmr_aromatic_fraction=nmr_arom_val / 100.0,
+        nmr_aliphatic_fraction=(100.0 - nmr_arom_val) / 200.0,
+        elemental_pct={"C": chns_c_val, "H": 6.0, "O": 28.0},
+    )
+
+    # Verify constraints mapping
+    assert constraints.formula == "C9H10O3"
+    assert constraints.ftir_aromatic_c_c == 1
+    assert constraints.ftir_carboxyl == 1
+    assert constraints.nmr_aromatic_pct == pytest.approx(0.667, rel=1e-3)
+    assert constraints.target_h_c is not None
+
+    candidates = [
+        CandidateStructure("2-Methoxy-4-vinylphenol", "COc1cc(C=C)ccc1O", target_formula),
+        CandidateStructure("Vanillin ethyl ether", "CCOc1cc(C=O)ccc1OC", target_formula),
+        CandidateStructure("Coniferyl aldehyde precursor", "COc1cc(CC=O)ccc1O", target_formula),
+        CandidateStructure("Aliphatic ester isomer", "CCCC(=O)OCCCC", target_formula),
+    ]
+
+    # Verify elucidate_candidates with (candidates, constraints) argument order
+    ranked = elucidate_candidates(candidates, constraints)
+    assert len(ranked) == 4
+    for i, r in enumerate(ranked, 1):
+        assert r.rank == i
+        assert isinstance(r.name, str)
+        assert isinstance(r.smiles, str)
+        assert 0.0 <= r.concordance_score <= 1.0
+        assert 0.0 <= r.ms_match_score <= 1.0
+        assert 0.0 <= r.ftir_match_score <= 1.0
+        assert 0.0 <= r.nmr_match_score <= 1.0
+        assert 0.0 <= r.elemental_match_score <= 1.0
+
+    # Ensure best ranked compound has higher concordance score than the lowest ranked
+    assert ranked[0].concordance_score >= ranked[-1].concordance_score

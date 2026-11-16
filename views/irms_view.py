@@ -87,7 +87,8 @@ def render_irms_studio(T: dict, lang: str):
             chips.append(f'<span class="sample-chip"><b>d-excess</b>: {active_sample.deuterium_excess:+.1f} ‰</span>')
 
         p_color = "red" if active_sample.kraft_lignin_prob > 0.6 else ("orange" if active_sample.kraft_lignin_prob > 0.3 else "green")
-        chips.append(f'<span class="sample-chip {p_color}"><b>Kraft Prob</b>: {active_sample.kraft_lignin_prob*100:.0f}%</span>')
+        chips.append(f'<span class="sample-chip {p_color}"><b>Kraft heuristic score</b>: {active_sample.kraft_lignin_prob:.2f}</span>')
+        st.caption("Эвристический индекс, не калиброванная вероятность происхождения." if lang == "ru" else "Heuristic score, not a calibrated probability of origin.")
 
         st.markdown(
             f'<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 26px;">{"".join(chips)}</div>',
@@ -125,7 +126,7 @@ def render_irms_studio(T: dict, lang: str):
                 "d2H": s.d2H,
                 "d18O": s.d18O,
                 "d_excess": s.deuterium_excess,
-                "Kraft_Prob": s.kraft_lignin_prob,
+                "Kraft_Heuristic_Score": s.kraft_lignin_prob,
                 "Sample_Type": s.sample_type,
             })
         plot_df = pd.DataFrame(df_all)

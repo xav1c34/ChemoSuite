@@ -45,10 +45,20 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
     return mapping
 
 
-def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: str = "count") -> Dict[str, float]:
+def extract_fticr_descriptors(
+    assigned_df: pd.DataFrame,
+    sample_id: str,
+    basis: str = "both",
+    include_mass_bins: bool = False,
+    mass_bins_range: Tuple[int, int] = (200, 700),
+    mass_bins_weighted: bool = True,
+) -> Dict[str, float]:
     """
     Извлекает вектор дескрипторов FT-ICR MS из идентифицированных формул:
-    20 ячеек Ван-Кревелена Перминовой, Mn, Mw, средние индексы и распределение гетероатомов.
+    - 20 ячеек Ван-Кревелена Перминовой (VK_1..VK_20 по числу и/или VK_w_1..VK_w_20 по интенсивности);
+    - Метрики CRAM (доля CRAM по числу и весу по Hertkorn et al. 2006);
+    - Mn, Mw, средние индексы (H/C, O/C, DBE, AI, NOSC) и распределение гетероатомов;
+    - Опциональные дескрипторы номинальных масс 1 Да (~500 признаков для ML).
     """
     if assigned_df is None or assigned_df.empty or "C" not in assigned_df.columns:
         return {}
@@ -103,10 +113,57 @@ def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: 
     pct_count = (grid_count / total_count * 100.0) if total_count > 0 else grid_count
     pct_weight = (grid_weight / total_int * 100.0) if total_int > 0 else grid_weight
 
-    active_mat = pct_count if basis == "count" else pct_weight
+    basis_l = str(basis).lower().strip()
     for r in range(5):
         for c in range(4):
-            res[f"VK_{1 + r * 4 + c}"] = round(float(active_mat[r, c]), 3)
+            cell_idx = 1 + r * 4 + c
+            if basis_l == "count":
+                res[f"VK_{cell_idx}"] = round(float(pct_count[r, c]), 3)
+            elif basis_l == "weight":
+                res[f"VK_{cell_idx}"] = round(float(pct_weight[r, c]), 3)
+            else:  # both (default)
+                res[f"VK_{cell_idx}"] = round(float(pct_count[r, c]), 3)
+                res[f"VK_w_{cell_idx}"] = round(float(pct_weight[r, c]), 3)
+
+    # CRAM метрики по Hertkorn et al. (2006):
+    # DBE/C 0.30-0.68, DBE/H 0.20-0.95, DBE/O 0.77-1.75
+    c_arr = df["C"].astype(float).values
+    h_arr = df["H"].astype(float).values
+    o_arr = df["O"].astype(float).values
+    dbe_arr = df["DBE"].astype(float).values
+    ai_arr = df["AI"].astype(float).values
+
+    c_pos = c_arr > 0
+    h_pos = h_arr > 0
+    o_pos = o_arr > 0
+    valid_mask = c_pos & h_pos & o_pos
+
+    dbe_c = np.divide(dbe_arr, c_arr, out=np.zeros_like(dbe_arr), where=c_pos)
+    dbe_h = np.divide(dbe_arr, h_arr, out=np.zeros_like(dbe_arr), where=h_pos)
+    dbe_o = np.divide(dbe_arr, o_arr, out=np.zeros_like(dbe_arr), where=o_pos)
+    hc_arr = np.divide(h_arr, c_arr, out=np.zeros_like(h_arr), where=c_pos)
+    oc_arr = np.divide(o_arr, c_arr, out=np.zeros_like(o_arr), where=c_pos)
+
+    cram_mask = (
+        valid_mask &
+        (dbe_c >= 0.30) & (dbe_c <= 0.68) &
+        (dbe_h >= 0.20) & (dbe_h <= 0.95) &
+        (dbe_o >= 0.77) & (dbe_o <= 1.75) &
+        (hc_arr >= 0.70) & (hc_arr <= 1.60) &
+        (oc_arr >= 0.20) & (oc_arr <= 0.70) &
+        (ai_arr < 0.50)
+    )
+
+    n_tot = len(df)
+    n_cram = int(np.sum(cram_mask))
+    res["CRAM_pct"] = round(n_cram / n_tot * 100.0, 2) if n_tot > 0 else 0.0
+
+    if "intensity" in df.columns and df["intensity"].sum() > 0:
+        w_cram = float(np.sum(df["intensity"].values[cram_mask]))
+        w_tot = float(df["intensity"].sum())
+        res["CRAM_weight_pct"] = round(w_cram / w_tot * 100.0, 2)
+    else:
+        res["CRAM_weight_pct"] = res["CRAM_pct"]
 
     res["Mn"] = round(float(df["mass"].mean()), 2)
     if "intensity" in df.columns and df["intensity"].sum() > 0:
@@ -127,6 +184,18 @@ def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: 
         res["CHON_pct"] = round(float(counts.get("CHON", 0.0)), 2)
         res["CHOS_pct"] = round(float(counts.get("CHOS", 0.0)), 2)
         res["CHONS_pct"] = round(float(counts.get("CHONS", 0.0)), 2)
+
+    # Опциональные дескрипторы номинальных масс 1 Да
+    if include_mass_bins and "mass" in df.columns:
+        masses = df["mass"].to_numpy(dtype=float)
+        intens = df["intensity"].to_numpy(dtype=float) if ("intensity" in df.columns and mass_bins_weighted) else np.ones_like(masses)
+        tot_val = float(np.sum(intens))
+        if tot_val > 0:
+            nom_m = np.floor(masses).astype(int)
+            for m in range(mass_bins_range[0], mass_bins_range[1] + 1):
+                m_sub = (nom_m == m)
+                v = float(np.sum(intens[m_sub])) / tot_val * 100.0
+                res[f"mass_bin_{m}"] = round(v, 4)
 
     return res
 
@@ -240,33 +309,33 @@ def prepare_fused_features(
     strategy: str = "low_level",
     block_scaling: bool = True,
     n_mid_components: int = 3,
+    test_df: Optional[pd.DataFrame] = None,
 ) -> Tuple[np.ndarray, List[str], Dict[str, str]]:
     """Подготовка и слияние матриц признаков по стратегиям Low-Level или Mid-Level."""
     # Предобработка: очистка от нечисловых артефактов и заполнение пропусков (NaN) медианами
     X_mat = X_df.apply(pd.to_numeric, errors="coerce").copy()
     medians = X_mat.median()
     X_mat = X_mat.fillna(medians).fillna(0.0)
+    test_mat = None if test_df is None else test_df[X_df.columns].apply(pd.to_numeric, errors="coerce").fillna(medians).fillna(0.0)
 
     feature_names = list(X_mat.columns)
     block_map = classify_feature_blocks(feature_names)
 
     fticr_cols = [c for c in feature_names if block_map[c] == "FT-ICR MS"]
-    eem_cols = [c for c in feature_names if block_map[c] == "EEM-PARAFAC"]
-    uv_cols = [c for c in feature_names if block_map[c] == "UV-Vis"]
-    other_cols = [c for c in feature_names if block_map[c] == "Other"]
-
     if strategy == "mid_level" and len(fticr_cols) >= 3:
-        X_ft = StandardScaler().fit_transform(X_mat[fticr_cols].values.astype(float))
-        k_comp = min(n_mid_components, len(X_mat) - 2, len(fticr_cols))
+        ft_scaler = StandardScaler()
+        X_ft = ft_scaler.fit_transform(X_mat[fticr_cols].values.astype(float))
+        k_comp = max(1, min(n_mid_components, len(X_mat) - 1, len(fticr_cols)))
         pca = PCA(n_components=k_comp, random_state=42)
         ft_scores = pca.fit_transform(X_ft)
 
         pca_feat_names = [f"FTICR_PC{i+1}" for i in range(k_comp)]
         new_block_map = {name: "FT-ICR MS" for name in pca_feat_names}
 
-        rem_cols = eem_cols + uv_cols + other_cols
+        rem_cols = [c for c in feature_names if c not in fticr_cols]
         if rem_cols:
-            X_rem = StandardScaler().fit_transform(X_mat[rem_cols].values.astype(float))
+            rem_scaler = StandardScaler()
+            X_rem = rem_scaler.fit_transform(X_mat[rem_cols].values.astype(float))
             for c in rem_cols:
                 new_block_map[c] = block_map[c]
             X_fused = np.hstack([ft_scores, X_rem])
@@ -275,21 +344,39 @@ def prepare_fused_features(
             X_fused = ft_scores
             all_names = pca_feat_names
 
+        if test_mat is not None:
+            test_scores = pca.transform(ft_scaler.transform(test_mat[fticr_cols].values.astype(float)))
+            test_fused = np.hstack([test_scores, rem_scaler.transform(test_mat[rem_cols].values.astype(float))]) if rem_cols else test_scores
+        if block_scaling:
+            for b_name in set(new_block_map.values()):
+                indices = [i for i, col in enumerate(all_names) if new_block_map[col] == b_name]
+                X_fused[:, indices] /= np.sqrt(len(indices))
+                if test_mat is not None:
+                    test_fused[:, indices] /= np.sqrt(len(indices))
+        if test_mat is not None:
+            return X_fused, test_fused
         return X_fused, all_names, new_block_map
     else:
         X = X_mat.values.astype(float).copy()
-        if block_scaling:
-            for b_name in ["FT-ICR MS", "EEM-PARAFAC", "UV-Vis", "Other"]:
-                b_cols = [c for c in feature_names if block_map[c] == b_name]
-                if len(b_cols) > 0:
-                    scale_val = 1.0 / np.sqrt(len(b_cols))
-                    for i, col in enumerate(feature_names):
-                        if col in b_cols:
-                            X[:, i] *= scale_val
-
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
+        X_test = scaler.transform(test_mat.values.astype(float)) if test_mat is not None else None
+        if block_scaling:
+            for b_name in set(block_map.values()):
+                indices = [i for i, col in enumerate(feature_names) if block_map[col] == b_name]
+                X_scaled[:, indices] /= np.sqrt(len(indices))
+                if X_test is not None:
+                    X_test[:, indices] /= np.sqrt(len(indices))
+        if X_test is not None:
+            return X_scaled, X_test
         return X_scaled, feature_names, block_map
+
+
+def _fold_features(X_df, train_idx, test_idx, strategy, block_scaling, n_mid_components):
+    return prepare_fused_features(
+        X_df.iloc[train_idx], strategy=strategy, block_scaling=block_scaling,
+        n_mid_components=n_mid_components, test_df=X_df.iloc[test_idx],
+    )
 
 
 def compute_hotelling_ellipsoid_3d(
@@ -321,6 +408,30 @@ def compute_hotelling_ellipsoid_3d(
     return x_ell, y_ell, z_ell
 
 
+# Константы ограничений латентных компонент (LVs) и VIP-анализа
+MAX_PLS_COMPONENTS: int = 5
+MIN_PLS_COMPONENTS: int = 2
+
+
+def validate_n_components(
+    n_components: int,
+    n_samples: int,
+    n_features: int,
+    max_components: int = MAX_PLS_COMPONENTS,
+) -> int:
+    """
+    Валидация и ограничение числа латентных переменных (LVs / компонент PLS-DA)
+    снизу (минимум 2 для 2D/3D проекций, либо 1 в вырожденных стресс-тестах)
+    и сверху (не более max_components=5, n_samples - 1 и n_features).
+    """
+    if n_components is None or n_components < 1:
+        n_comp_req = MIN_PLS_COMPONENTS
+    else:
+        n_comp_req = int(n_components)
+    comp_upper_bound = max(1, min(max_components, n_samples - 1, n_features))
+    return max(1, min(n_comp_req, comp_upper_bound))
+
+
 def train_plsda_model(
     X_df: pd.DataFrame,
     y_labels: Union[np.ndarray, pd.Series, List],
@@ -328,6 +439,7 @@ def train_plsda_model(
     fusion_strategy: str = "low_level",
     block_scaling: bool = True,
     n_mid_components: int = 3,
+    max_components: int = MAX_PLS_COMPONENTS,
 ) -> Dict:
     """
     Обучение и валидация PLS-DA модели (бинарная и мультиклассовая классификация).
@@ -360,7 +472,7 @@ def train_plsda_model(
         Y_mat = y_numeric
         y_eval_true = (Y_mat >= 0.5).astype(int)
 
-    max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    max_comp = validate_n_components(n_components, n_samples, n_features, max_components=max_components)
     pls = PLSRegression(n_components=max_comp, scale=False)
     pls.fit(X_scaled, Y_mat)
 
@@ -410,9 +522,11 @@ def train_plsda_model(
     y_cv_pred = np.zeros_like(Y_mat)
 
     for train_idx, test_idx in cv.split(X_scaled):
-        pls_cv = PLSRegression(n_components=max_comp, scale=False)
-        pls_cv.fit(X_scaled[train_idx], Y_mat[train_idx])
-        y_cv_pred[test_idx] = pls_cv.predict(X_scaled[test_idx])
+        X_tr, X_te = _fold_features(X_df, train_idx, test_idx, fusion_strategy, block_scaling, n_mid_components)
+        pls_cv = PLSRegression(n_components=min(max_comp, len(train_idx) - 1, X_tr.shape[1]), scale=False)
+        pls_cv.fit(X_tr, Y_mat[train_idx])
+        pred = pls_cv.predict(X_te)
+        y_cv_pred[test_idx] = pred if is_multiclass else pred.reshape(-1)
 
     press = float(np.sum((Y_mat - y_cv_pred) ** 2))
     q2 = float((1.0 - (press / ss_tot_y)) * 100.0 if ss_tot_y > 0 else 0.0)
@@ -571,14 +685,38 @@ def train_oplsda_model(
     cv = LeaveOneOut() if n_samples <= 30 else KFold(n_splits=5, shuffle=True, random_state=42)
     y_cv = np.zeros(n_samples)
     for tr, te in cv.split(X_scaled):
-        X_tr, y_tr = X_scaled[tr], y[tr]
+        X_tr, X_te = _fold_features(X_df, tr, te, fusion_strategy, block_scaling, n_mid_components)
+        y_tr = y[tr]
         y_tr_c = y_tr - np.mean(y_tr)
+        for _ in range(max(1, min(n_ortho, len(tr) - 2))):
+            w = X_tr.T @ y_tr_c
+            norm = np.linalg.norm(w)
+            if norm < 1e-12:
+                break
+            w /= norm
+            t = X_tr @ w
+            denom = float(t @ t)
+            if denom < 1e-12:
+                break
+            p = X_tr.T @ t / denom
+            w_o = p - (w @ p) * w
+            norm_o = np.linalg.norm(w_o)
+            if norm_o < 1e-12:
+                break
+            w_o /= norm_o
+            t_o = X_tr @ w_o
+            denom_o = float(t_o @ t_o)
+            if denom_o < 1e-12:
+                break
+            p_o = X_tr.T @ t_o / denom_o
+            X_tr = X_tr - np.outer(t_o, p_o)
+            X_te = X_te - np.outer(X_te @ w_o, p_o)
         w_tr = np.dot(X_tr.T, y_tr_c)
         w_tr_norm = np.linalg.norm(w_tr)
-        w_tr = w_tr / w_tr_norm if w_tr_norm > 1e-12 else np.ones(n_features) / np.sqrt(n_features)
+        w_tr = w_tr / w_tr_norm if w_tr_norm > 1e-12 else np.ones(X_tr.shape[1]) / np.sqrt(X_tr.shape[1])
         t_tr = np.dot(X_tr, w_tr) / float(np.dot(w_tr, w_tr))
-        b_tr = float(np.dot(t_tr, y_tr_c)) / float(np.dot(t_tr, t_tr))
-        t_te = np.dot(X_scaled[te], w_tr) / float(np.dot(w_tr, w_tr))
+        b_tr = float(np.dot(t_tr, y_tr_c)) / max(float(np.dot(t_tr, t_tr)), 1e-12)
+        t_te = np.dot(X_te, w_tr) / float(np.dot(w_tr, w_tr))
         y_cv[te] = (t_te * b_tr) + np.mean(y_tr)
 
     press = np.sum((y - y_cv) ** 2)
@@ -657,6 +795,7 @@ def train_splsda_model(
     fusion_strategy: str = "low_level",
     block_scaling: bool = True,
     n_mid_components: int = 3,
+    max_components: int = MAX_PLS_COMPONENTS,
 ) -> Dict:
     """
     Разреженный дискриминантный анализ (Sparse PLS-DA / sPLS-DA).
@@ -709,7 +848,7 @@ def train_splsda_model(
         Y_mat = y_numeric.reshape(-1, 1)
         y_eval_true = (y_numeric >= 0.5).astype(int)
 
-    max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    max_comp = validate_n_components(n_components, n_samples, n_features, max_components=max_components)
     k_features_to_keep = max(1, min(keep_x, n_features))
 
     def _fit_spls_core(X_in, Y_in, n_c, k_keep):
@@ -818,10 +957,11 @@ def train_splsda_model(
     y_cv_pred = np.zeros_like(Y_mat)
 
     for train_idx, test_idx in cv.split(X_scaled):
+        X_tr, X_te = _fold_features(X_df, train_idx, test_idx, fusion_strategy, block_scaling, n_mid_components)
         y_tr_m = np.mean(Y_mat[train_idx], axis=0)
         y_tr_c = Y_mat[train_idx] - y_tr_m
-        _, _, _, _, b_cv = _fit_spls_core(X_scaled[train_idx], y_tr_c, max_comp, k_features_to_keep)
-        y_cv_pred[test_idx] = y_tr_m + X_scaled[test_idx] @ b_cv
+        _, _, _, _, b_cv = _fit_spls_core(X_tr, y_tr_c, min(max_comp, len(train_idx) - 1, X_tr.shape[1]), min(k_features_to_keep, X_tr.shape[1]))
+        y_cv_pred[test_idx] = y_tr_m + X_te @ b_cv
 
     press = float(np.sum((Y_mat - y_cv_pred) ** 2))
     q2 = float((1.0 - (press / ss_tot_y)) * 100.0) if ss_tot_y > 0 else 0.0
@@ -910,6 +1050,7 @@ def run_permutation_test(
     block_scaling: bool = True,
     n_mid_components: int = 3,
     random_state: int = 42,
+    max_components: int = MAX_PLS_COMPONENTS,
 ) -> Dict:
     """Пермутационный тест PLS-DA модели для подтверждения статистической значимости Q2."""
     rng = np.random.RandomState(random_state)
@@ -923,7 +1064,7 @@ def run_permutation_test(
         raise ValueError("Для пермутационного теста требуется как минимум 2 класса!")
 
     n_samples, n_features = X_scaled.shape
-    max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    max_comp = validate_n_components(n_components, n_samples, n_features, max_components=max_components)
     is_multiclass = (k_classes > 2)
 
     if is_multiclass:
@@ -940,12 +1081,13 @@ def run_permutation_test(
 
     cv = LeaveOneOut() if n_samples <= 30 else KFold(n_splits=5, shuffle=True, random_state=42)
     splits = list(cv.split(X_scaled))
+    fold_data = [_fold_features(X_df, tr, te, fusion_strategy, block_scaling, n_mid_components) for tr, te in splits]
 
     y_cv_orig = np.zeros_like(Y_mat)
-    for tr, te in splits:
-        pls = PLSRegression(n_components=max_comp, scale=False)
-        pls.fit(X_scaled[tr], Y_mat[tr])
-        preds = pls.predict(X_scaled[te])
+    for (tr, te), (X_tr, X_te) in zip(splits, fold_data):
+        pls = PLSRegression(n_components=min(max_comp, len(tr) - 1, X_tr.shape[1]), scale=False)
+        pls.fit(X_tr, Y_mat[tr])
+        preds = pls.predict(X_te)
         if not is_multiclass:
             y_cv_orig[te] = preds.flatten()
         else:
@@ -962,10 +1104,10 @@ def run_permutation_test(
             ss_perm = np.sum((Y_perm - np.mean(Y_perm)) ** 2)
 
         y_cv_p = np.zeros_like(Y_perm)
-        for tr, te in splits:
-            pls_p_cv = PLSRegression(n_components=max_comp, scale=False)
-            pls_p_cv.fit(X_scaled[tr], Y_perm[tr])
-            preds_p = pls_p_cv.predict(X_scaled[te])
+        for (tr, te), (X_tr, X_te) in zip(splits, fold_data):
+            pls_p_cv = PLSRegression(n_components=min(max_comp, len(tr) - 1, X_tr.shape[1]), scale=False)
+            pls_p_cv.fit(X_tr, Y_perm[tr])
+            preds_p = pls_p_cv.predict(X_te)
             if not is_multiclass:
                 y_cv_p[te] = preds_p.flatten()
             else:

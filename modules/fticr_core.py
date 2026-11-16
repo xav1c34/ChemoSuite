@@ -51,6 +51,13 @@ TMDS_LIBRARY = [
 ]
 
 # Стандартные биогеохимические полигоны диаграммы Ван-Кревелена (H/C vs O/C)
+# Литературные источники границ полигонов:
+# 1) Minor, E. C., Swenson, M. M., Mattson, B. M., & Oyler, A. R. (2014).
+#    Structural characterization of dissolved organic matter: a critical review.
+#    Environ. Sci. Technol., 48(19), 11192-11202.
+# 2) Sleighter, R. L., & Hatcher, P. G. (2007). The application of electrospray ionization
+#    coupled to ultrahigh resolution mass spectrometry for the molecular characterization
+#    of natural organic matter. J. Mass Spectrom., 42(5), 559-568.
 VAN_KREVELEN_REGIONS = {
     "Lipids": {
         "ru": "Липиды",
@@ -118,8 +125,593 @@ VAN_KREVELEN_REGIONS = {
 }
 
 
-def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
-    """Расчет молекулярных дескрипторов (H/C, O/C, DBE, AI, NOSC, классы соединений)."""
+
+# ==============================================================================
+# ==============================================================================
+# КЛАССИЧЕСКОЕ ХЕМОТИПИРОВАНИЕ ПО СЕТКЕ 20 ЯЧЕЕК ВАН-КРЕВЕЛЕНА (VK-20)
+# (Литературный эталон И.В. Перминовой / фото-схема):
+# 7 макро-хемотипов, сгруппированных по 20 ячейкам (4 колонки O/C x 5 строк H/C):
+# Липиды, Пептиды, Терпеноиды, Лигнины, Конденсированные таннины,
+# Гидролизуемые таннины, Углеводы.
+# ==============================================================================
+CLASSICAL_VK20_REGIONS = {
+    "Lipids": {
+        "ru": "Липиды",
+        "en": "Lipids",
+        "cells": [5],
+        "oc_range": (0.0, 0.25),
+        "hc_range": (1.8, 2.2),
+        "polygon": [(0.0, 1.8), (0.25, 1.8), (0.25, 2.2), (0.0, 2.2)],
+        "color": "rgba(79, 195, 247, 0.22)",
+        "border": "#0288D1",
+        "badge_color": "#0288D1",
+    },
+    "Peptides": {
+        "ru": "Пептиды",
+        "en": "Peptides",
+        "cells": [10],
+        "oc_range": (0.25, 0.50),
+        "hc_range": (1.8, 2.2),
+        "polygon": [(0.25, 1.8), (0.50, 1.8), (0.50, 2.2), (0.25, 2.2)],
+        "color": "rgba(255, 241, 118, 0.28)",
+        "border": "#FBC02D",
+        "badge_color": "#D4AC0D",
+    },
+    "Terpenoids": {
+        "ru": "Терпеноиды",
+        "en": "Terpenoids",
+        "cells": [4, 9],
+        "oc_range": (0.0, 0.50),
+        "hc_range": (1.4, 1.8),
+        "polygon": [(0.0, 1.4), (0.50, 1.4), (0.50, 1.8), (0.0, 1.8)],
+        "color": "rgba(129, 199, 132, 0.22)",
+        "border": "#388E3C",
+        "badge_color": "#2E7D32",
+    },
+    "Lignins": {
+        "ru": "Лигнины",
+        "en": "Lignins",
+        "cells": [3, 8],
+        "oc_range": (0.0, 0.50),
+        "hc_range": (1.0, 1.4),
+        "polygon": [(0.0, 1.0), (0.50, 1.0), (0.50, 1.4), (0.0, 1.4)],
+        "color": "rgba(186, 104, 200, 0.22)",
+        "border": "#8E24AA",
+        "badge_color": "#7B1FA2",
+    },
+    "Condensed_Tannins": {
+        "ru": "Конденсированные таннины",
+        "en": "Condensed Tannins",
+        "cells": [1, 2, 6, 7],
+        "oc_range": (0.0, 0.50),
+        "hc_range": (0.2, 1.0),
+        "polygon": [(0.0, 0.2), (0.50, 0.2), (0.50, 1.0), (0.0, 1.0)],
+        "color": "rgba(121, 134, 203, 0.22)",
+        "border": "#3949AB",
+        "badge_color": "#283593",
+    },
+    "Hydrolysable_Tannins": {
+        "ru": "Гидролизуемые таннины",
+        "en": "Hydrolysable Tannins",
+        "cells": [11, 12, 13, 16, 17, 18],
+        "oc_range": (0.50, 1.00),
+        "hc_range": (0.2, 1.4),
+        "polygon": [(0.50, 0.2), (1.00, 0.2), (1.00, 1.4), (0.50, 1.4)],
+        "color": "rgba(255, 138, 101, 0.24)",
+        "border": "#E64A19",
+        "badge_color": "#C62828",
+    },
+    "Carbohydrates": {
+        "ru": "Углеводы",
+        "en": "Carbohydrates",
+        "cells": [14, 15, 19, 20],
+        "oc_range": (0.50, 1.00),
+        "hc_range": (1.4, 2.2),
+        "polygon": [(0.50, 1.4), (1.00, 1.4), (1.00, 2.2), (0.50, 2.2)],
+        "color": "rgba(207, 216, 220, 0.25)",
+        "border": "#607D8B",
+        "badge_color": "#455A64",
+    },
+}
+
+# Соответствие номеров ячеек на фото-схеме (1..20 с нумерацией по колонкам)
+# хемотипам и цветам
+VK20_PHOTO_CELL_CLASSES = {
+    1: {"ru": "Конденсированные таннины", "en": "Condensed Tannins", "class_key": "Condensed_Tannins", "color": "#7986CB"},
+    2: {"ru": "Конденсированные таннины", "en": "Condensed Tannins", "class_key": "Condensed_Tannins", "color": "#7986CB"},
+    3: {"ru": "Лигнины", "en": "Lignins", "class_key": "Lignins", "color": "#BA68C8"},
+    4: {"ru": "Терпеноиды", "en": "Terpenoids", "class_key": "Terpenoids", "color": "#81C784"},
+    5: {"ru": "Липиды", "en": "Lipids", "class_key": "Lipids", "color": "#4FC3F7"},
+    6: {"ru": "Конденсированные таннины", "en": "Condensed Tannins", "class_key": "Condensed_Tannins", "color": "#7986CB"},
+    7: {"ru": "Конденсированные таннины", "en": "Condensed Tannins", "class_key": "Condensed_Tannins", "color": "#7986CB"},
+    8: {"ru": "Лигнины", "en": "Lignins", "class_key": "Lignins", "color": "#BA68C8"},
+    9: {"ru": "Терпеноиды", "en": "Terpenoids", "class_key": "Terpenoids", "color": "#81C784"},
+    10: {"ru": "Пептиды", "en": "Peptides", "class_key": "Peptides", "color": "#FFF176"},
+    11: {"ru": "Гидролизуемые таннины", "en": "Hydrolysable Tannins", "class_key": "Hydrolysable_Tannins", "color": "#FF8A65"},
+    12: {"ru": "Гидролизуемые таннины", "en": "Hydrolysable Tannins", "class_key": "Hydrolysable_Tannins", "color": "#FF8A65"},
+    13: {"ru": "Гидролизуемые таннины", "en": "Hydrolysable Tannins", "class_key": "Hydrolysable_Tannins", "color": "#FF8A65"},
+    14: {"ru": "Углеводы", "en": "Carbohydrates", "class_key": "Carbohydrates", "color": "#CFD8DC"},
+    15: {"ru": "Углеводы", "en": "Carbohydrates", "class_key": "Carbohydrates", "color": "#CFD8DC"},
+    16: {"ru": "Гидролизуемые таннины", "en": "Hydrolysable Tannins", "class_key": "Hydrolysable_Tannins", "color": "#FF8A65"},
+    17: {"ru": "Гидролизуемые таннины", "en": "Hydrolysable Tannins", "class_key": "Hydrolysable_Tannins", "color": "#FF8A65"},
+    18: {"ru": "Гидролизуемые таннины", "en": "Hydrolysable Tannins", "class_key": "Hydrolysable_Tannins", "color": "#FF8A65"},
+    19: {"ru": "Углеводы", "en": "Carbohydrates", "class_key": "Carbohydrates", "color": "#CFD8DC"},
+    20: {"ru": "Углеводы", "en": "Carbohydrates", "class_key": "Carbohydrates", "color": "#CFD8DC"},
+}
+
+
+# ОПИСАНИЯ 20 ЯЧЕЕК ВАН-КРЕВЕЛЕНА (Perminova I.V., Pure Appl. Chem. 2019, 91(5), 851-864)
+# ==============================================================================
+VK20_CELL_DESCRIPTIONS = {
+    1: {
+        "ru": "Конденсированная полиароматика (пирогенный С)",
+        "en": "Condensed polyaromatics (pyrogenic C)",
+        "desc_ru": "Полициклическая конденсированная ароматика, продукты горения, низкий O/C (O/C 0-0.25, H/C 0.2-0.6)",
+        "desc_en": "Polycyclic condensed aromatics, pyrogenic black carbon (O/C 0-0.25, H/C 0.2-0.6)",
+    },
+    2: {
+        "ru": "Окисленная конденсированная ароматика",
+        "en": "Oxidized condensed aromatics",
+        "desc_ru": "Ароматические карбоновые кислоты, окисленная полиароматика (O/C 0.25-0.5, H/C 0.2-0.6)",
+        "desc_en": "Aromatic carboxylic acids, oxidized polyaromatics (O/C 0.25-0.5, H/C 0.2-0.6)",
+    },
+    3: {
+        "ru": "Высокоокисленная полиароматика / хиноны",
+        "en": "Highly oxidized polyaromatics / quinones",
+        "desc_ru": "Поликарбоксилированная конденсированная ароматика, хиноидные системы (O/C 0.5-0.75, H/C 0.2-0.6)",
+        "desc_en": "Polycarboxylated condensed aromatics, quinones (O/C 0.5-0.75, H/C 0.2-0.6)",
+    },
+    4: {
+        "ru": "Гиперокисленная полиароматика",
+        "en": "Hyper-oxygenated polyaromatics",
+        "desc_ru": "Предельно окисленные конденсированные ароматические структуры (O/C 0.75-1.0, H/C 0.2-0.6)",
+        "desc_en": "Exhaustively oxidized condensed aromatics (O/C 0.75-1.0, H/C 0.2-0.6)",
+    },
+    5: {
+        "ru": "Ароматические углеводороды / алкилароматика",
+        "en": "Aromatic hydrocarbons / alkylaromatics",
+        "desc_ru": "Моно- и диароматические УВ, алкилбензолы, низкий O/C (O/C 0-0.25, H/C 0.6-1.0)",
+        "desc_en": "Mono- and diaromatic hydrocarbons, alkylbenzenes (O/C 0-0.25, H/C 0.6-1.0)",
+    },
+    6: {
+        "ru": "Фенилизопропаноиды / Лигнины",
+        "en": "Phenylpropanoids / Lignin-like structures",
+        "desc_ru": "Лигниновые мономеры и олигомеры, фенилпропановые звенья гуминовых веществ (O/C 0.25-0.5, H/C 0.6-1.0)",
+        "desc_en": "Lignin monomers/oligomers, phenylpropane core units (O/C 0.25-0.5, H/C 0.6-1.0)",
+    },
+    7: {
+        "ru": "Конденсированные таннины / полифенолы",
+        "en": "Condensed tannins / polyphenols",
+        "desc_ru": "Флавоноидные олигомеры, катехиновые таннины высокой плотности кислорода (O/C 0.5-0.75, H/C 0.6-1.0)",
+        "desc_en": "Flavonoid oligomers, catechin tannins with high oxygen (O/C 0.5-0.75, H/C 0.6-1.0)",
+    },
+    8: {
+        "ru": "Гидролизуемые таннины / полиолы",
+        "en": "Hydrolysable tannins / polyols",
+        "desc_ru": "Галлотаннины, эллагитаннины, полигидрокси-ароматические матрицы (O/C 0.75-1.0, H/C 0.6-1.0)",
+        "desc_en": "Gallotannins, ellagitannins, polyhydroxy aromatics (O/C 0.75-1.0, H/C 0.6-1.0)",
+    },
+    9: {
+        "ru": "Терпеноиды / Ненасыщенные углеводороды",
+        "en": "Terpenoids / Unsaturated hydrocarbons",
+        "desc_ru": "Смоляные кислоты, терпеновые соединения, ненасыщенные алифатические цепочки (O/C 0-0.25, H/C 1.0-1.4)",
+        "desc_en": "Resin acids, terpenoids, unsaturated aliphatics (O/C 0-0.25, H/C 1.0-1.4)",
+    },
+    10: {
+        "ru": "Лигниновые алициклы / CRAM",
+        "en": "Lignin-derived alicyclics / CRAM",
+        "desc_ru": "Карбоксил-богатые алициклические молекулы (CRAM по Hertkorn 2006), окисленный лигнин (O/C 0.25-0.5, H/C 1.0-1.4)",
+        "desc_en": "Carboxylic-rich alicyclic molecules (CRAM per Hertkorn 2006), oxidized lignin (O/C 0.25-0.5, H/C 1.0-1.4)",
+    },
+    11: {
+        "ru": "Высокоокисленные алициклы / фрагменты лигнина",
+        "en": "Highly oxygenated alicyclics / lignin fragments",
+        "desc_ru": "Окисленные алициклические поликислоты (O/C 0.5-0.75, H/C 1.0-1.4)",
+        "desc_en": "Oxygenated carboxyl-rich alicyclics and polyacids (O/C 0.5-0.75, H/C 1.0-1.4)",
+    },
+    12: {
+        "ru": "Полигидроксикислоты / кислые таннины",
+        "en": "Polyhydroxy acids / acidic tannins",
+        "desc_ru": "Алифатические и алициклические полигидроксикарбоновые кислоты (O/C 0.75-1.0, H/C 1.0-1.4)",
+        "desc_en": "Aliphatic/alicyclic polyhydroxy carboxylic acids (O/C 0.75-1.0, H/C 1.0-1.4)",
+    },
+    13: {
+        "ru": "Липиды / монокарбоновые жирные кислоты",
+        "en": "Lipids / monocarboxylic fatty acids",
+        "desc_ru": "Ненасыщенные жирные кислоты, алкильные воски, липидные биомаркеры (O/C 0-0.25, H/C 1.4-1.8)",
+        "desc_en": "Unsaturated fatty acids, alkyl waxes, lipid biomarkers (O/C 0-0.25, H/C 1.4-1.8)",
+    },
+    14: {
+        "ru": "Белки / Пептиды / Аминокислоты",
+        "en": "Proteins / Peptides / Amino acids",
+        "desc_ru": "Олигопептидные фрагменты, белковые остатки, N-содержащая алифатика (O/C 0.25-0.5, H/C 1.4-1.8)",
+        "desc_en": "Oligopeptide fragments, protein residues, N-containing aliphatics (O/C 0.25-0.5, H/C 1.4-1.8)",
+    },
+    15: {
+        "ru": "Аминосахара / Окисленные пептиды",
+        "en": "Aminosugars / Oxidized peptides",
+        "desc_ru": "Глюкозамин-подобные структуры, гидроксипептиды, биогенный органический азот (O/C 0.5-0.75, H/C 1.4-1.8)",
+        "desc_en": "Glucosamine-like structures, hydroxypeptides, biogenic nitrogen (O/C 0.5-0.75, H/C 1.4-1.8)",
+    },
+    16: {
+        "ru": "Углеводы / Полисахариды",
+        "en": "Carbohydrates / Polysaccharides",
+        "desc_ru": "Олигосахариды, гликозидные комплексы, нейтральные сахара (O/C 0.75-1.0, H/C 1.4-1.8)",
+        "desc_en": "Oligosaccharides, glycosidic complexes, neutral sugars (O/C 0.75-1.0, H/C 1.4-1.8)",
+    },
+    17: {
+        "ru": "Насыщенные липиды / предельные ЖК",
+        "en": "Saturated lipids / alkanoic acids",
+        "desc_ru": "Алифатические углеводороды, насыщенные жирные кислоты высокой гидрофобности (O/C 0-0.25, H/C 1.8-2.2)",
+        "desc_en": "Aliphatic hydrocarbons, saturated fatty acids (O/C 0-0.25, H/C 1.8-2.2)",
+    },
+    18: {
+        "ru": "Гидроксилированные липиды / сложные эфиры",
+        "en": "Hydroxylated lipids / esters",
+        "desc_ru": "Окси-жирные кислоты, алифатические моно- и диэфиры (O/C 0.25-0.5, H/C 1.8-2.2)",
+        "desc_en": "Hydroxy fatty acids, aliphatic mono- and diesters (O/C 0.25-0.5, H/C 1.8-2.2)",
+    },
+    19: {
+        "ru": "Полиолы / Олигосахаридные спирты",
+        "en": "Polyols / Oligosaccharide alcohols",
+        "desc_ru": "Алифатические полиолы, альдиты, окисленные биомолекулы (O/C 0.5-0.75, H/C 1.8-2.2)",
+        "desc_en": "Aliphatic polyols, alditols, oxidized biomolecules (O/C 0.5-0.75, H/C 1.8-2.2)",
+    },
+    20: {
+        "ru": "Уроновые кислоты / высокоокисленные сахара",
+        "en": "Uronic acids / highly oxidized sugars",
+        "desc_ru": "Сахарные кислоты, уроновые производные, высокоокисленные углеводные мономеры (O/C 0.75-1.0, H/C 1.8-2.2)",
+        "desc_en": "Sugar acids, uronic derivatives, oxidized carbohydrates (O/C 0.75-1.0, H/C 1.8-2.2)",
+    },
+}
+
+
+# ==============================================================================
+# ИДЕНТИФИКАЦИЯ CRAM (Hertkorn N. et al., Geochim. Cosmochim. Acta 2006, 70, 2990-3010)
+# ==============================================================================
+def is_cram_formula(c: float, h: float, o: float, dbe: float, ai: float = 0.0) -> bool:
+    """
+    Критерии идентификации Carboxylic-Rich Alicyclic Molecules (CRAM) по работе:
+    Hertkorn, N. et al. Characterization of a major refractory component of marine dissolved
+    organic matter. Geochimica et Cosmochimica Acta 70, 2990-3010 (2006).
+
+    Критерии CRAM:
+    - DBE / C : 0.30 - 0.68
+    - DBE / H : 0.20 - 0.95
+    - DBE / O : 0.77 - 1.75
+    - Дополнительно (алициклический каркас без полифенольной/конденсированной ароматики):
+      AI < 0.50, H/C в диапазоне 0.7 - 1.6, O/C в диапазоне 0.2 - 0.7.
+    """
+    if c <= 0 or h <= 0 or o <= 0:
+        return False
+    dbe_c = dbe / c
+    dbe_h = dbe / h
+    dbe_o = dbe / o
+    hc = h / c
+    oc = o / c
+    return bool(
+        (0.30 <= dbe_c <= 0.68) and
+        (0.20 <= dbe_h <= 0.95) and
+        (0.77 <= dbe_o <= 1.75) and
+        (0.70 <= hc <= 1.60) and
+        (0.20 <= oc <= 0.70) and
+        (ai < 0.50)
+    )
+
+
+def get_cram_metrics(df: pd.DataFrame) -> Dict[str, float]:
+    """
+    Расчет интегральных метрик CRAM (Carboxylic-Rich Alicyclic Molecules)
+    по Hertkorn et al. (2006).
+    Возвращает долю формул CRAM (% по числу) и долю CRAM, взвешенную по интенсивности (% по весу).
+    """
+    if df.empty:
+        return {"CRAM_pct": 0.0, "CRAM_weight_pct": 0.0, "CRAM_count": 0}
+
+    if "is_CRAM" in df.columns:
+        cram_mask = df["is_CRAM"].astype(bool)
+    else:
+        c_vals = df["C"].astype(float).values
+        h_vals = df["H"].astype(float).values
+        o_vals = df["O"].astype(float).values
+        dbe_vals = df["DBE"].astype(float).values if "DBE" in df.columns else (1.0 + c_vals - 0.5 * h_vals)
+        ai_vals = df["AI"].astype(float).values if "AI" in df.columns else np.zeros_like(c_vals)
+        cram_mask = [
+            is_cram_formula(c_vals[i], h_vals[i], o_vals[i], dbe_vals[i], ai_vals[i])
+            for i in range(len(df))
+        ]
+        cram_mask = pd.Series(cram_mask, index=df.index)
+
+    total_count = len(df)
+    cram_count = int(cram_mask.sum())
+    cram_pct = (cram_count / total_count * 100.0) if total_count > 0 else 0.0
+
+    if "intensity" in df.columns and df["intensity"].sum() > 0:
+        cram_weight_pct = float(df.loc[cram_mask, "intensity"].sum() / df["intensity"].sum() * 100.0)
+    else:
+        cram_weight_pct = cram_pct
+
+    return {
+        "CRAM_pct": round(cram_pct, 2),
+        "CRAM_weight_pct": round(cram_weight_pct, 2),
+        "CRAM_count": cram_count,
+    }
+
+
+# ==============================================================================
+# РАСПРЕДЕЛЕНИЕ ПО НОМИНАЛЬНЫМ МАССАМ (1 Да, Nominal Mass Profiling)
+# ==============================================================================
+def compute_nominal_mass_bins(
+    df: pd.DataFrame,
+    mz_min: int = 200,
+    mz_max: int = 700,
+    weighted: bool = False,
+) -> Dict[str, float]:
+    """
+    Распределение формул / пиков по целочисленным интервалам номинальных масс шириной 1 Да.
+    Формирует ~500 хемометрических дескрипторов вида 'mass_bin_{m}'.
+    """
+    if df.empty or "mass" not in df.columns:
+        return {f"mass_bin_{m}": 0.0 for m in range(mz_min, mz_max + 1)}
+
+    masses = df["mass"].to_numpy(dtype=float)
+    intens = df["intensity"].to_numpy(dtype=float) if ("intensity" in df.columns and weighted) else np.ones_like(masses)
+
+    total_val = float(np.sum(intens))
+    if total_val <= 0:
+        return {f"mass_bin_{m}": 0.0 for m in range(mz_min, mz_max + 1)}
+
+    nom_masses = np.floor(masses).astype(int)
+    res = {}
+    for m in range(mz_min, mz_max + 1):
+        mask = (nom_masses == m)
+        val = float(np.sum(intens[mask])) / total_val * 100.0
+        res[f"mass_bin_{m}"] = round(val, 4)
+    return res
+
+
+def compute_mass_intervals_summary(
+    df: pd.DataFrame,
+    bin_width: float = 1.0,
+    mz_min: float = 150.0,
+    mz_max: float = 1000.0,
+) -> pd.DataFrame:
+    """
+    Сводная таблица распределения формул по интервалам масс 1 Да для интерактивной визуализации.
+    """
+    if df.empty or "mass" not in df.columns:
+        return pd.DataFrame()
+
+    sub = df[(df["mass"] >= mz_min) & (df["mass"] <= mz_max)].copy()
+    if sub.empty:
+        return pd.DataFrame()
+
+    sub["Nominal_Bin"] = np.floor(sub["mass"]).astype(int)
+    has_int = "intensity" in sub.columns
+    total_count = len(sub)
+    total_int = float(sub["intensity"].sum()) if has_int else float(total_count)
+
+    grp = sub.groupby("Nominal_Bin")
+    counts = grp.size()
+    ints = grp["intensity"].sum() if has_int else counts
+
+    rows = []
+    for b in sorted(sub["Nominal_Bin"].unique()):
+        cnt = int(counts.get(b, 0))
+        i_sum = float(ints.get(b, 0.0))
+        rows.append({
+            "Nominal_Mass": int(b),
+            "Interval": f"[{b}, {b+1})",
+            "Count": cnt,
+            "Pct_Count": round(cnt / total_count * 100.0, 3) if total_count > 0 else 0.0,
+            "Intensity_Sum": round(i_sum, 2),
+            "Pct_Weight": round(i_sum / total_int * 100.0, 3) if total_int > 0 else 0.0,
+        })
+    return pd.DataFrame(rows)
+
+
+# ==============================================================================
+# КЛАССИЧЕСКИЕ СПОСОБЫ РАЗБИЕНИЯ ФОРМУЛ ПО КЛАССАМ ИЗ ЛИТЕРАТУРЫ
+# ==============================================================================
+def classify_laszakovits_2021(row: pd.Series, lang: str = "ru") -> str:
+    """
+    Классификация формул по работе:
+    Laszakovits, J. R., & MacKay, A. A. (2021). Characterizing Dissolved Organic Matter
+    Across an Evaporative Gradient Using Ultrahigh-Resolution Mass Spectrometry.
+    Journal of the American Society for Mass Spectrometry, 33(1), 198-202.
+    Основные типы молекул: lignin, tannin, peptide, lipid, carbohydrate, aminosugar, con-Ar.
+    """
+    hc = row.get("H/C", np.nan)
+    oc = row.get("O/C", np.nan)
+    n_val = row.get("N", 0)
+    ai_val = row.get("AI", 0.0)
+
+    if pd.isna(hc) or pd.isna(oc):
+        return "Не определено" if lang == "ru" else "Undefined"
+
+    # Конденсированная ароматика (con-Ar)
+    if ai_val >= 0.67 or (hc < 0.70 and oc <= 0.67):
+        return "Конденсированная ароматика" if lang == "ru" else "Condensed Aromatics"
+
+    # Липиды: H/C 1.5-2.0, O/C 0.0-0.3
+    if 1.50 <= hc <= 2.00 and 0.00 <= oc <= 0.30:
+        return "Липиды" if lang == "ru" else "Lipids"
+
+    # Пептиды / Белки: H/C 1.5-2.2, O/C 0.3-0.67, N >= 1
+    if 1.50 <= hc <= 2.20 and 0.30 < oc <= 0.67 and n_val >= 1:
+        return "Пептиды / Белки" if lang == "ru" else "Peptides / Proteins"
+
+    # Аминосахара: H/C 1.5-2.2, O/C 0.67-1.2, N >= 1
+    if 1.50 <= hc <= 2.20 and 0.67 < oc <= 1.20 and n_val >= 1:
+        return "Аминосахара" if lang == "ru" else "Aminosugars"
+
+    # Углеводы: H/C 1.5-2.4, O/C 0.67-1.2, N == 0
+    if 1.50 <= hc <= 2.40 and 0.67 < oc <= 1.20 and n_val == 0:
+        return "Углеводы" if lang == "ru" else "Carbohydrates"
+
+    # Лигнины: H/C 0.7-1.5, O/C 0.1-0.67
+    if 0.70 <= hc < 1.50 and 0.10 <= oc <= 0.67:
+        return "Лигнины" if lang == "ru" else "Lignin"
+
+    # Таннины: H/C 0.5-1.5, O/C 0.67-1.2
+    if 0.50 <= hc < 1.50 and 0.67 < oc <= 1.20:
+        return "Таннины" if lang == "ru" else "Tannins"
+
+    # Ненасыщенная алифатика (при N == 0)
+    if 1.50 <= hc <= 2.20 and 0.30 < oc <= 0.67:
+        return "Ненасыщенная алифатика" if lang == "ru" else "Unsaturated Aliphatics"
+
+    return "Прочие компоненты" if lang == "ru" else "Other / Unclassified"
+
+
+def classify_kellerman_2014(row: pd.Series, lang: str = "ru") -> str:
+    """
+    Классификация формул по работе:
+    Kellerman, A. M., Dittmar, T., Kothawala, D. N., & Tranvik, L. J. (2014).
+    Chemodiversity of dissolved organic matter is driven by both chemical and ecological factors.
+    Nature Communications, 5, 3804.
+    Разбиение по насыщенности/ненасыщенности, малому/большому значению O/C, AI и N.
+    """
+    hc = row.get("H/C", np.nan)
+    oc = row.get("O/C", np.nan)
+    ai_val = row.get("AI", 0.0)
+    n_val = row.get("N", 0)
+
+    if pd.isna(hc) or pd.isna(oc):
+        return "Не определено" if lang == "ru" else "Undefined"
+
+    # 1. Polycyclic aromatics (combustion-derived): AI > 0.66
+    if ai_val > 0.66 or (hc < 0.70 and oc <= 0.67):
+        return "Полициклическая ароматика (пирогенная)" if lang == "ru" else "Polycyclic Aromatics (combustion-derived)"
+
+    # 2. Highly aromatic compounds / Polyphenols: 0.50 <= AI <= 0.66
+    if 0.50 <= ai_val <= 0.66:
+        return "Полифенолы (растительные)" if lang == "ru" else "Polyphenols (vascular plant)"
+
+    # 3. Highly unsaturated compounds: AI < 0.50, H/C < 1.50
+    if ai_val < 0.50 and hc < 1.50:
+        if oc < 0.50:
+            return "Высоконенасыщенные (низкий O/C)" if lang == "ru" else "Highly Unsaturated (low O/C)"
+        else:
+            return "Высоконенасыщенные (высокий O/C)" if lang == "ru" else "Highly Unsaturated (high O/C)"
+
+    # 4. Aliphatic compounds: 1.50 <= H/C <= 2.00, O/C < 0.90
+    if 1.50 <= hc <= 2.00 and oc < 0.90:
+        if n_val >= 1:
+            return "Пептидоподобные алифатические" if lang == "ru" else "Peptide-like Aliphatics"
+        else:
+            return "Алифатические (N=0)" if lang == "ru" else "Aliphatics (N=0)"
+
+    # 5. Carbohydrate-like: H/C >= 1.50, O/C >= 0.90
+    if hc >= 1.50 and oc >= 0.90:
+        return "Углеводоподобные соединения" if lang == "ru" else "Carbohydrate-like"
+
+    return "Прочие соединения" if lang == "ru" else "Other Compounds"
+
+
+def classify_perminova_2019(row: pd.Series, lang: str = "ru") -> str:
+    """
+    Классификация формул по работе:
+    Perminova, I. V. (2019). From green chemistry to green engineering with humic substances.
+    Pure and Applied Chemistry, 91(5), 851-864.
+    Основное лабораторное разбиение: condensed_tannins, hydrolysable_tannins, carbohydrates,
+    proteins, lipids, phenylpropanoids, terpenoids, а также CRAM (Hertkorn 2006).
+    """
+    hc = row.get("H/C", np.nan)
+    oc = row.get("O/C", np.nan)
+    ai_val = row.get("AI", 0.0)
+    c_val = row.get("C", 0)
+    h_val = row.get("H", 0)
+    o_val = row.get("O", 0)
+    dbe_val = row.get("DBE", 0.0)
+
+    if pd.isna(hc) or pd.isna(oc):
+        return "Не определено" if lang == "ru" else "Undefined"
+
+    # CRAM (Hertkorn et al. 2006)
+    if is_cram_formula(c_val, h_val, o_val, dbe_val, ai_val):
+        return "CRAM (алициклы, Hertkorn 2006)" if lang == "ru" else "CRAM (alicyclics, Hertkorn 2006)"
+
+    # Конденсированная ароматика
+    if ai_val >= 0.67 or (hc < 0.70 and oc <= 0.67):
+        return "Конденсированная ароматика" if lang == "ru" else "Condensed Aromatics"
+
+    # Конденсированные таннины: 0.5 <= H/C <= 1.5, 0.67 < O/C <= 1.0, AI >= 0.5
+    if 0.50 <= hc <= 1.50 and 0.67 < oc <= 1.00 and ai_val >= 0.50:
+        return "Конденсированные таннины" if lang == "ru" else "Condensed Tannins"
+
+    # Гидролизуемые таннины: 0.5 <= H/C <= 1.5, 0.67 < O/C <= 1.2
+    if 0.50 <= hc <= 1.50 and 0.67 < oc <= 1.20:
+        return "Гидролизуемые таннины" if lang == "ru" else "Hydrolysable Tannins"
+
+    # Углеводы: 1.5 <= H/C <= 2.4, 0.67 < O/C <= 1.2
+    if 1.50 <= hc <= 2.40 and 0.67 < oc <= 1.20:
+        return "Углеводы" if lang == "ru" else "Carbohydrates"
+
+    # Белки / Пептиды: 1.5 <= H/C <= 2.2, 0.30 <= O/C <= 0.67
+    if 1.50 <= hc <= 2.20 and 0.30 <= oc <= 0.67:
+        return "Белки / Пептиды" if lang == "ru" else "Proteins / Peptides"
+
+    # Липиды: 1.5 <= H/C <= 2.2, 0.00 <= O/C < 0.30
+    if 1.50 <= hc <= 2.20 and 0.00 <= oc < 0.30:
+        return "Липиды" if lang == "ru" else "Lipids"
+
+    # Фенилизопропаноиды / Лигнины: 0.7 <= H/C < 1.5, 0.10 <= O/C <= 0.67
+    if 0.70 <= hc < 1.50 and 0.10 <= oc <= 0.67:
+        return "Фенилизопропаноиды (лигнины)" if lang == "ru" else "Phenylpropanoids (lignin-like)"
+
+    # Терпеноиды / Ненасыщенные УВ: 0.7 <= H/C < 1.5, 0.00 <= O/C < 0.10
+    if 0.70 <= hc < 1.50 and 0.00 <= oc < 0.10:
+        return "Терпеноиды (ненасыщенные УВ)" if lang == "ru" else "Terpenoids (unsaturated HC)"
+
+    return "Прочие компоненты" if lang == "ru" else "Other / Unclassified"
+
+
+def classify_classical_vk20(row: pd.Series, lang: str = "ru") -> str:
+    """
+    Классическое хемотипирование по 20 ячейкам диаграммы Ван-Кревелена (VK-20):
+    7 макро-хемотипов (как на фото-схеме):
+    Липиды (яч. 5), Пептиды (яч. 10), Терпеноиды (яч. 4, 9), Лигнины (яч. 3, 8),
+    Конденсированные таннины (яч. 1, 2, 6, 7), Гидролизуемые таннины (яч. 11, 12, 13, 16, 17, 18),
+    Углеводы (яч. 14, 15, 19, 20).
+    """
+    hc = row.get("H/C", np.nan)
+    oc = row.get("O/C", np.nan)
+    if pd.isna(hc) or pd.isna(oc):
+        return "Не определено" if lang == "ru" else "Undefined"
+
+    # Колонка 1 и 2: O/C in [0.00, 0.50]
+    if 0.0 <= oc <= 0.50:
+        if 0.2 <= hc < 1.0:
+            return "Конденсированные таннины" if lang == "ru" else "Condensed Tannins"
+        elif 1.0 <= hc < 1.4:
+            return "Лигнины" if lang == "ru" else "Lignins"
+        elif 1.4 <= hc < 1.8:
+            return "Терпеноиды" if lang == "ru" else "Terpenoids"
+        elif 1.8 <= hc <= 2.2:
+            if oc <= 0.25:
+                return "Липиды" if lang == "ru" else "Lipids"
+            else:
+                return "Пептиды" if lang == "ru" else "Peptides"
+    # Колонка 3 и 4: O/C in (0.50, 1.00]
+    elif 0.50 < oc <= 1.00:
+        if 0.2 <= hc < 1.4:
+            return "Гидролизуемые таннины" if lang == "ru" else "Hydrolysable Tannins"
+        elif 1.4 <= hc <= 2.2:
+            return "Углеводы" if lang == "ru" else "Carbohydrates"
+
+    return "Прочие компоненты" if lang == "ru" else "Other / Unclassified"
+
+
+def calculate_descriptors(
+    df: pd.DataFrame,
+    lang: str = "ru",
+    classification_method: str = "perminova",
+) -> pd.DataFrame:
+    """
+    Расчет молекулярных дескрипторов (H/C, O/C, DBE, AI, NOSC, CRAM по Hertkorn 2006,
+    классификация по Perminova 2019, Kellerman 2014, Laszakovits 2021).
+    """
     res = df.copy()
     c = res["C"].astype(float)
     h = res["H"].astype(float)
@@ -139,6 +731,17 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
     nosc_num = 4.0 * c + h - 3.0 * n - 2.0 * o - 2.0 * s
     res["NOSC"] = np.where(c > 0, 4.0 - np.divide(nosc_num, c, out=np.zeros_like(nosc_num), where=c > 0), np.nan)
 
+    # Идентификация CRAM (Carboxylic-Rich Alicyclic Molecules) по Hertkorn et al. (2006)
+    c_vals = c.values
+    h_vals = h.values
+    o_vals = o.values
+    dbe_vals = res["DBE"].values
+    ai_vals = res["AI"].values
+    res["is_CRAM"] = [
+        is_cram_formula(c_vals[i], h_vals[i], o_vals[i], dbe_vals[i], ai_vals[i])
+        for i in range(len(res))
+    ]
+
     def get_hetero_class(row):
         has_n = row["N"] > 0
         has_s = row["S"] > 0
@@ -152,19 +755,30 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
 
     res["Hetero_Class"] = res.apply(get_hetero_class, axis=1)
 
-    def get_compound_class(row):
+    # Вычисление трех классических лабораторных распределений
+    res["Class_Perminova_2019"] = res.apply(lambda r: classify_perminova_2019(r, lang=lang), axis=1)
+    res["Class_Kellerman_2014"] = res.apply(lambda r: classify_kellerman_2014(r, lang=lang), axis=1)
+    res["Class_Laszakovits_2021"] = res.apply(lambda r: classify_laszakovits_2021(r, lang=lang), axis=1)
+    res["Class_Classical_VK20"] = res.apply(lambda r: classify_classical_vk20(r, lang=lang), axis=1)
+
+    # Историческая классификация по модифицированным критериям Хека / Кимова:
+    # 1) Kim, S., Kramer, R. W., & Hatcher, P. G. (2003). Anal. Chem., 75(20), 5336-5344.
+    # 2) Hockaday, W. C. et al. (2009). Limnol. Oceanogr., 54(4), 1133-1145.
+    def get_legacy_compound_class(row):
         hc = row["H/C"]
         oc = row["O/C"]
         ai_val = row["AI"]
         n_val = row["N"]
         if pd.isna(hc) or pd.isna(oc):
             return "Undefined" if lang == "en" else "Не определено"
+        if row.get("is_CRAM", False):
+            return "CRAM (Hertkorn 2006)" if lang == "en" else "CRAM (алициклы, Hertkorn 2006)"
         if n_val > 0 and (0.3 < hc < 0.8) and (oc < 0.4):
             return "CHON pool (0.3 < H/C < 0.8, O/C < 0.4)" if lang == "en" else "Пул CHON (0.3 < H/C < 0.8, O/C < 0.4)"
         if ai_val >= 0.5 or (hc < 0.7 and oc <= 0.67):
             return "Condensed tannins / Aromatics" if lang == "en" else "Конденсированные таннины / Ароматика"
         if 0.7 <= hc < 1.5 and 0.1 <= oc <= 0.67:
-            return "Lignin-like / CRAM" if lang == "en" else "Лигнины / CRAM"
+            return "Lignin-like" if lang == "en" else "Лигниноподобные структуры"
         if 0.5 <= hc < 1.5 and 0.67 < oc <= 1.0:
             return "Hydrolyzable tannins" if lang == "en" else "Гидролизуемые таннины"
         if 1.5 <= hc <= 2.0 and oc <= 0.3:
@@ -175,8 +789,20 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
             return "Carbohydrates" if lang == "en" else "Углеводы"
         return "Other / Unclassified" if lang == "en" else "Прочие компоненты"
 
-    res["Compound_Class"] = res.apply(get_compound_class, axis=1)
+    # Выбор активного разбиения формул по классам
+    method_lower = str(classification_method).lower().strip()
+    if "perminova" in method_lower:
+        res["Compound_Class"] = res["Class_Perminova_2019"]
+    elif "kellerman" in method_lower:
+        res["Compound_Class"] = res["Class_Kellerman_2014"]
+    elif "laszakovits" in method_lower:
+        res["Compound_Class"] = res["Class_Laszakovits_2021"]
+    else:
+        res["Compound_Class"] = res.apply(get_legacy_compound_class, axis=1)
 
+    # Классические биомолекулярные регионы Ван-Кревелена:
+    # 1) Minor, E. C. et al. (2014). Environ. Sci. Technol., 48(19), 11192-11202.
+    # 2) Sleighter, R. L., & Hatcher, P. G. (2007). J. Mass Spectrom., 42(5), 559-568.
     def get_biomolecular_class(row):
         hc = row["H/C"]
         oc = row["O/C"]
@@ -203,11 +829,35 @@ def calculate_descriptors(df: pd.DataFrame, lang: str = "ru") -> pd.DataFrame:
     return res
 
 
-def get_biomolecular_distribution(assigned_df: pd.DataFrame, lang: str = "ru") -> Dict[str, float]:
-    """Возвращает процентное распределение биомолекулярных классов в масс-спектре."""
+def get_biomolecular_distribution(
+    assigned_df: pd.DataFrame,
+    lang: str = "ru",
+    scheme: str = "regions",
+) -> Dict[str, float]:
+    """
+    Возвращает процентное распределение молекулярных классов в масс-спектре.
+    Поддерживаемые схемы (scheme):
+    - 'regions': полигоны Ван-Кревелена (Minor et al. 2014)
+    - 'perminova': разбиение по Perminova I.V. (2019)
+    - 'kellerman': разбиение по Kellerman et al. (2014)
+    - 'laszakovits': разбиение по Laszakovits & MacKay (2021)
+    """
     if "Bio_Class" not in assigned_df.columns:
         assigned_df = calculate_descriptors(assigned_df, lang=lang)
-    counts = assigned_df["Bio_Class"].value_counts(normalize=True) * 100.0
+
+    scheme_lower = str(scheme).lower().strip()
+    if any(k in scheme_lower for k in ["classical", "vk20", "классич", "photo"]) and "Class_Classical_VK20" in assigned_df.columns:
+        col = "Class_Classical_VK20"
+    elif "perminova" in scheme_lower and "Class_Perminova_2019" in assigned_df.columns:
+        col = "Class_Perminova_2019"
+    elif "kellerman" in scheme_lower and "Class_Kellerman_2014" in assigned_df.columns:
+        col = "Class_Kellerman_2014"
+    elif "laszakovits" in scheme_lower and "Class_Laszakovits_2021" in assigned_df.columns:
+        col = "Class_Laszakovits_2021"
+    else:
+        col = "Bio_Class"
+
+    counts = assigned_df[col].value_counts(normalize=True) * 100.0
     return {k: round(float(v), 2) for k, v in counts.items()}
 
 
@@ -464,8 +1114,13 @@ def compute_kmd(masses: np.ndarray, base_key: str) -> Tuple[np.ndarray, np.ndarr
     return km, kmd, nkm
 
 
-def compute_vk20_grid(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-    """Хемотипирование по 20 ячейкам Перминовой в координатах Ван-Кревелена."""
+def compute_vk20_grid(df: pd.DataFrame, lang: str = "ru") -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    """
+    Хемотипирование по 20 ячейкам Перминовой в координатах Ван-Кревелена.
+    (Perminova I.V., Pure Appl. Chem. 2019, 91(5), 851-864).
+    Возвращает матрицу числа формул (pct_count), матрицу взвешенных интенсивностей (pct_weight)
+    и сводную таблицу с соотнесением каждого квадрата к соответствующему химическому классу.
+    """
     oc_bins = [0.00, 0.25, 0.50, 0.75, 1.000001]
     hc_bins = [0.20, 0.60, 1.00, 1.40, 1.80, 2.200001]
 
@@ -498,10 +1153,18 @@ def compute_vk20_grid(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, pd.Data
         for c in range(4):
             o_str = f"{oc_bins[c]:.2f}-{oc_bins[c+1]:.2f}"
             cell_idx = 1 + r * 4 + c
+            desc = VK20_CELL_DESCRIPTIONS.get(cell_idx, {})
+            class_label = desc.get("ru" if lang == "ru" else "en", f"Cell_{cell_idx}")
+            desc_text = desc.get("desc_ru" if lang == "ru" else "desc_en", "")
+
             tbl_rows.append({
                 "Cell": f"VK_{cell_idx}",
                 "H/C_range": h_str,
                 "O/C_range": o_str,
+                "Chemical_Class": class_label,
+                "Class_RU": desc.get("ru", ""),
+                "Class_EN": desc.get("en", ""),
+                "Description": desc_text,
                 "Count": int(grid_count[r, c]),
                 "Pct_Count": round(float(pct_count[r, c]), 2),
                 "Pct_Weight": round(float(pct_weight[r, c]), 2),
@@ -989,33 +1652,19 @@ def batch_process_fticr_spectra(
     min_intensity: float = 0.0,
     mz_range: Tuple[float, float] = (150.0, 1000.0),
     lang: str = "ru",
+    vk_grid_mode: str = "both",
+    include_mass_bins: bool = False,
+    mass_bins_range: Tuple[int, int] = (200, 700),
+    mass_bins_weighted: bool = True,
+    classification_method: str = "perminova",
 ) -> Tuple[pd.DataFrame, Dict[str, Dict[str, Any]]]:
     """
     Пакетная обработка коллекции масс-спектров FT-ICR MS (из ZIP-архива, словаря файлов или пути).
-    Автоматически парсит, фильтрует пики, приписывает брутто-формулы, рассчитывает
-    20 ячеек Ван-Кревелена Перминовой и биомолекулярные дескрипторы для каждого образца.
-
-    Parameters:
-    -----------
-    files_input : Union[Dict[str, bytes], bytes, io.BytesIO, str]
-        Входные данные: словарь {имя_файла: байты}, байты ZIP-архива или путь к ZIP/папке.
-    ion_mode : str
-        Режим ионизации ('ESI(-)' или 'ESI(+)').
-    ppm_tolerance : float
-        Допуск погрешности массы в ppm.
-    min_intensity : float
-        Порог отсечения шума по интенсивности.
-    mz_range : Tuple[float, float]
-        Диапазон масс (мин, макс).
-    lang : str
-        Язык локализации ('ru' или 'en').
-
-    Returns:
-    --------
-    summary_df : pd.DataFrame
-        Сводная матрица дескрипторов всех образцов со столбцом 'Sample_ID' (готова для ChemoSuite ML).
-    spectra_dict : Dict[str, Dict[str, Any]]
-        Словарь обработанных спектров, готовый для обновления st.session_state["spectra_db"].
+    Автоматически парсит, фильтрует пики, приписывает брутто-формулы, рассчитывает:
+    - 20 ячеек Ван-Кревелена Перминовой (по числу и/или взвешенные по интенсивности);
+    - Метрики CRAM по Hertkorn et al. (2006);
+    - Распределения по классам (Perminova 2019 / Kellerman 2014 / Laszakovits 2021);
+    - Опциональные дескрипторы номинальных масс 1 Да (~500 признаков для ML).
     """
     files_dict: Dict[str, bytes] = {}
 
@@ -1030,7 +1679,7 @@ def batch_process_fticr_spectra(
             if tot_size > 200_000_000:
                 raise ValueError(f"Превышен лимит распакованного размера архива ({tot_size / 1e6:.1f} МБ > 200 МБ).")
             for z in zf.infolist():
-                if ".." in z.filename or z.filename.startswith("/") or z.filename.startswith("\\"):
+                if ".." in z.filename or z.filename.startswith("/") or z.filename.startswith(chr(92)):
                     raise ValueError(f"Обнаружен опасный путь файла (Zip-Slip): {z.filename}")
             for fname in zf.namelist():
                 if fname.lower().endswith((".csv", ".tsv", ".txt", ".xy")) and not fname.startswith("__MACOSX"):
@@ -1073,20 +1722,36 @@ def batch_process_fticr_spectra(
                 continue
 
             # 4. Дескрипторы и классы
-            desc_df = calculate_descriptors(assigned, lang=lang)
+            desc_df = calculate_descriptors(assigned, lang=lang, classification_method=classification_method)
 
             # 5. Сетка 20 ячеек Перминовой
-            _, _, grid_df = compute_vk20_grid(desc_df)
+            _, _, grid_df = compute_vk20_grid(desc_df, lang=lang)
 
             # 6. Биомолекулярное распределение
-            bio_dist = get_biomolecular_distribution(desc_df, lang="en")
+            bio_dist = get_biomolecular_distribution(desc_df, lang="en", scheme="regions")
+
+            # 7. CRAM метрики (Hertkorn et al. 2006)
+            cram_info = get_cram_metrics(desc_df)
 
             # Формирование строки образца
             row: Dict[str, Any] = {"Sample_ID": sample_id}
 
-            # Добавляем 20 ячеек (VK_1 .. VK_20)
+            # Добавляем ячейки Ван-Кревелена по выбранному режиму
+            # По умолчанию ('both') включаем и Pct_Count (VK_1..VK_20), и Pct_Weight (VK_w_1..VK_w_20)
+            mode_l = str(vk_grid_mode).lower().strip()
             for _, r_cell in grid_df.iterrows():
-                row[str(r_cell["Cell"])] = round(float(r_cell["Pct_Count"]), 2)
+                cell_name = str(r_cell["Cell"])
+                if mode_l in ["count", "both"]:
+                    row[cell_name] = round(float(r_cell["Pct_Count"]), 2)
+                if mode_l in ["weight", "both"]:
+                    idx_str = cell_name.split("_")[-1]
+                    row[f"VK_w_{idx_str}"] = round(float(r_cell["Pct_Weight"]), 2)
+                if mode_l == "weight" and cell_name not in row:
+                    row[cell_name] = round(float(r_cell["Pct_Weight"]), 2)
+
+            # CRAM дескрипторы (Замечание 2 научного руководителя)
+            row["CRAM_pct"] = cram_info["CRAM_pct"]
+            row["CRAM_weight_pct"] = cram_info["CRAM_weight_pct"]
 
             # Базовые хемометрические индексы
             row["AI"] = round(float(desc_df["AI"].mean()), 3)
@@ -1106,6 +1771,16 @@ def batch_process_fticr_spectra(
             for b_name, b_pct in bio_dist.items():
                 row[f"Bio_{b_name}"] = b_pct
 
+            # Опциональное добавление интервалов номинальных масс 1 Да (Замечание 3)
+            if include_mass_bins:
+                bins_dict = compute_nominal_mass_bins(
+                    desc_df,
+                    mz_min=mass_bins_range[0],
+                    mz_max=mass_bins_range[1],
+                    weighted=mass_bins_weighted,
+                )
+                row.update(bins_dict)
+
             row["Assigned_Peaks"] = len(desc_df)
             summary_rows.append(row)
 
@@ -1122,3 +1797,4 @@ def batch_process_fticr_spectra(
 
     summary_df = pd.DataFrame(summary_rows)
     return summary_df, spectra_dict
+

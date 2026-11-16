@@ -560,64 +560,12 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             else:
                 try:
                     with st.spinner(T[lang]["ml_spinner"]):
-                        if is_mbpls and MULTIBLOCK_AVAILABLE:
-                            block_map = chemo_ml._detect_block_mapping(list(feat_cols)) if hasattr(chemo_ml, "_detect_block_mapping") else {}
-                            blocks_dict = {}
-                            for col in feat_cols:
-                                b_name = block_map.get(col, "Other")
-                                if b_name not in blocks_dict:
-                                    blocks_dict[b_name] = []
-                                blocks_dict[b_name].append(col)
-                            X_blocks = [X_input[cols].values for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            block_names = [b_name for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            y_numeric = np.array([int(c) if str(c).isdigit() else idx for idx, c in enumerate(y_input)])
-                            mb_model = multiblock_chemometrics.MultiBlockPLSDA(n_components=n_lvs, block_scale=use_block_scale)
-                            mb_model.fit(X_blocks, y_numeric, block_names=block_names)
-                            bvips = mb_model.compute_block_vips()
-                            r2x_tot = float(np.sum(mb_model.block_r2x_)) * 100.0 if mb_model.block_r2x_ else 75.0
-                            res = {
-                                "model_type": "Multi-Block PLS-DA",
-                                "scores_t1": mb_model.super_scores_[:, 0],
-                                "scores_t2": mb_model.super_scores_[:, 1] if n_lvs > 1 else np.zeros(len(y_input)),
-                                "R2X": r2x_tot,
-                                "R2Y": 85.0,
-                                "Q2": 68.0,
-                                "Accuracy": 92.0,
-                                "Block_Contributions": {b: float(mb_model.block_weights_.get(b, 1.0)) for b in block_names},
-                                "VIP_df": pd.DataFrame([{"Descriptor": f"{b}_LV1", "Block": b, "VIP": float(bvips.get(b, 1.0))} for b in block_names]).sort_values("VIP", ascending=False),
-                            }
-                            st.session_state["pls_results"] = res
-                            st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
-                            st.session_state["pls_y_input"] = y_input
-                            st.session_state["perm_results"] = None
-                        elif is_sopls and MULTIBLOCK_AVAILABLE:
-                            block_map = chemo_ml._detect_block_mapping(list(feat_cols)) if hasattr(chemo_ml, "_detect_block_mapping") else {}
-                            blocks_dict = {}
-                            for col in feat_cols:
-                                b_name = block_map.get(col, "Other")
-                                if b_name not in blocks_dict:
-                                    blocks_dict[b_name] = []
-                                blocks_dict[b_name].append(col)
-                            X_blocks = [X_input[cols].values for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            block_names = [b_name for b_name, cols in blocks_dict.items() if len(cols) > 0]
-                            y_numeric = np.array([int(c) if str(c).isdigit() else idx for idx, c in enumerate(y_input)])
-                            so_model = multiblock_chemometrics.SequentialOrthogonalizedPLS(n_components_per_block=[2] * len(X_blocks))
-                            so_model.fit(X_blocks, y_numeric, block_names=block_names)
-                            res = {
-                                "model_type": "Sequential & Orthogonalized PLS",
-                                "scores_t1": X_blocks[0][:, 0],
-                                "scores_t2": X_blocks[0][:, 1] if X_blocks[0].shape[1] > 1 else np.zeros(len(y_input)),
-                                "R2X": float(so_model.cumulative_r2y_[-1] * 100.0) if so_model.cumulative_r2y_ else 80.0,
-                                "R2Y": float(so_model.cumulative_r2y_[-1] * 100.0) if so_model.cumulative_r2y_ else 85.0,
-                                "Q2": 72.0,
-                                "Accuracy": 90.0,
-                                "Block_Contributions": {b: float(so_model.incremental_r2y_.get(b, 0.2)) * 100.0 for b in block_names},
-                                "VIP_df": pd.DataFrame([{"Descriptor": f"{b}_Incremental_R2", "Block": b, "VIP": float(so_model.incremental_r2y_.get(b, 0.2)) * 5.0} for b in block_names]),
-                            }
-                            st.session_state["pls_results"] = res
-                            st.session_state["pls_sample_ids"] = edited_df["Sample_ID"].values
-                            st.session_state["pls_y_input"] = y_input
-                            st.session_state["perm_results"] = None
+                        if is_mbpls or is_sopls:
+                            raise ValueError(
+                                "Мультиблочный режим временно недоступен: результаты требуют проверки реализации."
+                                if lang == "ru" else
+                                "This multiblock mode is temporarily unavailable pending validation."
+                            )
                         elif is_opls:
                             res = chemo_ml.train_oplsda_model(X_input, y_input, n_ortho=n_ortho, fusion_strategy=strat_code, block_scaling=use_block_scale)
                             st.session_state["pls_results"] = res
@@ -677,7 +625,8 @@ Accurate discrimination of pristine vs contaminated waters and non-target identi
             q2_val = res.get("Q2", 0.0)
             m3.metric(T[lang]["ml_m_q2"], f"{q2_val:.1f}%", delta=T[lang]["ml_q2_ok"] if q2_val > 50 else T[lang]["ml_q2_warn"])
             acc_val = res.get("Balanced_Accuracy", res.get("Accuracy", 0.0))
-            m4.metric(T[lang]["ml_m_acc"], f"{acc_val:.1f}%")
+            m4.metric(T[lang]["ml_m_acc"] + (" (обучение)" if lang == "ru" else " (training)"), f"{acc_val:.1f}%")
+            st.caption("Матрица ошибок и точность рассчитаны на обучающих данных; Q² оценивается кросс-валидацией." if lang == "ru" else "The confusion matrix and accuracy are calculated on training data; Q² is cross-validated.")
 
             tab_names = [T[lang]["ml_tab_scores"], T[lang]["ml_tab_vips"]]
             if is_model_opls:

@@ -84,7 +84,7 @@ class IRMSSample:
         if self.d2H is not None and self.d18O is not None:
             self.deuterium_excess = float(self.d2H - 8.0 * self.d18O)
 
-        # 2. Heuristic probability of Kraft Mill Pulp Sludge origin
+        # 2. Heuristic score; this is not a calibrated probability of origin.
         # Kraft pulp lignin from BPPM typically has heavy d34S (>4.0) and d13C around -27.0
         score = 0.0
         weights = 0.0
