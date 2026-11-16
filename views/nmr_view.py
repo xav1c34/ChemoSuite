@@ -513,6 +513,7 @@ def render_nmr_studio(T: dict, lang: str):
                 )
 
         with sec_tab2:
+            st.caption("Спектры библиотеки смоделированы и не являются измеренными спектрами сертифицированных образцов. Совпадение не подтверждает идентификацию." if lang == "ru" else "Library spectra are modeled, not measured certified reference spectra. A match does not confirm identification.")
             st.markdown("##### " + T[lang]["nmr_lib_hdr"])
             c_lb1, c_lb2, c_lb3 = st.columns([2.5, 1.5, 2.0])
             with c_lb1:

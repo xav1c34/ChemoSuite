@@ -58,6 +58,33 @@ def test_prepare_fused_features_low_and_mid():
     assert "FTICR_PC3" in names_mid
 
 
+def test_fold_preprocessing_fits_only_training_data():
+    train = pd.DataFrame({"VK_1": [1., 2., 3.], "VK_2": [2., 4., 6.], "VK_3": [3., 5., 7.], "FI": [1., 2., 3.]})
+    test = pd.DataFrame({"VK_1": [1000.], "VK_2": [4000.], "VK_3": [9000.], "FI": [100.]})
+    for strategy in ("low_level", "mid_level"):
+        prep = chemo_ml.FusionPreprocessor(strategy=strategy)
+        fitted = prep.fit_transform(train)
+        transformed = prep.transform(test)
+        expected, _, _ = chemo_ml.prepare_fused_features(train, strategy=strategy)
+        np.testing.assert_allclose(fitted, expected)
+        assert np.linalg.norm(transformed) > 10
+
+
+def test_block_scaling_applies_after_standardization():
+    df = pd.DataFrame({"VK_1": [1., 2., 4.], "VK_2": [4., 2., 1.], "FI": [1., 3., 2.]})
+    scaled, _, _ = chemo_ml.prepare_fused_features(df, block_scaling=True)
+    assert np.isclose(np.var(scaled[:, :2], axis=0).sum(), 1.0)
+    assert np.isclose(np.var(scaled[:, 2]), 1.0)
+
+
+def test_mid_level_retains_other_analytical_blocks():
+    df = pd.DataFrame({"VK_1": [1., 2., 3., 4.], "VK_2": [2., 4., 1., 3.], "VK_3": [4., 2., 3., 1.], "FTIR_peak": [1., 3., 4., 2.]})
+    features, names, blocks = chemo_ml.prepare_fused_features(df, strategy="mid_level")
+    assert "FTIR_peak" in names
+    assert blocks["FTIR_peak"] == "FTIR"
+    assert features.shape[1] == len(names)
+
+
 def test_train_plsda_model_metrics():
     """Тест обучения модели PLS-DA и расчета диагностических метрик."""
     df, y = chemo_ml.generate_multimodal_benchmark()
@@ -195,4 +222,35 @@ def test_splsda_model():
     # Часть признаков должна быть строго обнулена благодаря разреженности
     assert (s_df["Absolute_Weight"] == 0.0).any()
 
+def test_validate_n_components_bounds():
+    """Тест валидации и ограничения числа латентных компонент (LVs) сверху и снизу."""
+    assert chemo_ml.MAX_PLS_COMPONENTS == 5
+    assert chemo_ml.MIN_PLS_COMPONENTS == 2
+
+    # 1. Ограничение сверху (запрос больше максимума 5)
+    clamped_high = chemo_ml.validate_n_components(n_components=12, n_samples=30, n_features=40)
+    assert clamped_high == 5
+
+    # 2. Ограничение сверху по числу образцов (n_samples - 1)
+    clamped_samples = chemo_ml.validate_n_components(n_components=5, n_samples=4, n_features=40)
+    assert clamped_samples == 3
+
+    # 3. Ограничение сверху по числу признаков (n_features)
+    clamped_features = chemo_ml.validate_n_components(n_components=5, n_samples=30, n_features=2)
+    assert clamped_features == 2
+
+    # 4. Кастомная верхняя граница max_components
+    clamped_custom = chemo_ml.validate_n_components(n_components=10, n_samples=30, n_features=40, max_components=4)
+    assert clamped_custom == 4
+
+    # 5. Ограничение снизу при некорректном или нулевом значении
+    clamped_low = chemo_ml.validate_n_components(n_components=0, n_samples=30, n_features=40)
+    assert clamped_low == 2
+
+    # 6. Проверка работы train_plsda_model с завышенным n_components
+    df, y = chemo_ml.generate_multimodal_benchmark()
+    X = df.drop(columns=["Sample_ID"])
+    res = chemo_ml.train_plsda_model(X, y.values, n_components=25)
+    assert "scores_t1" in res and "VIP_df" in res
+    assert not res["VIP_df"].empty
 

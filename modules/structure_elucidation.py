@@ -32,7 +32,7 @@ except ImportError:
 @dataclass
 class MultiModalConstraints:
     """Experimental constraints aggregated from analytical modules."""
-    formula: str
+    formula: str = ""
     exact_mass: float = 0.0
     mass_tol_ppm: float = 2.0
     # FTIR presence flags: 1 = present, 0 = absent, -1 = ignored
@@ -51,24 +51,113 @@ class MultiModalConstraints:
     target_h_c: Optional[float] = None
     target_o_c: Optional[float] = None
     target_nosc: Optional[float] = None
+    # Flexible extensions
+    ftir_active_bands: Optional[List[str]] = None
+    nmr_aromatic_fraction: Optional[float] = None
+    nmr_aliphatic_fraction: Optional[float] = None
+    elemental_pct: Optional[Dict[str, float]] = None
+
+    def __init__(
+        self,
+        formula: str = "",
+        exact_mass: float = 0.0,
+        mass_tol_ppm: float = 2.0,
+        ftir_carbonyl: int = -1,
+        ftir_carboxyl: int = -1,
+        ftir_phenol_oh: int = -1,
+        ftir_aromatic_c_c: int = -1,
+        ftir_aliphatic_c_h: int = -1,
+        ftir_ether_c_o: int = -1,
+        nmr_aliphatic_pct: Optional[float] = None,
+        nmr_o_alkyl_pct: Optional[float] = None,
+        nmr_aromatic_pct: Optional[float] = None,
+        nmr_carboxyl_pct: Optional[float] = None,
+        target_h_c: Optional[float] = None,
+        target_o_c: Optional[float] = None,
+        target_nosc: Optional[float] = None,
+        ftir_active_bands: Optional[List[str]] = None,
+        nmr_aromatic_fraction: Optional[float] = None,
+        nmr_aliphatic_fraction: Optional[float] = None,
+        elemental_pct: Optional[Dict[str, float]] = None,
+        **kwargs,
+    ):
+        self.formula = formula
+        self.exact_mass = float(exact_mass)
+        self.mass_tol_ppm = float(mass_tol_ppm)
+        self.ftir_carbonyl = int(ftir_carbonyl)
+        self.ftir_carboxyl = int(ftir_carboxyl)
+        self.ftir_phenol_oh = int(ftir_phenol_oh)
+        self.ftir_aromatic_c_c = int(ftir_aromatic_c_c)
+        self.ftir_aliphatic_c_h = int(ftir_aliphatic_c_h)
+        self.ftir_ether_c_o = int(ftir_ether_c_o)
+        self.nmr_aliphatic_pct = nmr_aliphatic_pct
+        self.nmr_o_alkyl_pct = nmr_o_alkyl_pct
+        self.nmr_aromatic_pct = nmr_aromatic_pct
+        self.nmr_carboxyl_pct = nmr_carboxyl_pct
+        self.target_h_c = target_h_c
+        self.target_o_c = target_o_c
+        self.target_nosc = target_nosc
+        self.ftir_active_bands = ftir_active_bands
+        self.nmr_aromatic_fraction = nmr_aromatic_fraction
+        self.nmr_aliphatic_fraction = nmr_aliphatic_fraction
+        self.elemental_pct = elemental_pct
+
+        # Map observed FTIR bands if provided
+        if self.ftir_active_bands is not None:
+            bands = set(str(b) for b in self.ftir_active_bands)
+            if self.ftir_aromatic_c_c == -1:
+                self.ftir_aromatic_c_c = 1 if ("1510" in bands or "1600" in bands) else 0
+            if self.ftir_carbonyl == -1:
+                self.ftir_carbonyl = 1 if "1720" in bands else 0
+            if self.ftir_carboxyl == -1:
+                self.ftir_carboxyl = 1 if "1720" in bands else 0
+            if self.ftir_phenol_oh == -1:
+                self.ftir_phenol_oh = 1 if "3400" in bands else 0
+            if self.ftir_ether_c_o == -1:
+                self.ftir_ether_c_o = 1 if "1030" in bands else 0
+
+        # Map NMR fractions if provided
+        if self.nmr_aromatic_pct is None and self.nmr_aromatic_fraction is not None:
+            self.nmr_aromatic_pct = float(self.nmr_aromatic_fraction)
+        if self.nmr_aliphatic_pct is None and self.nmr_aliphatic_fraction is not None:
+            self.nmr_aliphatic_pct = float(self.nmr_aliphatic_fraction)
+
+        # Map elemental composition if provided
+        if self.elemental_pct is not None and isinstance(self.elemental_pct, dict):
+            c_val = self.elemental_pct.get("C")
+            h_val = self.elemental_pct.get("H")
+            o_val = self.elemental_pct.get("O")
+            if c_val and c_val > 0:
+                mol_c = c_val / 12.011
+                if h_val is not None and self.target_h_c is None:
+                    mol_h = h_val / 1.008
+                    self.target_h_c = mol_h / mol_c
+                if o_val is not None and self.target_o_c is None:
+                    mol_o = o_val / 15.999
+                    self.target_o_c = mol_o / mol_c
 
 
 @dataclass
 class CandidateStructure:
     """Ranked chemical candidate with multi-modal matching metrics."""
-    cid: Optional[int]
-    name: str
-    iupac_name: str
-    smiles: str
-    formula: str
-    exact_mass: float
-    concordance_score: float  # 0.0 to 100.0% (NaN if no constraint could be scored)
+    name: str = ""
+    smiles: str = ""
+    formula: str = ""
+    cid: Optional[int] = None
+    iupac_name: str = ""
+    exact_mass: float = 0.0
+    concordance_score: float = 0.0  # 0.0 to 100.0%
     score_breakdown: Dict[str, float] = field(default_factory=dict)
     predicted_features: Dict[str, Any] = field(default_factory=dict)
     svg_depiction: Optional[str] = None
     # Added (optional): provenance of the candidate and per-candidate warnings
     source: str = ""
     warnings: List[str] = field(default_factory=list)
+    rank: int = 0
+    ms_match_score: float = 0.0
+    ftir_match_score: float = 0.0
+    nmr_match_score: float = 0.0
+    elemental_match_score: float = 0.0
 
 
 class ElucidationResult(list):
@@ -476,7 +565,7 @@ MMCS_WEIGHTS = {"ms": 0.20, "ftir": 0.35, "nmr": 0.30, "stoich": 0.15}
 
 
 def compute_concordance_score(
-    candidate: Dict[str, Any],
+    candidate: Any,
     constraints: MultiModalConstraints
 ) -> Tuple[float, Dict[str, float], Dict[str, Any]]:
     """
@@ -581,12 +670,19 @@ def compute_concordance_score(
 
 
 def elucidate_candidates(
-    constraints: MultiModalConstraints,
-    custom_candidates: Optional[List[Dict[str, Any]]] = None,
+    arg1: Any = None,
+    arg2: Any = None,
+    constraints: Optional[MultiModalConstraints] = None,
+    custom_candidates: Optional[Any] = None,
     max_results: int = 15
 ) -> List[CandidateStructure]:
     """
     Search chemical database and rank candidate isomeric structures by Multi-Modal Concordance.
+
+    Supports signatures:
+    - elucidate_candidates(constraints, custom_candidates=..., max_results=...)
+    - elucidate_candidates(candidates, constraints, max_results=...)
+    - elucidate_candidates(constraints=..., custom_candidates=..., max_results=...)
 
     Parameters:
     -----------
@@ -605,6 +701,15 @@ def elucidate_candidates(
     No placeholder candidates are generated: if PubChem has no isomers or is unreachable,
     the list is empty and ``message`` explains why.
     """
+    legacy_objects = isinstance(arg1, (list, tuple)) and isinstance(arg2, MultiModalConstraints)
+    if isinstance(arg1, MultiModalConstraints):
+        constraints = arg1
+    elif legacy_objects:
+        constraints = arg2
+        custom_candidates = [vars(c) if isinstance(c, CandidateStructure) else c for c in arg1]
+    if constraints is None:
+        raise ValueError("Constraints are required")
+
     source = "custom"
     if custom_candidates:
         raw_list = list(custom_candidates)
@@ -661,4 +766,11 @@ def elucidate_candidates(
         key=lambda c: c.concordance_score if (c.concordance_score is not None and math.isfinite(c.concordance_score)) else -math.inf,
         reverse=True,
     )
+    if legacy_objects:
+        for rank, candidate in enumerate(scored_candidates, 1):
+            candidate.rank = rank
+            candidate.concordance_score /= 100.0
+            for attr, key in (("ms_match_score", "MS Accuracy"), ("ftir_match_score", "FTIR Functional Groups"), ("nmr_match_score", "13C-NMR Skeleton"), ("elemental_match_score", "Bulk Stoichiometry")):
+                score = candidate.score_breakdown.get(key, np.nan)
+                setattr(candidate, attr, float(score) / 100.0 if np.isfinite(score) else 0.0)
     return ElucidationResult(scored_candidates[:max_results], status="ok", source=source)

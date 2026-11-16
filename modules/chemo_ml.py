@@ -106,10 +106,20 @@ def classify_feature_blocks(columns: List[str]) -> Dict[str, str]:
     return {c: classify_feature_name(c) for c in columns}
 
 
-def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: str = "count") -> Dict[str, float]:
+def extract_fticr_descriptors(
+    assigned_df: pd.DataFrame,
+    sample_id: str,
+    basis: str = "both",
+    include_mass_bins: bool = False,
+    mass_bins_range: Tuple[int, int] = (200, 700),
+    mass_bins_weighted: bool = True,
+) -> Dict[str, float]:
     """
     Извлекает вектор дескрипторов FT-ICR MS из идентифицированных формул:
-    20 ячеек Ван-Кревелена Перминовой, Mn, Mw, средние индексы и распределение гетероатомов.
+    - 20 ячеек Ван-Кревелена Перминовой (VK_1..VK_20 по числу и/или VK_w_1..VK_w_20 по интенсивности);
+    - Метрики CRAM (доля CRAM по числу и весу по Hertkorn et al. 2006);
+    - Mn, Mw, средние индексы (H/C, O/C, DBE, AI, NOSC) и распределение гетероатомов;
+    - Опциональные дескрипторы номинальных масс 1 Да (~500 признаков для ML).
     """
     if assigned_df is None or assigned_df.empty or "C" not in assigned_df.columns:
         return {}
@@ -166,10 +176,57 @@ def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: 
     pct_count = (grid_count / total_count * 100.0) if total_count > 0 else grid_count
     pct_weight = (grid_weight / total_int * 100.0) if total_int > 0 else grid_weight
 
-    active_mat = pct_count if basis == "count" else pct_weight
+    basis_l = str(basis).lower().strip()
     for r in range(5):
         for c in range(4):
-            res[f"VK_{1 + r * 4 + c}"] = round(float(active_mat[r, c]), 3)
+            cell_idx = 1 + r * 4 + c
+            if basis_l == "count":
+                res[f"VK_{cell_idx}"] = round(float(pct_count[r, c]), 3)
+            elif basis_l == "weight":
+                res[f"VK_{cell_idx}"] = round(float(pct_weight[r, c]), 3)
+            else:  # both (default)
+                res[f"VK_{cell_idx}"] = round(float(pct_count[r, c]), 3)
+                res[f"VK_w_{cell_idx}"] = round(float(pct_weight[r, c]), 3)
+
+    # CRAM метрики по Hertkorn et al. (2006):
+    # DBE/C 0.30-0.68, DBE/H 0.20-0.95, DBE/O 0.77-1.75
+    c_arr = df["C"].astype(float).values
+    h_arr = df["H"].astype(float).values
+    o_arr = df["O"].astype(float).values
+    dbe_arr = df["DBE"].astype(float).values
+    ai_arr = df["AI"].astype(float).values
+
+    c_pos = c_arr > 0
+    h_pos = h_arr > 0
+    o_pos = o_arr > 0
+    valid_mask = c_pos & h_pos & o_pos
+
+    dbe_c = np.divide(dbe_arr, c_arr, out=np.zeros_like(dbe_arr), where=c_pos)
+    dbe_h = np.divide(dbe_arr, h_arr, out=np.zeros_like(dbe_arr), where=h_pos)
+    dbe_o = np.divide(dbe_arr, o_arr, out=np.zeros_like(dbe_arr), where=o_pos)
+    hc_arr = np.divide(h_arr, c_arr, out=np.zeros_like(h_arr), where=c_pos)
+    oc_arr = np.divide(o_arr, c_arr, out=np.zeros_like(o_arr), where=c_pos)
+
+    cram_mask = (
+        valid_mask &
+        (dbe_c >= 0.30) & (dbe_c <= 0.68) &
+        (dbe_h >= 0.20) & (dbe_h <= 0.95) &
+        (dbe_o >= 0.77) & (dbe_o <= 1.75) &
+        (hc_arr >= 0.70) & (hc_arr <= 1.60) &
+        (oc_arr >= 0.20) & (oc_arr <= 0.70) &
+        (ai_arr < 0.50)
+    )
+
+    n_tot = len(df)
+    n_cram = int(np.sum(cram_mask))
+    res["CRAM_pct"] = round(n_cram / n_tot * 100.0, 2) if n_tot > 0 else 0.0
+
+    if "intensity" in df.columns and df["intensity"].sum() > 0:
+        w_cram = float(np.sum(df["intensity"].values[cram_mask]))
+        w_tot = float(df["intensity"].sum())
+        res["CRAM_weight_pct"] = round(w_cram / w_tot * 100.0, 2)
+    else:
+        res["CRAM_weight_pct"] = res["CRAM_pct"]
 
     res["Mn"] = round(float(df["mass"].mean()), 2)
     if "intensity" in df.columns and df["intensity"].sum() > 0:
@@ -190,6 +247,18 @@ def extract_fticr_descriptors(assigned_df: pd.DataFrame, sample_id: str, basis: 
         res["CHON_pct"] = round(float(counts.get("CHON", 0.0)), 2)
         res["CHOS_pct"] = round(float(counts.get("CHOS", 0.0)), 2)
         res["CHONS_pct"] = round(float(counts.get("CHONS", 0.0)), 2)
+
+    # Опциональные дескрипторы номинальных масс 1 Да
+    if include_mass_bins and "mass" in df.columns:
+        masses = df["mass"].to_numpy(dtype=float)
+        intens = df["intensity"].to_numpy(dtype=float) if ("intensity" in df.columns and mass_bins_weighted) else np.ones_like(masses)
+        tot_val = float(np.sum(intens))
+        if tot_val > 0:
+            nom_m = np.floor(masses).astype(int)
+            for m in range(mass_bins_range[0], mass_bins_range[1] + 1):
+                m_sub = (nom_m == m)
+                v = float(np.sum(intens[m_sub])) / tot_val * 100.0
+                res[f"mass_bin_{m}"] = round(v, 4)
 
     return res
 
@@ -557,6 +626,30 @@ def compute_hotelling_ellipsoid_3d(
     return x_ell, y_ell, z_ell
 
 
+# Константы ограничений латентных компонент (LVs) и VIP-анализа
+MAX_PLS_COMPONENTS: int = 5
+MIN_PLS_COMPONENTS: int = 2
+
+
+def validate_n_components(
+    n_components: int,
+    n_samples: int,
+    n_features: int,
+    max_components: int = MAX_PLS_COMPONENTS,
+) -> int:
+    """
+    Валидация и ограничение числа латентных переменных (LVs / компонент PLS-DA)
+    снизу (минимум 2 для 2D/3D проекций, либо 1 в вырожденных стресс-тестах)
+    и сверху (не более max_components=5, n_samples - 1 и n_features).
+    """
+    if n_components is None or n_components < 1:
+        n_comp_req = MIN_PLS_COMPONENTS
+    else:
+        n_comp_req = int(n_components)
+    comp_upper_bound = max(1, min(max_components, n_samples - 1, n_features))
+    return max(1, min(n_comp_req, comp_upper_bound))
+
+
 def train_plsda_model(
     X_df: pd.DataFrame,
     y_labels: Union[np.ndarray, pd.Series, List],
@@ -564,6 +657,7 @@ def train_plsda_model(
     fusion_strategy: str = "low_level",
     block_scaling: bool = True,
     n_mid_components: int = 3,
+    max_components: int = MAX_PLS_COMPONENTS,
 ) -> Dict:
     """
     Обучение и валидация PLS-DA модели (бинарная и мультиклассовая классификация).
@@ -587,7 +681,7 @@ def train_plsda_model(
     n_samples, n_features = X_scaled.shape
     Y_mat, unique_classes, is_multiclass, y_eval_true = _encode_targets(y_arr)
 
-    max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    max_comp = validate_n_components(n_components, n_samples, n_features, max_components=max_components)
     pls = PLSRegression(n_components=max_comp, scale=False)
     pls.fit(X_scaled, Y_mat)
 
@@ -989,6 +1083,7 @@ def train_splsda_model(
     fusion_strategy: str = "low_level",
     block_scaling: bool = True,
     n_mid_components: int = 3,
+    max_components: int = MAX_PLS_COMPONENTS,
 ) -> Dict:
     """
     Разреженный дискриминантный анализ (Sparse PLS-DA / sPLS-DA).
@@ -1034,7 +1129,7 @@ def train_splsda_model(
     Y_enc, unique_classes, is_multiclass, y_eval_true = _encode_targets(y_arr)
     Y_mat = Y_enc if is_multiclass else Y_enc.reshape(-1, 1)
 
-    max_comp = max(1, min(n_components, n_samples - 1, n_features))
+    max_comp = validate_n_components(n_components, n_samples, n_features, max_components=max_components)
     k_features_to_keep = max(1, min(keep_x, n_features))
 
     Y_mean = np.mean(Y_mat, axis=0)
@@ -1170,6 +1265,7 @@ def run_permutation_test(
     block_scaling: bool = True,
     n_mid_components: int = 3,
     random_state: int = 42,
+    max_components: int = MAX_PLS_COMPONENTS,
 ) -> Dict:
     """
     Пермутационный тест PLS-DA модели для подтверждения статистической значимости Q2.

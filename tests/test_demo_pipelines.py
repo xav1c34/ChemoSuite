@@ -351,3 +351,81 @@ def test_demo_sec_pipeline_and_7modal_data_fusion():
     assert "sec_ml_descriptors" in loaded
     assert len(loaded["sec_ml_descriptors"]) == len(df_sec_aligned)
 
+
+def test_real_samples_and_reference_standards_verification():
+    """Тест верификации реальных экспериментальных образцов и эталонных стандартов IHSS.
+    
+    1. Экспериментальный спектр FT-ICR MS высокого разрешения (sample_A_full.csv, 5700+ пиков):
+       проверка парсинга, назначения брутто-формул и дескрипторов (H/C ~ 1.16, O/C ~ 0.42, AI ~ 0.22).
+    2. Общедоступные международные эталоны гуминовых веществ IHSS (CHNS-O):
+       проверка пересчета на сухое беззольное состояние, стехиометрических соотношений
+       и объемного индекса ароматичности (Leonardite AI около 0.456, Suwannee River O/C > 0.55).
+    3. Библиотека эталонных спектров 13C ЯМР IHSS:
+       проверка интегральных распределений стандартных образцов.
+    """
+    import elemental_core
+    import nmr_core
+
+    # 1. Верификация экспериментального масс-спектра FT-ICR MS (sample_A_full.csv)
+    sample_a_path = os.path.join(os.path.dirname(__file__), "..", "demo_data", "fticr_ms", "sample_A_full.csv")
+    assert os.path.exists(sample_a_path)
+    with open(sample_a_path, "rb") as f:
+        raw_bytes = f.read()
+    df_raw = fticr_core.parse_uploaded_file(raw_bytes)
+    assert len(df_raw) == 5700
+    assert df_raw["mass"].min() > 100.0 and df_raw["mass"].max() < 1200.0
+
+    top_peaks = df_raw.head(300)
+    assigned = fticr_core.fast_formula_assigner(top_peaks, ppm_tolerance=2.0)
+    assert len(assigned) >= 200
+    descs = fticr_core.calculate_descriptors(assigned, lang="ru")
+    mean_hc = descs["H/C"].mean()
+    mean_oc = descs["O/C"].mean()
+    mean_ai = descs["AI"].mean()
+    assert 1.05 <= mean_hc <= 1.25, f"Expected H/C in [1.05, 1.25], got {mean_hc:.3f}"
+    assert 0.38 <= mean_oc <= 0.48, f"Expected O/C in [0.38, 0.48], got {mean_oc:.3f}"
+    assert 0.18 <= mean_ai <= 0.28, f"Expected AI in [0.18, 0.28], got {mean_ai:.3f}"
+
+    km, kmd, nkm = fticr_core.compute_kmd(df_raw["mass"].values[:200], base_key="CH2")
+    assert len(kmd) == 200
+    assert np.all((kmd >= 0.0) & (kmd < 1.0))
+
+    # 2. Верификация элементного состава эталонов IHSS
+    elem_path = os.path.join(os.path.dirname(__file__), "..", "demo_data", "elemental", "elemental_benchmark_12samples.csv")
+    assert os.path.exists(elem_path)
+    with open(elem_path, "rb") as f:
+        elem_samples = elemental_core.parse_elemental_table(f.read())
+    ihss_samples = {s.sample_id: s for s in elem_samples if s.sample_type == "Humic_Standard"}
+    assert len(ihss_samples) == 4
+    assert set(ihss_samples.keys()) == {
+        "Suwannee_River_HA",
+        "Leonardite_HA",
+        "Pahokee_Peat_HA",
+        "Elliott_Soil_HA",
+    }
+
+    # Леонардит: высокоароматичный эталон с максимальным AI и минимальным H/C
+    leon = ihss_samples["Leonardite_HA"]
+    assert leon.aromaticity_index == pytest.approx(0.456, abs=0.001)
+    assert leon.h_c < 0.75
+
+    # Водная гуминовая кислота Суванни: высокое отношение O/C и умеренная ароматичность
+    srha = ihss_samples["Suwannee_River_HA"]
+    assert srha.o_c > 0.55
+    assert srha.aromaticity_index < 0.40
+
+    # Почвенные и торфяные эталоны: повышенное содержание азота
+    assert ihss_samples["Elliott_Soil_HA"].n_c > 0.05
+    assert ihss_samples["Pahokee_Peat_HA"].n_c > 0.05
+
+    # 3. Верификация библиотеки эталонов 13C ЯМР IHSS
+    nmr_lib = nmr_core.get_nmr_reference_library()
+    for std_id in ["IHSS_SRFA", "IHSS_SRNOM", "IHSS_ESHA", "IHSS_PPHA"]:
+        assert std_id in nmr_lib
+        std_data = nmr_lib[std_id]
+        assert "fa_expected" in std_data
+        assert "name_en" in std_data
+    # Почвенные гуминовые кислоты (Elliott Soil) обладают более высокой ароматичностью fa, чем водные (Suwannee River)
+    assert nmr_lib["IHSS_ESHA"]["fa_expected"] > nmr_lib["IHSS_SRFA"]["fa_expected"]
+
+

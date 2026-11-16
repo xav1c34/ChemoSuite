@@ -65,6 +65,8 @@ def test_mb_pls_da_training_and_contributions():
     # Predictions
     preds = model.predict(blocks)
     assert len(preds) == N
+    single = {name: values[:1] for name, values in blocks.items()}
+    np.testing.assert_allclose(model.predict_proba(single)[0], model.predict_proba(blocks)[0])
     acc = np.mean(preds == y)
     assert acc >= 0.9  # at least 90% accuracy on synthetic separated data
 
